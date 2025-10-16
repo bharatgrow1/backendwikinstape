@@ -139,8 +139,12 @@ EMAIL_PORT = 587
 EMAIL_HOST_USER = 'priteshbharatgrow@gmail.com'
 EMAIL_HOST_PASSWORD = 'hsweivbrdxycifbu'
 
+
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+    ],
 }
+

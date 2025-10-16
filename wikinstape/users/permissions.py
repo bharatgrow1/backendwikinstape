@@ -1,46 +1,103 @@
-from base.api.permissions import (PermissionComponent, ResourcePermission, IsAuthenticated, AllowAny)
+from rest_framework.permissions import BasePermission
+from django.apps import apps
 
-
-class IsTheSameUser(PermissionComponent):
+class IsSuperAdmin(BasePermission):
+    """Allows access only to superadmin users"""
     def has_permission(self, request, view):
-        return request.user.is_authenticated()
+        return bool(
+            request.user and 
+            request.user.is_authenticated and 
+            request.user.role == 'superadmin'
+        )
 
-    def has_object_permission(self, request, view, obj=None):
-        return request.user.is_authenticated() and request.user.pk == obj.pk
+class IsAdminUser(BasePermission):
+    """Allows access to admin, superadmin, master users"""
+    def has_permission(self, request, view):
+        return bool(
+            request.user and 
+            request.user.is_authenticated and 
+            request.user.role in ['admin', 'superadmin', 'master']
+        )
 
-class UserPermissions(ResourcePermission):
-    metadata_perms = IsAuthenticated()
-    enough_perms = IsAuthenticated()
-    global_perms = None
-    retrieve_perms = IsAuthenticated()
-    create_perms = IsAuthenticated()
-    update_perms = IsAuthenticated()
-    partial_update_perms = IsAuthenticated()
-    destroy_perms = IsAuthenticated()
-    list_perms = IsAuthenticated()
-    templatesUser_perms = IsAuthenticated()
-    tasktarget_perms = IsAuthenticated()
-    taskpoint_perms = IsAuthenticated()
-    start_task_perms = IsAuthenticated()
-    stop_task_perms = IsAuthenticated()
-    comment_perms = IsAuthenticated()
-    details_perms = IsAuthenticated()
-    assignee_perms = IsAuthenticated()
-    reporter_perms = IsAuthenticated()
-    complete_task_perms = IsAuthenticated()
-    complete_request_perms = IsAuthenticated()
-    templates_perms = IsAuthenticated()
-    deltemplates_perms = IsAuthenticated()
-    assign_template_perms = IsAuthenticated()
-    rating_perms = IsAuthenticated()
-    datewise_ratings_perms = IsAuthenticated()
-    day_summary_perms = IsAuthenticated()
-    rating_reports_perms = IsAuthenticated()
-    task_reports_perms = IsAuthenticated()
-    heads_perms = IsAuthenticated()
-    monthly_targets_perms = IsAuthenticated()
-    month_target_status_perms = IsAuthenticated()
-    user_target_status_perms = IsAuthenticated()
-    department_target_status_perms = IsAuthenticated()
-    user_targets_perms = IsAuthenticated()
-    statistics_perms = IsAuthenticated()
+class IsMasterUser(BasePermission):
+    """Allows access only to master users"""
+    def has_permission(self, request, view):
+        return bool(
+            request.user and 
+            request.user.is_authenticated and 
+            request.user.role == 'master'
+        )
+
+class IsRetailer(BasePermission):
+    """Allows access only to retailers"""
+    def has_permission(self, request, view):
+        return bool(
+            request.user and 
+            request.user.is_authenticated and 
+            request.user.role == 'retailer'
+        )
+
+class HasPermission(BasePermission):
+    """Dynamic permission check based on permission codename"""
+    def __init__(self, permission_codename):
+        self.permission_codename = permission_codename
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+            
+        # Super admin ko sab permissions
+        if request.user.role == 'superadmin':
+            return True
+            
+        return request.user.has_permission(self.permission_codename)
+
+class ModelViewPermission(BasePermission):
+    """
+    Dynamic permission for model CRUD operations
+    Maps view actions to Django permission system
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+            
+        # Super admin and master have all permissions
+        if request.user.role in ['superadmin', 'master']:
+            return True
+            
+        # Get the model from viewset
+        if not hasattr(view, 'queryset') or view.queryset is None:
+            return False
+            
+        model = view.queryset.model
+        
+        # Map view actions to permission types
+        action_map = {
+            'list': 'view',
+            'retrieve': 'view',
+            'create': 'add',
+            'update': 'change',
+            'partial_update': 'change',
+            'destroy': 'delete',
+        }
+        
+        action = action_map.get(view.action)
+        if not action:
+            return True  # Allow other custom actions by default
+            
+        return request.user.has_model_permission(model, action)
+
+class HasModelPermission(BasePermission):
+    """Check if user has specific model permission"""
+    def __init__(self, model, action):
+        self.model = model
+        self.action = action
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+            
+        if request.user.role in ['superadmin', 'master']:
+            return True
+            
+        return request.user.has_model_permission(self.model, self.action)
