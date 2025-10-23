@@ -20,7 +20,7 @@ class UploadImage(models.Model):
 class ServiceCategory(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
-    icon = models.CharField(max_length=50, null=True, blank=True)
+    icon = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
