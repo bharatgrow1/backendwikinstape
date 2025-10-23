@@ -40,6 +40,7 @@ class ServiceSubCategory(models.Model):
     category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, related_name='subcategories')
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
+    image = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

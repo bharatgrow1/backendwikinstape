@@ -22,7 +22,7 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ServiceSubCategory
-        fields = ['id', 'category', 'category_name', 'name', 'description', 'is_active', 'created_at']
+        fields = ['id', 'category', 'category_name', 'name', 'description', 'image', 'is_active', 'created_at']
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
     subcategories = ServiceSubCategorySerializer(many=True, read_only=True)
