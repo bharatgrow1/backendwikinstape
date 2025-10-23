@@ -1,6 +1,21 @@
 from rest_framework import serializers
 from .models import (ServiceCategory, ServiceSubCategory, ServiceForm, FormField, ServiceSubmission, 
-                     FormSubmissionFile )
+                     FormSubmissionFile, UploadImage )
+
+
+
+class UploadImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UploadImage
+        fields = ['id', 'image', 'image_url', 'created_at']
+        read_only_fields = ['id', 'image_url', 'created_at']
+    
+    def get_image_url(self, obj):
+        if obj.image:
+            return self.context['request'].build_absolute_uri(obj.image.url)
+        return None
 
 class ServiceSubCategorySerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
@@ -16,8 +31,6 @@ class ServiceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceCategory
         fields = ['id', 'name', 'description', 'icon', 'is_active', 'subcategories', 'created_by', 'created_by_username', 'created_at', 'updated_at']
-
-
 
 
 class FormFieldSerializer(serializers.ModelSerializer):

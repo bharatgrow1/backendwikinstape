@@ -3,8 +3,10 @@ from .views import (
     AuthViewSet, UserViewSet, WalletViewSet, TransactionViewSet, 
     BalanceRequestViewSet, PermissionViewSet
 )
+from services.views import ServiceImageViewSet
 
 router = DefaultRouter()
+router.register(r'images', ServiceImageViewSet)
 router.register(r'auth', AuthViewSet, basename='auth')
 router.register(r'users', UserViewSet, basename='users')
 router.register(r'wallets', WalletViewSet, basename='wallets')
