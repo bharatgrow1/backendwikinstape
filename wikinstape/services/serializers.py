@@ -1,8 +1,6 @@
 from rest_framework import serializers
 from .models import (ServiceCategory, ServiceSubCategory, ServiceForm, FormField, ServiceSubmission, 
-                     FormSubmissionFile, UploadImage )
-
-
+                     FormSubmissionFile, UploadImage)
 
 class UploadImageSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
@@ -19,10 +17,29 @@ class UploadImageSerializer(serializers.ModelSerializer):
 
 class ServiceSubCategorySerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
+    required_fields = serializers.SerializerMethodField()
     
     class Meta:
         model = ServiceSubCategory
-        fields = ['id', 'category', 'category_name', 'name', 'description', 'image', 'is_active', 'created_at']
+        fields = [
+            'id', 'category', 'category_name', 'name', 'description', 'image', 'is_active', 
+            'required_fields', 'created_at',
+            # Boolean fields
+            'require_customer_name', 'require_customer_email', 'require_customer_phone', 'require_customer_address',
+            'require_mobile_number', 'require_consumer_number', 'require_account_number', 'require_bill_number',
+            'require_transaction_id', 'require_reference_number', 'require_state', 'require_city', 'require_pincode',
+            'require_amount', 'require_tax_amount', 'require_total_amount', 'require_service_provider',
+            'require_operator', 'require_biller', 'require_bank_name', 'require_vehicle_number', 'require_vehicle_type',
+            'require_rc_number', 'require_student_name', 'require_student_id', 'require_institute_name',
+            'require_course_name', 'require_loan_type', 'require_loan_account_number', 'require_emi_amount',
+            'require_ott_platform', 'require_subscription_plan', 'require_validity', 'require_meter_number',
+            'require_connection_type', 'require_usage_amount', 'require_payment_method', 'require_card_number',
+            'require_card_holder_name', 'require_expiry_date', 'require_cvv', 'require_due_date',
+            'require_billing_period', 'require_remarks', 'require_documents'
+        ]
+    
+    def get_required_fields(self, obj):
+        return obj.get_required_fields()
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
     subcategories = ServiceSubCategorySerializer(many=True, read_only=True)
@@ -31,7 +48,6 @@ class ServiceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceCategory
         fields = ['id', 'name', 'description', 'icon', 'is_active', 'subcategories', 'created_by', 'created_by_username', 'created_at', 'updated_at']
-
 
 class FormFieldSerializer(serializers.ModelSerializer):
     class Meta:

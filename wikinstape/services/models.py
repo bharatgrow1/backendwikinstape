@@ -1,8 +1,8 @@
 from django.db import models
 from django.conf import settings
 import uuid
-from datetime import timezone
-
+#from datetime import timezone
+from django.utils import timezone
 
 
 class UploadImage(models.Model):
@@ -15,7 +15,6 @@ class UploadImage(models.Model):
 
     def __str__(self):
         return f"Image {self.id}"
-
 
 class ServiceCategory(models.Model):
     name = models.CharField(max_length=100)
@@ -31,7 +30,7 @@ class ServiceCategory(models.Model):
 
     class Meta:
         verbose_name_plural = "Service Categories"
-        ordering = ['name']
+        ordering = ['created_at']
 
     def __str__(self):
         return self.name
@@ -42,6 +41,77 @@ class ServiceSubCategory(models.Model):
     description = models.TextField(blank=True, null=True)
     image = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    
+    # Boolean fields for each possible form field
+    # Personal Information
+    require_customer_name = models.BooleanField(default=False)
+    require_customer_email = models.BooleanField(default=False)
+    require_customer_phone = models.BooleanField(default=False)
+    require_customer_address = models.BooleanField(default=False)
+    
+    # Service Specific Fields
+    require_mobile_number = models.BooleanField(default=False)
+    require_consumer_number = models.BooleanField(default=False)
+    require_account_number = models.BooleanField(default=False)
+    require_bill_number = models.BooleanField(default=False)
+    require_transaction_id = models.BooleanField(default=False)
+    require_reference_number = models.BooleanField(default=False)
+    
+    # Location Fields
+    require_state = models.BooleanField(default=False)
+    require_city = models.BooleanField(default=False)
+    require_pincode = models.BooleanField(default=False)
+    
+    # Amount Fields
+    require_amount = models.BooleanField(default=False)
+    require_tax_amount = models.BooleanField(default=False)
+    require_total_amount = models.BooleanField(default=False)
+    
+    # Service Provider Fields
+    require_service_provider = models.BooleanField(default=False)
+    require_operator = models.BooleanField(default=False)
+    require_biller = models.BooleanField(default=False)
+    require_bank_name = models.BooleanField(default=False)
+    
+    # Vehicle Fields (for Fastag, Traffic Challan)
+    require_vehicle_number = models.BooleanField(default=False)
+    require_vehicle_type = models.BooleanField(default=False)
+    require_rc_number = models.BooleanField(default=False)
+    
+    # Education Fields
+    require_student_name = models.BooleanField(default=False)
+    require_student_id = models.BooleanField(default=False)
+    require_institute_name = models.BooleanField(default=False)
+    require_course_name = models.BooleanField(default=False)
+    
+    # Loan Fields
+    require_loan_type = models.BooleanField(default=False)
+    require_loan_account_number = models.BooleanField(default=False)
+    require_emi_amount = models.BooleanField(default=False)
+    
+    # OTT/Subscription Fields
+    require_ott_platform = models.BooleanField(default=False)
+    require_subscription_plan = models.BooleanField(default=False)
+    require_validity = models.BooleanField(default=False)
+    
+    # Utility Fields
+    require_meter_number = models.BooleanField(default=False)
+    require_connection_type = models.BooleanField(default=False)
+    require_usage_amount = models.BooleanField(default=False)
+    
+    # Payment Fields
+    require_payment_method = models.BooleanField(default=False)
+    require_card_number = models.BooleanField(default=False)
+    require_card_holder_name = models.BooleanField(default=False)
+    require_expiry_date = models.BooleanField(default=False)
+    require_cvv = models.BooleanField(default=False)
+    
+    # Additional Fields
+    require_due_date = models.BooleanField(default=False)
+    require_billing_period = models.BooleanField(default=False)
+    require_remarks = models.BooleanField(default=False)
+    require_documents = models.BooleanField(default=False)
+    
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE
@@ -51,14 +121,95 @@ class ServiceSubCategory(models.Model):
 
     class Meta:
         verbose_name_plural = "Service Sub Categories"
-        ordering = ['name']
+        ordering = ['created_at']
 
     def __str__(self):
         return f"{self.category.name} - {self.name}"
     
-
-
-
+    def get_required_fields(self):
+        """Get all required fields for this service"""
+        fields = []
+        boolean_fields = [
+            # Personal Information
+            ('require_customer_name', 'customer_name', 'text', 'Customer Name'),
+            ('require_customer_email', 'customer_email', 'email', 'Customer Email'),
+            ('require_customer_phone', 'customer_phone', 'phone', 'Customer Phone'),
+            ('require_customer_address', 'customer_address', 'textarea', 'Customer Address'),
+            
+            # Service Specific
+            ('require_mobile_number', 'mobile_number', 'phone', 'Mobile Number'),
+            ('require_consumer_number', 'consumer_number', 'text', 'Consumer Number'),
+            ('require_account_number', 'account_number', 'text', 'Account Number'),
+            ('require_bill_number', 'bill_number', 'text', 'Bill Number'),
+            ('require_transaction_id', 'transaction_id', 'text', 'Transaction ID'),
+            ('require_reference_number', 'reference_number', 'text', 'Reference Number'),
+            
+            # Location
+            ('require_state', 'state', 'select', 'State'),
+            ('require_city', 'city', 'select', 'City'),
+            ('require_pincode', 'pincode', 'text', 'Pincode'),
+            
+            # Amount
+            ('require_amount', 'amount', 'amount', 'Amount'),
+            ('require_tax_amount', 'tax_amount', 'amount', 'Tax Amount'),
+            ('require_total_amount', 'total_amount', 'amount', 'Total Amount'),
+            
+            # Service Provider
+            ('require_service_provider', 'service_provider', 'select', 'Service Provider'),
+            ('require_operator', 'operator', 'select', 'Operator'),
+            ('require_biller', 'biller', 'select', 'Biller'),
+            ('require_bank_name', 'bank_name', 'select', 'Bank Name'),
+            
+            # Vehicle
+            ('require_vehicle_number', 'vehicle_number', 'text', 'Vehicle Number'),
+            ('require_vehicle_type', 'vehicle_type', 'select', 'Vehicle Type'),
+            ('require_rc_number', 'rc_number', 'text', 'RC Number'),
+            
+            # Education
+            ('require_student_name', 'student_name', 'text', 'Student Name'),
+            ('require_student_id', 'student_id', 'text', 'Student ID'),
+            ('require_institute_name', 'institute_name', 'select', 'Institute Name'),
+            ('require_course_name', 'course_name', 'text', 'Course Name'),
+            
+            # Loan
+            ('require_loan_type', 'loan_type', 'select', 'Loan Type'),
+            ('require_loan_account_number', 'loan_account_number', 'text', 'Loan Account Number'),
+            ('require_emi_amount', 'emi_amount', 'amount', 'EMI Amount'),
+            
+            # OTT
+            ('require_ott_platform', 'ott_platform', 'select', 'OTT Platform'),
+            ('require_subscription_plan', 'subscription_plan', 'select', 'Subscription Plan'),
+            ('require_validity', 'validity', 'select', 'Validity'),
+            
+            # Utility
+            ('require_meter_number', 'meter_number', 'text', 'Meter Number'),
+            ('require_connection_type', 'connection_type', 'select', 'Connection Type'),
+            ('require_usage_amount', 'usage_amount', 'amount', 'Usage Amount'),
+            
+            # Payment
+            ('require_payment_method', 'payment_method', 'select', 'Payment Method'),
+            ('require_card_number', 'card_number', 'text', 'Card Number'),
+            ('require_card_holder_name', 'card_holder_name', 'text', 'Card Holder Name'),
+            ('require_expiry_date', 'expiry_date', 'date', 'Expiry Date'),
+            ('require_cvv', 'cvv', 'text', 'CVV'),
+            
+            # Additional
+            ('require_due_date', 'due_date', 'date', 'Due Date'),
+            ('require_billing_period', 'billing_period', 'text', 'Billing Period'),
+            ('require_remarks', 'remarks', 'textarea', 'Remarks'),
+            ('require_documents', 'documents', 'file', 'Documents'),
+        ]
+        
+        for bool_field, field_name, field_type, field_label in boolean_fields:
+            if getattr(self, bool_field):
+                fields.append({
+                    'field_name': field_name,
+                    'field_label': field_label,
+                    'field_type': field_type,
+                    'required': True
+                })
+        
+        return fields
 
 class ServiceForm(models.Model):
     FIELD_TYPES = [
@@ -80,7 +231,6 @@ class ServiceForm(models.Model):
         ('recharge_type', 'Recharge Type'),
     ]
 
-
     SERVICE_TYPES = [
         ('mobile_recharge', 'Mobile Recharge'),
         ('dtm', 'DTM Service'),
@@ -92,7 +242,6 @@ class ServiceForm(models.Model):
         ('booking', 'Booking Service'),
         ('other', 'Other Service'),
     ]
-
 
     service_type = models.CharField(max_length=50, choices=SERVICE_TYPES)
     service_subcategory = models.ForeignKey(
@@ -120,8 +269,6 @@ class ServiceForm(models.Model):
 
     def __str__(self):
         return f"{self.get_service_type_display()} - {self.name}"
-
-
 
 class FormField(models.Model):
     SERVICE_SPECIFIC_OPTIONS = {
@@ -237,7 +384,7 @@ class ServiceSubmission(models.Model):
     service_subcategory = models.ForeignKey('ServiceSubCategory', on_delete=models.CASCADE)
     
     # User Information
-    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     customer_name = models.CharField(max_length=200, blank=True, null=True)
     customer_email = models.EmailField(blank=True, null=True)
     customer_phone = models.CharField(max_length=15, blank=True, null=True)
@@ -300,7 +447,3 @@ class FormSubmissionFile(models.Model):
 
     def __str__(self):
         return f"{self.submission.submission_id} - {self.field_name}"
-    
-
-
-

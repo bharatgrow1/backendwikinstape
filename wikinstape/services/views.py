@@ -5,6 +5,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes, parser_classes
 
 from .models import (
     ServiceCategory, ServiceSubCategory, ServiceForm, ServiceSubmission, FormSubmissionFile, UploadImage
@@ -14,21 +15,19 @@ from .serializers import (
     ServiceSubmissionSerializer, DynamicFormSubmissionSerializer, ServiceFormWithFieldsSerializer, UploadImageSerializer
 )
 
-
 # -------------------------------
 # Service Category ViewSet
 # -------------------------------
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
-    permission_classes = [AllowAny]  # Fully public
+    permission_classes = [AllowAny]
     queryset = ServiceCategory.objects.all()
     serializer_class = ServiceCategorySerializer
 
     def get_queryset(self):
-        return ServiceCategory.objects.all()
+        return ServiceCategory.objects.all().order_by('created_at')
 
     def perform_create(self, serializer):
-        serializer.save()
-
+        serializer.save(created_by=self.request.user)
 
 # -------------------------------
 # Service SubCategory ViewSet
@@ -39,14 +38,14 @@ class ServiceSubCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceSubCategorySerializer
 
     def get_queryset(self):
-        queryset = ServiceSubCategory.objects.all()
+        queryset = ServiceSubCategory.objects.all().order_by('created_at')
         category_id = self.request.query_params.get('category_id')
         if category_id:
             queryset = queryset.filter(category_id=category_id)
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save()
+        serializer.save(created_by=self.request.user)
 
     @action(detail=False, methods=['get'])
     def by_category(self, request):
@@ -56,7 +55,6 @@ class ServiceSubCategoryViewSet(viewsets.ModelViewSet):
         subcategories = ServiceSubCategory.objects.filter(category_id=category_id)
         serializer = self.get_serializer(subcategories, many=True)
         return Response(serializer.data)
-
 
 # -------------------------------
 # Service Form ViewSet
@@ -77,7 +75,7 @@ class ServiceFormViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save()
+        serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['get'])
     def form_config(self, request, pk=None):
@@ -93,7 +91,6 @@ class ServiceFormViewSet(viewsets.ModelViewSet):
         forms = self.get_queryset().filter(service_type=service_type)
         serializer = self.get_serializer(forms, many=True)
         return Response(serializer.data)
-
 
 # -------------------------------
 # Service Submission ViewSet
@@ -174,8 +171,6 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
         submission.save()
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
-    
-
 
 class ServiceImageViewSet(viewsets.ModelViewSet):
     queryset = UploadImage.objects.all()
@@ -188,3 +183,122 @@ class ServiceImageViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
+# New API Views for Boolean Fields System
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_subcategory_form_config(request, subcategory_id):
+    """Get form configuration based on boolean fields"""
+    try:
+        subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
+        
+        config = {
+            'name': subcategory.name,
+            'description': subcategory.description,
+            'fields': subcategory.get_required_fields()
+        }
+        
+        return Response(config)
+        
+    except ServiceSubCategory.DoesNotExist:
+        return Response({'error': 'Subcategory not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_form_from_boolean_fields(request):
+    """Create form based on boolean field configuration"""
+    subcategory_id = request.data.get('subcategory_id')
+    
+    if not subcategory_id:
+        return Response({'error': 'subcategory_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
+        
+        # Create service form
+        service_form = ServiceForm.objects.create(
+            service_type='custom',
+            service_subcategory=subcategory,
+            name=subcategory.name,
+            description=subcategory.description or f"Form for {subcategory.name}",
+            created_by=request.user
+        )
+        
+        # Create form fields based on boolean flags
+        required_fields = subcategory.get_required_fields()
+        for field_config in required_fields:
+            FormField.objects.create(
+                form=service_form,
+                field_id=f"{subcategory.id}_{field_config['field_name']}",
+                field_name=field_config['field_name'],
+                field_label=field_config['field_label'],
+                field_type=field_config['field_type'],
+                required=field_config.get('required', True),
+                order=len(required_fields) - required_fields.index(field_config),
+                is_active=True
+            )
+        
+        serializer = ServiceFormWithFieldsSerializer(service_form)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    except ServiceSubCategory.DoesNotExist:
+        return Response({'error': 'Subcategory not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@parser_classes([MultiPartParser, FormParser])
+def create_service_submission_direct(request):
+    """Create service submission directly without needing ServiceForm"""
+    try:
+        subcategory_id = request.data.get('service_subcategory')
+        
+        if not subcategory_id:
+            return Response({'error': 'service_subcategory is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
+        
+        # Collect form data
+        form_data = {}
+        for key, value in request.data.items():
+            if key not in ['service_subcategory', 'customer_name', 'customer_email', 
+                          'customer_phone', 'amount', 'notes', 'status']:
+                form_data[key] = value
+        
+        # Create a minimal service form for this submission
+        service_form = ServiceForm.objects.create(
+            service_type='direct_submission',
+            service_subcategory=subcategory,
+            name=f"Direct Form - {subcategory.name}",
+            description=f"Auto-generated form for {subcategory.name}",
+            created_by=request.user if request.user.is_authenticated else None
+        )
+        
+        # Create submission - DON'T include submitted_by in the data
+        submission_data = {
+            'service_form': service_form.id,
+            'service_subcategory': subcategory.id,
+            'form_data': form_data,
+            'status': 'submitted',
+            'amount': request.data.get('amount', 0),
+            'customer_name': request.data.get('customer_name', ''),
+            'customer_email': request.data.get('customer_email', ''),
+            'customer_phone': request.data.get('customer_phone', ''),
+            'notes': request.data.get('notes', ''),
+            # Remove submitted_by completely from here
+        }
+        
+        serializer = ServiceSubmissionSerializer(data=submission_data)
+        if serializer.is_valid():
+            # Pass submitted_by separately during save
+            submission = serializer.save(submitted_by=request.user if request.user.is_authenticated else None)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        else:
+            service_form.delete()
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+    except ServiceSubCategory.DoesNotExist:
+        return Response({'error': 'Subcategory not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

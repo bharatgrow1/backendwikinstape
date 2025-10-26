@@ -55,20 +55,19 @@ class BalanceRequestUpdateSerializer(serializers.ModelSerializer):
         read_only_fields = ['retailer', 'amount', 'description', 'created_at', 'updated_at']
 
 class UserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True)
+    password = serializers.CharField(write_only=True, required=False)
     wallet = WalletSerializer(read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'role', 'wallet']
+        fields = ['id', 'username', 'email', 'password', 'role', 'wallet', 'created_by', 'created_by_username', 'date_joined']
+        read_only_fields = ['created_by', 'date_joined']
 
     def create(self, validated_data):
-        user = User(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            role=validated_data.get('role', 'retailer')
-        )
-        user.set_password(validated_data['password'])
+        password = validated_data.pop('password')
+        user = User(**validated_data)
+        user.set_password(password)
         user.save()
         Wallet.objects.create(user=user)
         return user
@@ -134,3 +133,71 @@ class RolePermissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = RolePermission
         fields = ['id', 'role', 'permission', 'permission_details', 'granted_by', 'granted_by_username', 'created_at']
+
+
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    username = serializers.CharField()
+
+class VerifyForgotPasswordOTPSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    otp = serializers.CharField(max_length=6)
+
+class ResetPasswordSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    otp = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match")
+        return data
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True)
+    created_by_role = serializers.CharField(source='created_by.role', read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'password', 'role', 'created_by', 'created_by_role']
+        read_only_fields = ['created_by']
+
+    def validate_role(self, value):
+        request = self.context.get('request')
+        if not request:
+            raise serializers.ValidationError("Request context is required")
+        
+        current_user = request.user
+        target_role = value
+        
+        role_hierarchy = {
+            'superadmin': ['superadmin', 'admin', 'master', 'dealer', 'retailer'],
+            'admin': ['admin', 'master', 'dealer', 'retailer'],
+            'master': ['master', 'dealer', 'retailer'],
+            'dealer': ['retailer'],
+            'retailer': []
+        }
+        
+        if current_user.role not in role_hierarchy:
+            raise serializers.ValidationError("Invalid current user role")
+        
+        if target_role not in role_hierarchy[current_user.role]:
+            raise serializers.ValidationError(f"You cannot create users with {target_role} role")
+        
+        return value
+
+    def create(self, validated_data):
+        user = User(
+            username=validated_data['username'],
+            email=validated_data.get('email', ''),
+            role=validated_data['role'],
+            created_by=self.context['request'].user
+        )
+        user.set_password(validated_data['password'])
+        user.save()
+        
+        Wallet.objects.create(user=user)
+        
+        return user

@@ -10,14 +10,14 @@ from django.shortcuts import get_object_or_404
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 
-from .models import User, EmailOTP, Wallet, Transaction, BalanceRequest, RolePermission
+from .models import User, EmailOTP, Wallet, Transaction, BalanceRequest, RolePermission, ForgotPasswordOTP
 from .permissions import IsSuperAdmin, IsAdminUser, IsMasterUser, HasPermission, ModelViewPermission
 from .serializers import (
     LoginSerializer, OTPVerifySerializer, UserSerializer, WalletSerializer, 
     TransactionSerializer, BalanceRequestCreateSerializer, BalanceRequestUpdateSerializer,
     PermissionSerializer, UserPermissionSerializer, UserPermissionsSerializer,
-    ContentTypeSerializer, GrantRolePermissionSerializer, ModelPermissionSerializer,
-    RolePermissionSerializer
+    ForgotPasswordSerializer, GrantRolePermissionSerializer, VerifyForgotPasswordOTPSerializer, 
+    ResetPasswordSerializer, RolePermissionSerializer, UserCreateSerializer
 )
 from .utils import send_otp_email
 
@@ -211,7 +211,7 @@ class AuthViewSet(viewsets.ViewSet):
 
         otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
         otp = otp_obj.generate_otp()
-        send_otp_email(user.email, otp)
+        send_otp_email(user.email, otp, is_password_reset=False)
 
         return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
 
@@ -244,6 +244,98 @@ class AuthViewSet(viewsets.ViewSet):
             'username': user.username,
             'permissions': list(user.get_all_permissions())
         }, status=status.HTTP_200_OK)
+    
+
+
+    @action(detail=False, methods=['post'])
+    def forgot_password(self, request):
+        """Step 1: Request OTP for password reset"""
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        username = serializer.validated_data['username']
+
+        try:
+            user = User.objects.get(username=username)
+            otp_obj, _ = ForgotPasswordOTP.objects.get_or_create(user=user)
+            otp = otp_obj.generate_otp()
+            
+            # Send OTP via email
+            send_otp_email(user.email, otp, is_password_reset=True)
+
+            return Response({
+                'message': 'OTP sent to your email for password reset',
+                'username': username
+            }, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['post'])
+    def verify_forgot_password_otp(self, request):
+        """Step 2: Verify OTP for password reset"""
+        serializer = VerifyForgotPasswordOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        username = serializer.validated_data['username']
+        otp = serializer.validated_data['otp']
+
+        try:
+            user = User.objects.get(username=username)
+            otp_obj = ForgotPasswordOTP.objects.get(user=user, otp=otp, is_used=False)
+        except (User.DoesNotExist, ForgotPasswordOTP.DoesNotExist):
+            return Response(
+                {'error': 'Invalid OTP or username'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if otp_obj.is_expired():
+            return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'message': 'OTP verified successfully',
+            'username': username,
+            'otp': otp
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def reset_password(self, request):
+        """Step 3: Reset password with verified OTP"""
+        serializer = ResetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        username = serializer.validated_data['username']
+        otp = serializer.validated_data['otp']
+        new_password = serializer.validated_data['new_password']
+
+        try:
+            user = User.objects.get(username=username)
+            otp_obj = ForgotPasswordOTP.objects.get(user=user, otp=otp, is_used=False)
+        except (User.DoesNotExist, ForgotPasswordOTP.DoesNotExist):
+            return Response(
+                {'error': 'Invalid OTP or username'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if otp_obj.is_expired():
+            return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Reset password
+        user.set_password(new_password)
+        user.save()
+
+        # Mark OTP as used
+        otp_obj.mark_used()
+
+        # Delete all OTPs for this user
+        ForgotPasswordOTP.objects.filter(user=user).delete()
+
+        return Response({
+            'message': 'Password reset successfully'
+        }, status=status.HTTP_200_OK)
 
 # Generic Model ViewSet with Dynamic Permissions
 class DynamicModelViewSet(viewsets.ModelViewSet):
@@ -269,22 +361,116 @@ class UserViewSet(DynamicModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return UserCreateSerializer
+        return UserSerializer
+
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAdminUser()]
+            return [IsAuthenticated(), HasPermission('add_user')]
         return [IsAuthenticated()]
+    
+
+    def create(self, request, *args, **kwargs):
+        """Create user with role-based permissions"""
+        serializer = UserCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        # Add created_by field
+        serializer.validated_data['created_by'] = request.user
+        
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        
+        return Response(
+            serializer.data, 
+            status=status.HTTP_201_CREATED, 
+            headers=headers
+        )
+    
+
+    def get_queryset(self):
+        user = self.request.user
+        
+        if user.role == 'superadmin':
+            return User.objects.all()
+        elif user.role == 'admin':
+            return User.objects.exclude(role='superadmin')
+        elif user.role == 'master':
+            return User.objects.filter(role__in=['master', 'dealer', 'retailer'])
+        elif user.role == 'dealer':
+            # Dealers can only see retailers they created
+            return User.objects.filter(role='retailer', created_by=user)
+        else:
+            # Retailers can only see themselves
+            return User.objects.filter(id=user.id)
+    
 
     def destroy(self, request, *args, **kwargs):
         user_to_delete = self.get_object()
         current_user = request.user
         
-        if user_to_delete.role in ['master', 'superadmin'] and current_user.role != 'master':
+        # Prevent users from deleting themselves
+        if user_to_delete == current_user:
             return Response(
-                {'error': 'Only Master users can delete Master or Super Admin users'},
+                {'error': 'You cannot delete your own account'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Role-based deletion permissions
+        if user_to_delete.role == 'superadmin' and current_user.role != 'superadmin':
+            return Response(
+                {'error': 'Only Super Admin can delete Super Admin users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if user_to_delete.role == 'admin' and current_user.role not in ['superadmin', 'admin']:
+            return Response(
+                {'error': 'Only Admin and Super Admin can delete Admin users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if user_to_delete.role == 'master' and current_user.role not in ['superadmin', 'admin']:
+            return Response(
+                {'error': 'Only Admin and Super Admin can delete Master users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Dealers can only delete retailers they created
+        if user_to_delete.role == 'retailer' and current_user.role == 'dealer':
+            if user_to_delete.created_by != current_user:
+                return Response(
+                    {'error': 'You can only delete retailers created by you'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def my_profile(self, request):
+        """Get current user's profile"""
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def change_password(self, request):
+        """Change current user's password"""
+        user = request.user
+        current_password = request.data.get('current_password')
+        new_password = request.data.get('new_password')
+        
+        if not user.check_password(current_password):
+            return Response(
+                {'error': 'Current password is incorrect'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user.set_password(new_password)
+        user.save()
+        
+        return Response({'message': 'Password changed successfully'})
 
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
     def all_users(self, request):
