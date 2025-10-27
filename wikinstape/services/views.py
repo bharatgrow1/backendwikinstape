@@ -3,16 +3,18 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import transaction
+import uuid
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 
 from .models import (
-    ServiceCategory, ServiceSubCategory, ServiceForm, ServiceSubmission, FormSubmissionFile, UploadImage
+    ServiceCategory, ServiceSubCategory, ServiceForm, FormField, ServiceSubmission, FormSubmissionFile, UploadImage
 )
 from .serializers import (
     ServiceCategorySerializer, ServiceSubCategorySerializer, ServiceFormSerializer,
-    ServiceSubmissionSerializer, DynamicFormSubmissionSerializer, ServiceFormWithFieldsSerializer, UploadImageSerializer
+    ServiceSubmissionSerializer, DynamicFormSubmissionSerializer, ServiceFormWithFieldsSerializer, 
+    UploadImageSerializer, DirectServiceFormSerializer, ServiceCategoryWithFormsSerializer
 )
 
 # -------------------------------
@@ -28,6 +30,121 @@ class ServiceCategoryViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+# -------------------------------
+# Direct Service Form ViewSet  
+# -------------------------------
+class DirectServiceFormViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = ServiceForm.objects.filter(service_subcategory__isnull=True)
+    serializer_class = DirectServiceFormSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_category_form_config(request, category_id):
+    """Get form configuration based on category boolean fields"""
+    try:
+        category = ServiceCategory.objects.get(id=category_id)
+        
+        config = {
+            'name': category.name,
+            'description': category.description,
+            'allow_direct_service': category.allow_direct_service,
+            'fields': category.get_required_fields()
+        }
+        
+        return Response(config)
+        
+    except ServiceCategory.DoesNotExist:
+        return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def copy_category_fields_to_subcategory(request):
+    """Copy all boolean fields from category to subcategory"""
+    category_id = request.data.get('category_id')
+    subcategory_id = request.data.get('subcategory_id')
+    
+    if not category_id or not subcategory_id:
+        return Response({'error': 'category_id and subcategory_id are required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        category = ServiceCategory.objects.get(id=category_id)
+        subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
+        
+        # Copy boolean fields
+        category.copy_boolean_fields_to_subcategory(subcategory)
+        
+        serializer = ServiceSubCategorySerializer(subcategory)
+        return Response({
+            'message': 'Boolean fields copied successfully',
+            'subcategory': serializer.data
+        })
+        
+    except ServiceCategory.DoesNotExist:
+        return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
+    except ServiceSubCategory.DoesNotExist:
+        return Response({'error': 'Subcategory not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_direct_category_form(request):
+    """Create form directly for service category using its boolean fields"""
+    category_id = request.data.get('category_id')
+    form_name = request.data.get('name')
+    form_description = request.data.get('description', '')
+    
+    if not category_id or not form_name:
+        return Response({'error': 'category_id and name are required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        category = ServiceCategory.objects.get(id=category_id)
+        
+        if not category.allow_direct_service:
+            return Response({'error': 'This category does not allow direct services'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create service form directly for category
+        service_form = ServiceForm.objects.create(
+            service_type='direct_category',
+            service_category=category,
+            service_subcategory=None,  # Direct form, no subcategory
+            name=form_name,
+            description=form_description,
+            created_by=request.user
+        )
+        
+        # Create form fields based on category's boolean flags
+        required_fields = category.get_required_fields()
+        for index, field_config in enumerate(required_fields):
+            FormField.objects.create(
+                form=service_form,
+                field_id=f"category_{category.id}_{field_config['field_name']}_{uuid.uuid4().hex[:8]}",
+                field_name=field_config['field_name'],
+                field_label=field_config['field_label'],
+                field_type=field_config['field_type'],
+                required=field_config.get('required', True),
+                order=index,
+                is_active=True
+            )
+        
+        serializer = ServiceFormWithFieldsSerializer(service_form)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    except ServiceCategory.DoesNotExist:
+        return Response({'error': 'Category not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_categories_with_direct_services(request):
+    """Get all categories that allow direct services"""
+    categories = ServiceCategory.objects.filter(allow_direct_service=True, is_active=True)
+    serializer = ServiceCategoryWithFormsSerializer(categories, many=True)
+    return Response(serializer.data)
+
 
 # -------------------------------
 # Service SubCategory ViewSet

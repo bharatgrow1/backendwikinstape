@@ -35,7 +35,39 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
             'require_ott_platform', 'require_subscription_plan', 'require_validity', 'require_meter_number',
             'require_connection_type', 'require_usage_amount', 'require_payment_method', 'require_card_number',
             'require_card_holder_name', 'require_expiry_date', 'require_cvv', 'require_due_date',
-            'require_billing_period', 'require_remarks', 'require_documents'
+            'require_billing_period', 'require_remarks', 'require_documents',
+             # New DTH/Cable TV fields
+            'require_dth_operator', 'require_dth_plan_amount', 'require_cable_operator',
+            'require_cable_plan_amount', 'require_subscriber_number', 'require_consumer_id',
+            
+            # New Mobile Recharge fields
+            'require_recharge_type', 'require_plan_browsing',
+            
+            # New Education fields
+            'require_student_unique_id', 'require_student_relation', 'require_institution_name',
+            
+            # New OTT fields
+            'require_ott_plan_selection', 'require_rent_to_mobile', 'require_pan_number',
+            
+            # New Credit Card fields
+            'require_card_number', 'require_card_holder_name', 'require_payment_option',
+            'require_full_amount', 'require_minimum_amount', 'require_other_amount',
+            
+            # New Society Maintenance fields
+            'require_apartment_number', 'require_building_number',
+            
+            # New Traffic Challan fields
+            'require_traffic_authority', 'require_challan_number',
+            
+            # New Municipal Tax fields
+            'require_corporation', 'require_taxpayer_relation', 'require_upic_number',
+            
+            # New Financial fields
+            'require_financial_year', 'require_assessment_year',
+            
+            # New Additional fields
+            'require_bill_due_date', 'require_late_fee', 'require_discount_amount',
+            'require_payment_date', 'require_service_charge'
         ]
     
     def get_required_fields(self, obj):
@@ -44,10 +76,84 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
 class ServiceCategorySerializer(serializers.ModelSerializer):
     subcategories = ServiceSubCategorySerializer(many=True, read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    required_fields = serializers.SerializerMethodField()
     
     class Meta:
         model = ServiceCategory
-        fields = ['id', 'name', 'description', 'icon', 'is_active', 'subcategories', 'created_by', 'created_by_username', 'created_at', 'updated_at']
+        fields = [
+            'id', 'name', 'description', 'icon', 'is_active', 'allow_direct_service',
+            'subcategories', 'created_by', 'created_by_username', 'required_fields',
+            'created_at', 'updated_at',
+            
+            # सभी boolean fields include करें
+            # Personal Information
+            'require_customer_name', 'require_customer_email', 'require_customer_phone', 'require_customer_address',
+            # Service Specific
+            'require_mobile_number', 'require_consumer_number', 'require_account_number', 'require_bill_number',
+            'require_transaction_id', 'require_reference_number',
+            # Location
+            'require_state', 'require_city', 'require_pincode',
+            # Amount
+            'require_amount', 'require_tax_amount', 'require_total_amount',
+            # Service Provider
+            'require_service_provider', 'require_operator', 'require_biller', 'require_bank_name',
+            # Vehicle
+            'require_vehicle_number', 'require_vehicle_type', 'require_rc_number',
+            # Education
+            'require_student_name', 'require_student_id', 'require_institute_name', 'require_course_name',
+            # Loan
+            'require_loan_type', 'require_loan_account_number', 'require_emi_amount',
+            # OTT
+            'require_ott_platform', 'require_subscription_plan', 'require_validity',
+            # Utility
+            'require_meter_number', 'require_connection_type', 'require_usage_amount',
+            # Payment
+            'require_payment_method', 'require_card_number', 'require_card_holder_name', 'require_expiry_date', 'require_cvv',
+            # Additional
+            'require_due_date', 'require_billing_period', 'require_remarks', 'require_documents',
+            # DTH/Cable TV
+            'require_dth_operator', 'require_dth_plan_amount', 'require_cable_operator', 'require_cable_plan_amount',
+            'require_subscriber_number', 'require_consumer_id',
+            # Mobile Recharge
+            'require_recharge_type', 'require_plan_browsing',
+            # Education
+            'require_student_unique_id', 'require_student_relation', 'require_institution_name',
+            # OTT
+            'require_ott_plan_selection', 'require_rent_to_mobile', 'require_pan_number',
+            # Credit Card
+            'require_payment_option', 'require_full_amount', 'require_minimum_amount', 'require_other_amount',
+            # Society Maintenance
+            'require_apartment_number', 'require_building_number',
+            # Traffic Challan
+            'require_traffic_authority', 'require_challan_number',
+            # Municipal Tax
+            'require_corporation', 'require_taxpayer_relation', 'require_upic_number',
+            # Financial
+            'require_financial_year', 'require_assessment_year',
+            # Additional Common
+            'require_bill_due_date', 'require_late_fee', 'require_discount_amount', 'require_payment_date', 'require_service_charge'
+        ]
+    
+    def get_required_fields(self, obj):
+        return obj.get_required_fields()
+
+class ServiceCategoryWithFormsSerializer(serializers.ModelSerializer):
+    subcategories = ServiceSubCategorySerializer(many=True, read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    can_create_direct_form = serializers.BooleanField(source='allow_direct_service', read_only=True)
+    required_fields = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ServiceCategory
+        fields = [
+            'id', 'name', 'description', 'icon', 'is_active', 
+            'allow_direct_service', 'can_create_direct_form',
+            'subcategories', 'created_by', 'created_by_username', 
+            'required_fields', 'created_at', 'updated_at'
+        ]
+    
+    def get_required_fields(self, obj):
+        return obj.get_required_fields()
 
 class FormFieldSerializer(serializers.ModelSerializer):
     class Meta:
@@ -182,3 +288,30 @@ class ServiceFormWithFieldsSerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceForm
         fields = ['id', 'name', 'description', 'service_type', 'fields']
+
+
+
+class ServiceCategoryWithFormsSerializer(serializers.ModelSerializer):
+    subcategories = ServiceSubCategorySerializer(many=True, read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    can_create_direct_form = serializers.BooleanField(source='allow_direct_service', read_only=True)
+    
+    class Meta:
+        model = ServiceCategory
+        fields = [
+            'id', 'name', 'description', 'icon', 'is_active', 
+            'allow_direct_service', 'can_create_direct_form',
+            'subcategories', 'created_by', 'created_by_username', 
+            'created_at', 'updated_at'
+        ]
+
+class DirectServiceFormSerializer(serializers.ModelSerializer):
+    service_category_name = serializers.CharField(source='service_category.name', read_only=True)
+    
+    class Meta:
+        model = ServiceForm
+        fields = [
+            'id', 'service_type', 'service_category', 'service_category_name',
+            'name', 'description', 'is_active', 'requires_approval',
+            'max_submissions_per_user', 'created_at', 'updated_at'
+        ]

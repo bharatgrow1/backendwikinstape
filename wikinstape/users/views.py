@@ -368,8 +368,9 @@ class UserViewSet(DynamicModelViewSet):
         return UserSerializer
 
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), HasPermission('add_user')]
+        """Simplify permissions - use role-based checks instead of Django permissions"""
+        if self.action == 'create':
+            return [IsAuthenticated()]
         return [IsAuthenticated()]
     
 
@@ -377,6 +378,18 @@ class UserViewSet(DynamicModelViewSet):
         """Create user with role-based permissions"""
         serializer = UserCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
+        current_user = request.user
+
+
+        if current_user.role == 'retailer':
+            return Response(
+                {'error': 'You do not have permission to create users'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = UserCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
         
         # Add created_by field
         serializer.validated_data['created_by'] = request.user
