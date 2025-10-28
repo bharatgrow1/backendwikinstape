@@ -170,13 +170,15 @@ class UserCreateSerializer(serializers.ModelSerializer):
         # Create wallet
         Wallet.objects.create(user=user)
         
-        # Add selected services
-        for service_id in service_ids:
-            try:
-                service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
-                UserService.objects.create(user=user, service=service)
-            except ServiceSubCategory.DoesNotExist:
-                continue
+        try:
+            for service_id in service_ids:
+                try:
+                    service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
+                    UserService.objects.create(user=user, service=service)
+                except ServiceSubCategory.DoesNotExist:
+                    continue
+        except Exception as e:
+            print(f"Service assignment failed: {e}")
         
         return user
     
