@@ -10,17 +10,14 @@ from django.shortcuts import get_object_or_404
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 
-from .models import (User, EmailOTP, Wallet, Transaction, BalanceRequest, RolePermission, 
-                     ForgotPasswordOTP, State, City, UserService)
-from services.models import ServiceSubCategory
+from .models import User, EmailOTP, Wallet, Transaction, BalanceRequest, RolePermission, ForgotPasswordOTP
 from .permissions import IsSuperAdmin, IsAdminUser, IsMasterUser, HasPermission, ModelViewPermission
 from .serializers import (
     LoginSerializer, OTPVerifySerializer, UserSerializer, WalletSerializer, 
     TransactionSerializer, BalanceRequestCreateSerializer, BalanceRequestUpdateSerializer,
     PermissionSerializer, UserPermissionSerializer, UserPermissionsSerializer,
     ForgotPasswordSerializer, GrantRolePermissionSerializer, VerifyForgotPasswordOTPSerializer, 
-    ResetPasswordSerializer, RolePermissionSerializer, UserCreateSerializer, ServiceSubCategorySerializer, 
-    StateSerializer, CitySerializer, UserServiceSerializer
+    ResetPasswordSerializer, RolePermissionSerializer, UserCreateSerializer
 )
 from .utils import send_otp_email
 
@@ -513,41 +510,6 @@ class UserViewSet(DynamicModelViewSet):
             'user': UserSerializer(user).data
         })
 
-    @action(detail=True, methods=['post'])
-    def update_services(self, request, pk=None):
-        """Update user services"""
-        user = self.get_object()
-        service_ids = request.data.get('service_ids', [])
-        
-        try:
-            # Clear existing services
-            UserService.objects.filter(user=user).delete()
-            
-            # Add new services
-            for service_id in service_ids:
-                try:
-                    service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
-                    UserService.objects.create(user=user, service=service)
-                except ServiceSubCategory.DoesNotExist:
-                    continue
-            
-            return Response({
-                'message': f'Updated {len(service_ids)} services for user {user.username}',
-                'services': UserServiceSerializer(user.user_services.all(), many=True).data
-            })
-        except Exception as e:
-            return Response({'error': f'Service update failed: {str(e)}'}, status=400)
-
-    @action(detail=False, methods=['get'])
-    def available_services(self, request):
-        """Get all available services for user creation"""
-        try:
-            services = ServiceSubCategory.objects.filter(is_active=True).select_related('category')
-            serializer = ServiceSubCategorySerializer(services, many=True)
-            return Response(serializer.data)
-        except Exception as e:
-            return Response({'error': f'Service fetch failed: {str(e)}'}, status=400)
-
 class WalletViewSet(DynamicModelViewSet):
     serializer_class = WalletSerializer
     queryset = Wallet.objects.all()
@@ -649,37 +611,3 @@ class BalanceRequestViewSet(DynamicModelViewSet):
             'message': 'Balance request rejected',
             'retailer': balance_request.retailer.username
         })
-    
-
-
-# Add these ViewSets to your views.py
-class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
-    """API for services to be used in user onboarding"""
-    permission_classes = [IsAuthenticated]
-    serializer_class = ServiceSubCategorySerializer
-    
-    def get_queryset(self):
-        try:
-            return ServiceSubCategory.objects.filter(is_active=True).select_related('category')
-        except Exception as e:
-            print(f"Service fetch error: {e}")
-            return ServiceSubCategory.objects.none()
-        
-
-class StateViewSet(viewsets.ReadOnlyModelViewSet):
-    """API for states"""
-    permission_classes = [IsAuthenticated]
-    queryset = State.objects.all()
-    serializer_class = StateSerializer
-
-class CityViewSet(viewsets.ReadOnlyModelViewSet):
-    """API for cities"""
-    permission_classes = [IsAuthenticated]
-    serializer_class = CitySerializer
-    
-    def get_queryset(self):
-        queryset = City.objects.all()
-        state_id = self.request.query_params.get('state')
-        if state_id:
-            queryset = queryset.filter(state_id=state_id)
-        return queryset
