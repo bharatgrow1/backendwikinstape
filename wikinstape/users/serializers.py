@@ -299,7 +299,6 @@ class ResetPasswordSerializer(serializers.Serializer):
         return data
 
 
-
 class StateSerializer(serializers.ModelSerializer):
     class Meta:
         model = State

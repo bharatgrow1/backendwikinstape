@@ -653,7 +653,7 @@ class BalanceRequestViewSet(DynamicModelViewSet):
 
 
 # Add these ViewSets to your views.py
-class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
+class OnBoardServiceViewSet(viewsets.ReadOnlyModelViewSet):
     """API for services to be used in user onboarding"""
     permission_classes = [IsAuthenticated]
     serializer_class = ServiceSubCategorySerializer
@@ -682,4 +682,4 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
         state_id = self.request.query_params.get('state')
         if state_id:
             queryset = queryset.filter(state_id=state_id)
-        return queryset
+        return queryset 
