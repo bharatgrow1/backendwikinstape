@@ -15,6 +15,32 @@ class User(AbstractUser):
         ('dealer', 'Dealer'),
         ('retailer', 'Retailer'),
     )
+
+    GENDER_CHOICES = (
+        ('male', 'Male'),
+        ('female', 'Female'),
+        ('other', 'Other'),
+        ('prefer_not_to_say', 'Prefer not to say'),
+    )
+    
+    BUSINESS_OWNERSHIP_CHOICES = (
+        ('private', 'Private'),
+        ('private_limited', 'Private Limited'),
+        ('llc', 'Limited Liability Company (LLC)'),
+        ('public_limited', 'Public Limited'),
+        ('other', 'Other'),
+    )
+    
+    BUSINESS_NATURE_CHOICES = (
+        ('retail_shop', 'Retail Shop'),
+        ('wholesale', 'Wholesale'),
+        ('service_provider', 'Service Provider'),
+        ('manufacturer', 'Manufacturer'),
+        ('distributor', 'Distributor'),
+        ('franchise', 'Franchise'),
+        ('other', 'Other'),
+    )
+
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='retailer')
     created_by = models.ForeignKey(
         'self',
@@ -23,6 +49,43 @@ class User(AbstractUser):
         blank=True,
         related_name='created_users'
     )
+
+    # Personal Information
+    first_name = models.CharField(max_length=30, blank=True, null=True)
+    last_name = models.CharField(max_length=30, blank=True, null=True)
+    phone_number = models.CharField(max_length=15, blank=True, null=True)
+    alternative_phone = models.CharField(max_length=15, blank=True, null=True)
+    aadhar_number = models.CharField(max_length=12, blank=True, null=True)
+    pan_number = models.CharField(max_length=10, blank=True, null=True)
+    date_of_birth = models.DateField(blank=True, null=True)
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
+    services = models.ManyToManyField('services.ServiceSubCategory', through='UserService',related_name='users',blank=True)
+    business_name = models.CharField(max_length=255, blank=True, null=True)
+    business_nature = models.CharField(max_length=50, choices=BUSINESS_NATURE_CHOICES, blank=True, null=True)
+    business_registration_number = models.CharField(max_length=50, blank=True, null=True)
+    gst_number = models.CharField(max_length=15, blank=True, null=True)
+    business_ownership_type = models.CharField(max_length=20, choices=BUSINESS_OWNERSHIP_CHOICES, blank=True, null=True)
+    
+    # Address Information
+    address = models.TextField(blank=True, null=True)
+    city = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=100, blank=True, null=True)
+    pincode = models.CharField(max_length=10, blank=True, null=True)
+    landmark = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Bank Information
+    bank_name = models.CharField(max_length=255, blank=True, null=True)
+    account_number = models.CharField(max_length=50, blank=True, null=True)
+    ifsc_code = models.CharField(max_length=11, blank=True, null=True)
+    account_holder_name = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Document Uploads (store file paths)
+    pan_card = models.FileField(upload_to='documents/pan/', blank=True, null=True)
+    aadhar_card = models.FileField(upload_to='documents/aadhar/', blank=True, null=True)
+    passport_photo = models.FileField(upload_to='documents/passport/', blank=True, null=True)
+    shop_photo = models.FileField(upload_to='documents/shop/', blank=True, null=True)
+    store_photo = models.FileField(upload_to='documents/store/', blank=True, null=True)
+    other_documents = models.FileField(upload_to='documents/other/', blank=True, null=True)
 
     def __str__(self):
         return f"{self.username} ({self.role})"
@@ -111,6 +174,37 @@ class User(AbstractUser):
             return False
             
         return target_role in role_hierarchy[self.role]
+    
+
+
+class UserService(models.Model):
+    """Model to store user selected services"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_services')
+    service = models.ForeignKey('services.ServiceSubCategory', on_delete=models.CASCADE)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ['user', 'service']
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.service.name}"
+    
+
+class State(models.Model):
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=10)
+
+    def __str__(self):
+        return self.name
+
+class City(models.Model):
+    state = models.ForeignKey(State, on_delete=models.CASCADE, related_name='cities')
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.name}, {self.state.name}"
 
 class RolePermission(models.Model):
     """Permissions assigned to specific roles"""

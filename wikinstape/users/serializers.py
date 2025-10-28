@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from .models import User, Wallet, Transaction, BalanceRequest, RolePermission
+from .models import User, Wallet, Transaction, BalanceRequest, RolePermission, UserService, State, City
+from services.models import ServiceSubCategory
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
@@ -54,14 +55,154 @@ class BalanceRequestUpdateSerializer(serializers.ModelSerializer):
                  'created_at', 'updated_at']
         read_only_fields = ['retailer', 'amount', 'description', 'created_at', 'updated_at']
 
+
+
+class ServiceSubCategorySerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    
+    class Meta:
+        model = ServiceSubCategory
+        fields = ['id', 'name', 'category_name', 'description', 'image', 'is_active']
+
+
+
+
+class UserServiceSerializer(serializers.ModelSerializer):
+    service_details = ServiceSubCategorySerializer(source='service', read_only=True)
+    
+    class Meta:
+        model = UserService
+        fields = ['id', 'service', 'service_details', 'is_active', 'created_at']
+
+
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True)
+    created_by_role = serializers.CharField(source='created_by.role', read_only=True)
+    service_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        allow_empty=True
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'password', 'role', 'created_by', 'created_by_role',
+            # Personal Information
+            'first_name', 'last_name', 'phone_number', 'alternative_phone', 
+            'aadhar_number', 'pan_number', 'date_of_birth', 'gender',
+            # Business Information
+            'business_name', 'business_nature', 'business_registration_number',
+            'gst_number', 'business_ownership_type',
+            # Address Information
+            'address', 'city', 'state', 'pincode', 'landmark',
+            # Bank Information
+            'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+            # Services
+            'service_ids'
+        ]
+        read_only_fields = ['created_by']
+
+    def validate_role(self, value):
+        request = self.context.get('request')
+        if not request:
+            raise serializers.ValidationError("Request context is required")
+        
+        current_user = request.user
+        target_role = value
+        
+        role_hierarchy = {
+            'superadmin': ['superadmin', 'admin', 'master', 'dealer', 'retailer'],
+            'admin': ['admin', 'master', 'dealer', 'retailer'],
+            'master': ['master', 'dealer', 'retailer'],
+            'dealer': ['retailer'],
+            'retailer': []
+        }
+        
+        if current_user.role not in role_hierarchy:
+            raise serializers.ValidationError("Invalid current user role")
+        
+        if target_role not in role_hierarchy[current_user.role]:
+            raise serializers.ValidationError(f"You cannot create users with {target_role} role")
+        
+        return value
+
+    def create(self, validated_data):
+        service_ids = validated_data.pop('service_ids', [])
+        
+        user = User(
+            username=validated_data['username'],
+            email=validated_data.get('email', ''),
+            role=validated_data['role'],
+            created_by=self.context['request'].user,
+            # Personal Information
+            first_name=validated_data.get('first_name'),
+            last_name=validated_data.get('last_name'),
+            phone_number=validated_data.get('phone_number'),
+            alternative_phone=validated_data.get('alternative_phone'),
+            aadhar_number=validated_data.get('aadhar_number'),
+            pan_number=validated_data.get('pan_number'),
+            date_of_birth=validated_data.get('date_of_birth'),
+            gender=validated_data.get('gender'),
+            # Business Information
+            business_name=validated_data.get('business_name'),
+            business_nature=validated_data.get('business_nature'),
+            business_registration_number=validated_data.get('business_registration_number'),
+            gst_number=validated_data.get('gst_number'),
+            business_ownership_type=validated_data.get('business_ownership_type'),
+            # Address Information
+            address=validated_data.get('address'),
+            city=validated_data.get('city'),
+            state=validated_data.get('state'),
+            pincode=validated_data.get('pincode'),
+            landmark=validated_data.get('landmark'),
+            # Bank Information
+            bank_name=validated_data.get('bank_name'),
+            account_number=validated_data.get('account_number'),
+            ifsc_code=validated_data.get('ifsc_code'),
+            account_holder_name=validated_data.get('account_holder_name'),
+        )
+        user.set_password(validated_data['password'])
+        user.save()
+        
+        # Create wallet
+        Wallet.objects.create(user=user)
+        
+        # Add selected services
+        for service_id in service_ids:
+            try:
+                service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
+                UserService.objects.create(user=user, service=service)
+            except ServiceSubCategory.DoesNotExist:
+                continue
+        
+        return user
+    
+
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     wallet = WalletSerializer(read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    services = UserServiceSerializer(many=True, read_only=True, source='user_services')
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'role', 'wallet', 'created_by', 'created_by_username', 'date_joined']
+        fields = [
+            'id', 'username', 'email', 'password', 'role', 'wallet', 'created_by', 
+            'created_by_username', 'date_joined', 'services',
+            # Personal Information
+            'first_name', 'last_name', 'phone_number', 'alternative_phone', 
+            'aadhar_number', 'pan_number', 'date_of_birth', 'gender',
+            # Business Information
+            'business_name', 'business_nature', 'business_registration_number',
+            'gst_number', 'business_ownership_type',
+            # Address Information
+            'address', 'city', 'state', 'pincode', 'landmark',
+            # Bank Information
+            'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+        ]
         read_only_fields = ['created_by', 'date_joined']
 
     def create(self, validated_data):
@@ -155,49 +296,16 @@ class ResetPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError("Passwords do not match")
         return data
 
-class UserCreateSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True)
-    created_by_role = serializers.CharField(source='created_by.role', read_only=True)
 
+
+class StateSerializer(serializers.ModelSerializer):
     class Meta:
-        model = User
-        fields = ['id', 'username', 'email', 'password', 'role', 'created_by', 'created_by_role']
-        read_only_fields = ['created_by']
+        model = State
+        fields = ['id', 'name', 'code']
 
-    def validate_role(self, value):
-        request = self.context.get('request')
-        if not request:
-            raise serializers.ValidationError("Request context is required")
-        
-        current_user = request.user
-        target_role = value
-        
-        role_hierarchy = {
-            'superadmin': ['superadmin', 'admin', 'master', 'dealer', 'retailer'],
-            'admin': ['admin', 'master', 'dealer', 'retailer'],
-            'master': ['master', 'dealer', 'retailer'],
-            'dealer': ['retailer'],
-            'retailer': []
-        }
-        
-        if current_user.role not in role_hierarchy:
-            raise serializers.ValidationError("Invalid current user role")
-        
-        if target_role not in role_hierarchy[current_user.role]:
-            raise serializers.ValidationError(f"You cannot create users with {target_role} role")
-        
-        return value
-
-    def create(self, validated_data):
-        user = User(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''),
-            role=validated_data['role'],
-            created_by=self.context['request'].user
-        )
-        user.set_password(validated_data['password'])
-        user.save()
-        
-        Wallet.objects.create(user=user)
-        
-        return user
+class CitySerializer(serializers.ModelSerializer):
+    state_name = serializers.CharField(source='state.name', read_only=True)
+    
+    class Meta:
+        model = City
+        fields = ['id', 'name', 'state', 'state_name']
