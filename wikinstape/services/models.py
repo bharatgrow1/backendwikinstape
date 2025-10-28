@@ -144,6 +144,11 @@ class ServiceCategory(models.Model):
     require_payment_date = models.BooleanField(default=False)
     require_service_charge = models.BooleanField(default=False)
 
+
+    require_browse_plan = models.BooleanField(default=False)
+    require_fetch_plan = models.BooleanField(default=False)
+    require_plan_selection = models.BooleanField(default=False)
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE
@@ -282,6 +287,9 @@ class ServiceCategory(models.Model):
             ('require_discount_amount', 'discount_amount', 'amount', 'Discount Amount'),
             ('require_payment_date', 'payment_date', 'date', 'Payment Date'),
             ('require_service_charge', 'service_charge', 'amount', 'Service Charge'),
+            ('require_browse_plan', 'browse_plan', 'button', 'Browse Plans'),
+            ('require_fetch_plan', 'fetch_plan', 'button', 'Fetch Plans'),
+            ('require_plan_selection', 'plan_selection', 'select', 'Select Plan'),
         ]
         
         for bool_field, field_name, field_type, field_label in boolean_fields:
@@ -343,7 +351,9 @@ class ServiceCategory(models.Model):
             # Financial
             'require_financial_year', 'require_assessment_year',
             # Additional Common
-            'require_bill_due_date', 'require_late_fee', 'require_discount_amount', 'require_payment_date', 'require_service_charge'
+            'require_bill_due_date', 'require_late_fee', 'require_discount_amount', 'require_payment_date', 'require_service_charge',
+
+            'require_browse_plan', 'require_fetch_plan', 'require_plan_selection'
         ]
         
         for field_name in boolean_field_names:
@@ -487,6 +497,11 @@ class ServiceSubCategory(models.Model):
     require_discount_amount = models.BooleanField(default=False)
     require_payment_date = models.BooleanField(default=False)
     require_service_charge = models.BooleanField(default=False)
+
+
+    require_browse_plan = models.BooleanField(default=False)
+    require_fetch_plan = models.BooleanField(default=False)
+    require_plan_selection = models.BooleanField(default=False)
     
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -628,6 +643,11 @@ class ServiceSubCategory(models.Model):
             ('require_discount_amount', 'discount_amount', 'amount', 'Discount Amount'),
             ('require_payment_date', 'payment_date', 'date', 'Payment Date'),
             ('require_service_charge', 'service_charge', 'amount', 'Service Charge'),
+
+            # New Plan Fields
+            ('require_browse_plan', 'browse_plan', 'button', 'Browse Plans'),
+            ('require_fetch_plan', 'fetch_plan', 'button', 'Fetch Plans'),
+            ('require_plan_selection', 'plan_selection', 'select', 'Select Plan'),
         ]
         
         for bool_field, field_name, field_type, field_label in boolean_fields:
@@ -659,6 +679,10 @@ class ServiceForm(models.Model):
         ('circle', 'Circle'),
         ('plan_type', 'Plan Type'),
         ('recharge_type', 'Recharge Type'),
+        ('button', 'Button'),
+        ('plan_browse', 'Browse Plans'),
+        ('plan_fetch', 'Fetch Plans'),
+        ('plan_selection', 'Plan Selection'),
     ]
 
     SERVICE_TYPES = [
@@ -785,6 +809,23 @@ class FormField(models.Model):
         
         'assessment_year': [
             '2024-2025', '2025-2026', '2026-2027', '2027-2028', '2028-2029'
+        ],
+
+        'plan_types': [
+            'Data Plan', 'Voice Plan', 'Combo Plan', 'SMS Plan', 'International Plan',
+            'Roaming Plan', 'Special Plan', 'Top-up', 'Full Talktime', 'STV',
+            'ROM', '2G Plan', '3G Plan', '4G Plan', '5G Plan', 'Unlimited Plan'
+        ],
+        
+        'plan_categories': [
+            'Popular Plans', 'Data Packs', 'Voice Packs', 'Top-up Packs',
+            'Special Recharge', 'International Roaming', 'SMS Packs',
+            'Seasonal Offers', 'Festival Offers'
+        ],
+        
+        'plan_validity': [
+            '1 Day', '7 Days', '15 Days', '28 Days', '30 Days', '45 Days', 
+            '56 Days', '60 Days', '84 Days', '90 Days', '180 Days', '365 Days'
         ],
     }
 

@@ -67,7 +67,8 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
             
             # New Additional fields
             'require_bill_due_date', 'require_late_fee', 'require_discount_amount',
-            'require_payment_date', 'require_service_charge'
+            'require_payment_date', 'require_service_charge',
+            'require_browse_plan', 'require_fetch_plan', 'require_plan_selection'
         ]
     
     def get_required_fields(self, obj):
@@ -131,7 +132,8 @@ class ServiceCategorySerializer(serializers.ModelSerializer):
             # Financial
             'require_financial_year', 'require_assessment_year',
             # Additional Common
-            'require_bill_due_date', 'require_late_fee', 'require_discount_amount', 'require_payment_date', 'require_service_charge'
+            'require_bill_due_date', 'require_late_fee', 'require_discount_amount', 'require_payment_date', 'require_service_charge',
+            'require_browse_plan', 'require_fetch_plan', 'require_plan_selection'
         ]
     
     def get_required_fields(self, obj):
@@ -279,6 +281,21 @@ class DynamicFormSubmissionSerializer(serializers.Serializer):
                     decimal_places=2,
                     min_value=field.min_value,
                     max_value=field.max_value,
+                    help_text=field.help_text
+                )
+
+            elif field.field_type in ['button', 'plan_browse', 'plan_fetch']:
+                # Button fields don't need validation as they don't submit data
+                self.fields[field_name] = serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text=field.help_text
+                )
+            elif field.field_type == 'plan_selection':
+                choices = [(opt, opt) for opt in (field.options or [])]
+                self.fields[field_name] = serializers.ChoiceField(
+                    choices=choices,
+                    required=field.required,
                     help_text=field.help_text
                 )
 
