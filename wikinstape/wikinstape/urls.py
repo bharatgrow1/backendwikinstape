@@ -8,6 +8,7 @@ urlpatterns = [
     path('api/', include('users.urls')),
     path('api-auth/', include('rest_framework.urls')),
     path('api/services/', include('services.urls')),
+    path('api/signup-request/', include('api.urls')),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
