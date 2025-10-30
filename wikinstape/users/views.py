@@ -736,39 +736,26 @@ class FundRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Validate the request data
+        serializer = FundRequestApproveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        admin_notes = serializer.validated_data.get('admin_notes', '')
+        
         success, message = fund_request.approve(
             approved_by=request.user,
-            notes=request.data.get('admin_notes', '')
+            notes=admin_notes
         )
         
         if success:
-            serializer = self.get_serializer(fund_request)
+            # Refresh the fund request object to get updated data
+            fund_request.refresh_from_db()
+            response_serializer = self.get_serializer(fund_request)
             return Response({
                 'message': message,
-                'data': serializer.data
+                'data': response_serializer.data,
+                'new_balance': fund_request.user.wallet.balance  # Include new balance in response
             })
-        else:
-            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        """Reject fund request"""
-        fund_request = self.get_object()
-        
-        # Check permission
-        if not fund_request.can_approve(request.user):
-            return Response(
-                {'error': 'You do not have permission to reject this request'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        success, message = fund_request.reject(
-            rejected_by=request.user,
-            notes=request.data.get('admin_notes', '')
-        )
-        
-        if success:
-            return Response({'message': message})
         else:
             return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
     

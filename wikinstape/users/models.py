@@ -437,7 +437,7 @@ class FundRequest(models.Model):
         
         try:
             with db_transaction.atomic():
-                # Update fund request status
+                # Update fund request status FIRST
                 self.status = 'approved'
                 self.processed_by = approved_by
                 self.processed_at = timezone.now()
@@ -463,7 +463,7 @@ class FundRequest(models.Model):
                 return True, "Fund request approved successfully"
                 
         except Exception as e:
-            print(f"Error approving fund request: {str(e)}")  # Debug logging
+            print(f"Error approving fund request: {str(e)}")
             return False, f"Error approving request: {str(e)}"
     
     def reject(self, rejected_by, notes=""):
