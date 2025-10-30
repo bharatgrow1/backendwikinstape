@@ -742,7 +742,11 @@ class FundRequestViewSet(viewsets.ModelViewSet):
         )
         
         if success:
-            return Response({'message': message})
+            serializer = self.get_serializer(fund_request)
+            return Response({
+                'message': message,
+                'data': serializer.data
+            })
         else:
             return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
     
