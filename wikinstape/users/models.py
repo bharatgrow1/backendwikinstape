@@ -6,6 +6,7 @@ from datetime import timedelta
 import random
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction as db_transaction
 
 class User(AbstractUser):
     ROLE_CHOICES = (
@@ -430,20 +431,23 @@ class FundRequest(models.Model):
         return onboarder and onboarder == user
     
     def approve(self, approved_by, notes=""):
-        """Approve the fund request"""
+        """Approve the fund request and add balance to user's wallet"""
         if self.status != 'pending':
             return False, "Request already processed"
         
         try:
             with db_transaction.atomic():
+                # Update fund request status
                 self.status = 'approved'
                 self.processed_by = approved_by
                 self.processed_at = timezone.now()
                 self.admin_notes = notes
                 self.save()
                 
-                # Add funds to user's wallet
+                # Get or create wallet for the user
                 wallet, created = Wallet.objects.get_or_create(user=self.user)
+                
+                # Add funds to user's wallet
                 wallet.balance += self.amount
                 wallet.save()
                 
@@ -452,13 +456,14 @@ class FundRequest(models.Model):
                     wallet=wallet,
                     amount=self.amount,
                     transaction_type='credit',
-                    description=f"Fund request approved: {self.reference_number} - {self.remarks}",
+                    description=f"Fund request approved: {self.reference_number}",
                     created_by=approved_by
                 )
                 
                 return True, "Fund request approved successfully"
                 
         except Exception as e:
+            print(f"Error approving fund request: {str(e)}")  # Debug logging
             return False, f"Error approving request: {str(e)}"
     
     def reject(self, rejected_by, notes=""):
