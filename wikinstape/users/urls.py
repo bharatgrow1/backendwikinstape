@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from .views import (
     AuthViewSet, UserViewSet, WalletViewSet, TransactionViewSet, 
-    BalanceRequestViewSet, PermissionViewSet, OnBoardServiceViewSet,StateViewSet, CityViewSet 
+    BalanceRequestViewSet, PermissionViewSet, OnBoardServiceViewSet,StateViewSet, CityViewSet, FundRequestViewSet
 )
 from services.views import ServiceImageViewSet
 
@@ -16,5 +16,6 @@ router.register(r'permissions', PermissionViewSet, basename='permissions')
 router.register(r'onboardservices', OnBoardServiceViewSet, basename='services')
 router.register(r'states', StateViewSet, basename='states')
 router.register(r'cities', CityViewSet, basename='cities')
+router.register(r'fund-requests', FundRequestViewSet, basename='fund-requests')
 
 urlpatterns = router.urls

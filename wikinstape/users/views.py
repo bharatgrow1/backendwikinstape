@@ -6,12 +6,15 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Permission
 from django.db import transaction as db_transaction
+from django.db.models import Q, Sum, Count
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
 from django.shortcuts import get_object_or_404
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 
 from .models import (User, EmailOTP, Wallet, Transaction, BalanceRequest, RolePermission, 
-                     ForgotPasswordOTP, State, City, UserService)
+                     ForgotPasswordOTP, State, City, UserService, FundRequest)
 from services.models import ServiceSubCategory
 from .permissions import IsSuperAdmin, IsAdminUser, IsMasterUser, HasPermission, ModelViewPermission
 from .serializers import (
@@ -20,7 +23,9 @@ from .serializers import (
     PermissionSerializer, UserPermissionSerializer, UserPermissionsSerializer,
     ForgotPasswordSerializer, GrantRolePermissionSerializer, VerifyForgotPasswordOTPSerializer, 
     ResetPasswordSerializer, RolePermissionSerializer, UserCreateSerializer, ServiceSubCategorySerializer, 
-    StateSerializer, CitySerializer, UserServiceSerializer
+    StateSerializer, CitySerializer, UserServiceSerializer, FundRequestCreateSerializer, 
+    FundRequestStatsSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer
+
 )
 from .utils import send_otp_email
 
@@ -651,7 +656,6 @@ class BalanceRequestViewSet(DynamicModelViewSet):
         })
     
 
-
 # Add these ViewSets to your views.py
 class OnBoardServiceViewSet(viewsets.ReadOnlyModelViewSet):
     """API for services to be used in user onboarding"""
@@ -683,3 +687,155 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
         if state_id:
             queryset = queryset.filter(state_id=state_id)
         return queryset 
+    
+
+class FundRequestViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    # Remove DjangoFilterBackend temporarily to fix template error
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    # filterset_fields = ['status', 'transaction_type', 'deposit_bank', 'Your_Bank']  # Comment out for now
+    search_fields = ['reference_number', 'remarks', 'user__username']
+    ordering_fields = ['created_at', 'amount', 'updated_at']
+    ordering = ['-created_at']
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return FundRequestCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return FundRequestUpdateSerializer
+        return FundRequestCreateSerializer
+    
+    def get_queryset(self):
+        user = self.request.user
+        
+        # Super Admin and Admin can see all requests
+        if user.role in ['superadmin', 'admin']:
+            return FundRequest.objects.all().select_related('user', 'processed_by')
+        
+        # Master and Dealer can see requests from users they onboarded
+        elif user.role in ['master', 'dealer']:
+            onboarded_users = User.objects.filter(created_by=user)
+            return FundRequest.objects.filter(user__in=onboarded_users).select_related('user', 'processed_by')
+        
+        # Regular users can only see their own requests
+        else:
+            return FundRequest.objects.filter(user=user).select_related('user', 'processed_by')
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve fund request"""
+        fund_request = self.get_object()
+        
+        # Check permission
+        if not fund_request.can_approve(request.user):
+            return Response(
+                {'error': 'You do not have permission to approve this request'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        success, message = fund_request.approve(
+            approved_by=request.user,
+            notes=request.data.get('admin_notes', '')
+        )
+        
+        if success:
+            return Response({'message': message})
+        else:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject fund request"""
+        fund_request = self.get_object()
+        
+        # Check permission
+        if not fund_request.can_approve(request.user):
+            return Response(
+                {'error': 'You do not have permission to reject this request'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        success, message = fund_request.reject(
+            rejected_by=request.user,
+            notes=request.data.get('admin_notes', '')
+        )
+        
+        if success:
+            return Response({'message': message})
+        else:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def my_requests(self, request):
+        """Get current user's fund requests"""
+        fund_requests = FundRequest.objects.filter(user=request.user)
+        page = self.paginate_queryset(fund_requests)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(fund_requests, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def pending_requests(self, request):
+        """Get pending requests for approvers"""
+        user = request.user
+        
+        if user.role in ['superadmin', 'admin']:
+            pending_requests = FundRequest.objects.filter(status='pending')
+        elif user.role in ['master', 'dealer']:
+            onboarded_users = User.objects.filter(created_by=user)
+            pending_requests = FundRequest.objects.filter(
+                user__in=onboarded_users, 
+                status='pending'
+            )
+        else:
+            return Response(
+                {'error': 'You do not have permission to view pending requests'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        page = self.paginate_queryset(pending_requests)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(pending_requests, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get fund request statistics"""
+        user = request.user
+        queryset = self.get_queryset()
+        
+        stats = {
+            'total_requests': queryset.count(),
+            'pending_requests': queryset.filter(status='pending').count(),
+            'approved_requests': queryset.filter(status='approved').count(),
+            'rejected_requests': queryset.filter(status='rejected').count(),
+            'total_amount': queryset.aggregate(total=Sum('amount'))['total'] or 0,
+            'pending_amount': queryset.filter(status='pending').aggregate(total=Sum('amount'))['total'] or 0,
+        }
+        
+        return Response(stats)
+    
+    @action(detail=False, methods=['get'])
+    def bank_list(self, request):
+        """Get list of available banks"""
+        banks = FundRequest.BANKS 
+        bank_choices = [{'value': bank[0], 'display_name': bank[1]} for bank in banks]
+        return Response({'banks': bank_choices})
+    
+    @action(detail=False, methods=['get'])
+    def bank_options(self, request):
+        """Get bank options for dropdown"""
+        banks = FundRequest.BANKS
+        return Response({
+            'deposit_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks],
+            'your_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks]
+        })

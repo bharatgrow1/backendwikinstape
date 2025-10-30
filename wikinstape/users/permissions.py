@@ -101,3 +101,26 @@ class HasModelPermission(BasePermission):
             return True
             
         return request.user.has_model_permission(self.model, self.action)
+    
+
+class CanApproveFundRequest(BasePermission):
+    """Check if user can approve fund requests"""
+    
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        
+        # Allow specific actions for all authenticated users
+        if view.action in ['create', 'my_requests', 'list']:
+            return True
+            
+        # Approval actions require admin or onboarder permissions
+        if view.action in ['approve', 'reject', 'pending_requests']:
+            return request.user.role in ['superadmin', 'admin', 'master', 'dealer']
+        
+        return True
+    
+    def has_object_permission(self, request, view, obj):
+        if view.action in ['approve', 'reject']:
+            return obj.can_approve(request.user)
+        return True

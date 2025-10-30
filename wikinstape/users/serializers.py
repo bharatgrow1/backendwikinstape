@@ -1,8 +1,10 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from .models import User, Wallet, Transaction, BalanceRequest, RolePermission, UserService, State, City
+from .models import User, Wallet, FundRequest, Transaction, BalanceRequest, RolePermission, UserService, State, City
 from services.models import ServiceSubCategory
+from django.core.validators import MinValueValidator
+
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
@@ -310,3 +312,79 @@ class CitySerializer(serializers.ModelSerializer):
     class Meta:
         model = City
         fields = ['id', 'name', 'state', 'state_name']
+
+
+
+class FundRequestCreateSerializer(serializers.ModelSerializer):
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    user_role = serializers.CharField(source='user.role', read_only=True)
+    onboarder_username = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = FundRequest
+        fields = [
+            'id', 'user', 'user_username', 'user_role', 'amount', 
+            'transaction_type', 'deposit_bank', 'Your_Bank', 'account_number', 
+            'reference_number', 'remarks', 'screenshot', 'status',
+            'created_at', 'onboarder_username'
+        ]
+        read_only_fields = ['reference_number', 'status', 'created_at']
+    
+    def get_onboarder_username(self, obj):
+        onboarder = obj.get_onboarder()
+        return onboarder.username if onboarder else None
+    
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero")
+        if value > 1000000:  # Example limit of 10,00,000
+            raise serializers.ValidationError("Amount exceeds maximum limit")
+        return value
+    
+    def validate(self, data):
+        # Ensure user is creating request for themselves
+        request = self.context.get('request')
+        if request and 'user' not in data:
+            data['user'] = request.user
+        return data
+
+class FundRequestUpdateSerializer(serializers.ModelSerializer):
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    processed_by_username = serializers.CharField(source='processed_by.username', read_only=True)
+    onboarder_username = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = FundRequest
+        fields = [
+            'id', 'user', 'user_username', 'amount', 'transaction_type',
+            'deposit_bank', 'Your_Bank', 'account_number', 'reference_number', 'remarks',
+            'screenshot', 'status', 'admin_notes', 'processed_by',
+            'processed_by_username', 'processed_at', 'created_at',
+            'updated_at', 'onboarder_username'
+        ]
+        read_only_fields = [
+            'user', 'amount', 'transaction_type', 'deposit_bank', 'Your_Bank',
+            'account_number', 'reference_number', 'remarks', 'screenshot',
+            'created_at', 'updated_at', 'processed_at'
+        ]
+    
+    def get_onboarder_username(self, obj):
+        onboarder = obj.get_onboarder()
+        return onboarder.username if onboarder else None
+
+
+class FundRequestApproveSerializer(serializers.Serializer):
+    admin_notes = serializers.CharField(required=False, allow_blank=True)
+    
+    def validate_admin_notes(self, value):
+        if len(value) > 1000:
+            raise serializers.ValidationError("Notes too long")
+        return value
+
+class FundRequestStatsSerializer(serializers.Serializer):
+    total_requests = serializers.IntegerField()
+    pending_requests = serializers.IntegerField()
+    approved_requests = serializers.IntegerField()
+    rejected_requests = serializers.IntegerField()
+    total_amount = serializers.DecimalField(max_digits=15, decimal_places=2)
+    pending_amount = serializers.DecimalField(max_digits=15, decimal_places=2)

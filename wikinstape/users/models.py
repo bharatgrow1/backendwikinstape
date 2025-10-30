@@ -176,6 +176,32 @@ class User(AbstractUser):
         return target_role in role_hierarchy[self.role]
     
 
+    def get_onboarder(self):
+        """Get the user who created this user"""
+        return self.created_by
+    
+
+
+class ForgotPasswordOTP(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    otp = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_used = models.BooleanField(default=False)
+
+    def generate_otp(self):
+        self.otp = str(random.randint(100000, 999999))
+        self.created_at = timezone.now()
+        self.is_used = False
+        self.save()
+        return self.otp
+
+    def is_expired(self):
+        return timezone.now() > self.created_at + timedelta(minutes=10)
+
+    def mark_used(self):
+        self.is_used = True
+        self.save()
+
 
 class UserService(models.Model):
     """Model to store user selected services"""
@@ -295,24 +321,155 @@ class Transaction(models.Model):
         return f"{self.transaction_type} - ${self.amount} - {self.wallet.user.username}"
     
 
+class FundRequest(models.Model):
+    TRANSACTION_TYPE_CHOICES = (
+        ('bank_transfer', 'Bank Transfer'),
+        ('upi', 'UPI'),
+        ('cash_deposit', 'Cash Deposit'),
+        ('cheque', 'Cheque'),
+        ('other', 'Other'),
+    )
 
-
-class ForgotPasswordOTP(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    otp = models.CharField(max_length=6)
+    BANKS = [
+        ('State Bank of India', 'State Bank of India'),
+        ('HDFC Bank', 'HDFC Bank'),
+        ('ICICI Bank', 'ICICI Bank'),
+        ('Punjab National Bank', 'Punjab National Bank'),
+        ('Axis Bank', 'Axis Bank'),
+        ('Bank of Baroda', 'Bank of Baroda'),
+        ('Canara Bank', 'Canara Bank'),
+        ('Union Bank of India', 'Union Bank of India'),
+        ('Indian Bank', 'Indian Bank'),
+        ('IndusInd Bank', 'IndusInd Bank'),
+        ('IDFC FIRST Bank', 'IDFC FIRST Bank'),
+        ('Kotak Mahindra Bank', 'Kotak Mahindra Bank'),
+        ('Central Bank of India', 'Central Bank of India'),
+        ('Bank of India', 'Bank of India'),
+        ('UCO Bank', 'UCO Bank'),
+        ('Indian Overseas Bank', 'Indian Overseas Bank'),
+        ('Bank of Maharashtra', 'Bank of Maharashtra'),
+        ('Yes Bank', 'Yes Bank'),
+        ('Federal Bank', 'Federal Bank'),
+        ('South Indian Bank', 'South Indian Bank'),
+        ('RBL Bank', 'RBL Bank'),
+        ('IDBI Bank', 'IDBI Bank'),
+        ('Jammu & Kashmir Bank', 'Jammu & Kashmir Bank'),
+        ('Karnataka Bank', 'Karnataka Bank'),
+        ('Dhanlaxmi Bank', 'Dhanlaxmi Bank'),
+    ]
+    
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('processing', 'Processing'),
+    )
+    
+    # Request details
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='fund_requests'
+    )
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE_CHOICES)
+    deposit_bank = models.CharField(max_length=300, choices=BANKS)  # Updated field
+    Your_Bank = models.CharField(max_length=255, choices=BANKS)    # Updated field
+    account_number = models.CharField(max_length=50, blank=True, null=True)
+    reference_number = models.CharField(max_length=100, unique=True)
+    remarks = models.TextField(blank=True, null=True)
+    screenshot = models.FileField(upload_to='fund_requests/screenshots/', blank=True, null=True)
+    
+    # Status and tracking
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
-    is_used = models.BooleanField(default=False)
-
-    def generate_otp(self):
-        self.otp = str(random.randint(100000, 999999))
-        self.created_at = timezone.now()
-        self.is_used = False
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Approval information
+    processed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='processed_fund_requests'
+    )
+    processed_at = models.DateTimeField(null=True, blank=True)
+    admin_notes = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['user', 'created_at']),
+        ]
+    
+    def __str__(self):
+        return f"Fund Request #{self.reference_number} - {self.user.username} - ₹{self.amount}"
+    
+    def save(self, *args, **kwargs):
+        if not self.reference_number:
+            self.reference_number = self.generate_reference_number()
+        super().save(*args, **kwargs)
+    
+    def generate_reference_number(self):
+        """Generate unique reference number"""
+        timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
+        random_str = str(random.randint(1000, 9999))
+        return f"FR{timestamp}{random_str}"
+    
+    def get_onboarder(self):
+        """Get the user who onboarded this user"""
+        return self.user.get_onboarder()
+    
+    def can_approve(self, user):
+        """Check if user can approve this request"""
+        if user.role in ['superadmin', 'admin']:
+            return True
+        # Onboarder can also approve if they created this user
+        onboarder = self.get_onboarder()
+        return onboarder and onboarder == user
+    
+    def approve(self, approved_by, notes=""):
+        """Approve the fund request"""
+        if self.status != 'pending':
+            return False, "Request already processed"
+        
+        try:
+            with db_transaction.atomic():
+                self.status = 'approved'
+                self.processed_by = approved_by
+                self.processed_at = timezone.now()
+                self.admin_notes = notes
+                self.save()
+                
+                # Add funds to user's wallet
+                wallet, created = Wallet.objects.get_or_create(user=self.user)
+                wallet.balance += self.amount
+                wallet.save()
+                
+                # Create transaction record
+                Transaction.objects.create(
+                    wallet=wallet,
+                    amount=self.amount,
+                    transaction_type='credit',
+                    description=f"Fund request approved: {self.reference_number} - {self.remarks}",
+                    created_by=approved_by
+                )
+                
+                return True, "Fund request approved successfully"
+                
+        except Exception as e:
+            return False, f"Error approving request: {str(e)}"
+    
+    def reject(self, rejected_by, notes=""):
+        """Reject the fund request"""
+        if self.status != 'pending':
+            return False, "Request already processed"
+        
+        self.status = 'rejected'
+        self.processed_by = rejected_by
+        self.processed_at = timezone.now()
+        self.admin_notes = notes
         self.save()
-        return self.otp
-
-    def is_expired(self):
-        return timezone.now() > self.created_at + timedelta(minutes=10)
-
-    def mark_used(self):
-        self.is_used = True
-        self.save()
+        
+        return True, "Fund request rejected"
