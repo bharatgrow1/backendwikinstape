@@ -1,9 +1,11 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from .models import User, Wallet, FundRequest, Transaction, BalanceRequest, RolePermission, UserService, State, City
+from .models import (User, Wallet, FundRequest, Transaction, RolePermission, UserService, State, 
+                     City, ServiceCharge)
 from services.models import ServiceSubCategory
 from django.core.validators import MinValueValidator
+import re
 
 
 class LoginSerializer(serializers.Serializer):
@@ -17,46 +19,188 @@ class OTPVerifySerializer(serializers.Serializer):
 class WalletSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
+    is_pin_set = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Wallet
-        fields = ['id', 'user', 'username', 'balance', 'created_at', 'updated_at']
+        fields = ['id', 'user', 'username', 'balance', 'is_pin_set', 'created_at', 'updated_at']
         read_only_fields = ['balance', 'created_at', 'updated_at']
+
+
+class SetWalletPinSerializer(serializers.Serializer):
+    pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    confirm_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+
+    def validate_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
+
+    def validate(self, data):
+        if data['pin'] != data['confirm_pin']:
+            raise serializers.ValidationError("PINs do not match")
+        return data
+
+
+
+class ResetWalletPinSerializer(serializers.Serializer):
+    old_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    confirm_new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+
+    def validate_new_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
+
+    def validate(self, data):
+        if data['new_pin'] != data['confirm_new_pin']:
+            raise serializers.ValidationError("New PINs do not match")
+        return data
+
+
+class VerifyWalletPinSerializer(serializers.Serializer):
+    pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+
+    def validate_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
+
+
+
+class TransactionCreateSerializer(serializers.ModelSerializer):
+    pin = serializers.CharField(max_length=4, min_length=4, write_only=True, required=False)
+    recipient_username = serializers.CharField(write_only=True, required=False)
+    service_charge = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    net_amount = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    service_submission_id = serializers.IntegerField(write_only=True, required=False)
+
+    class Meta:
+        model = Transaction
+        fields = [
+            'id', 'amount', 'transaction_type', 'transaction_category', 
+            'description', 'recipient_username', 'pin', 'service_charge', 
+            'net_amount', 'service_submission_id', 'service_name'
+        ]
+
+    def validate(self, data):
+        request = self.context.get('request')
+        wallet = request.user.wallet
+        
+        # Check if PIN is required (only for debit transactions, not for balance check)
+        if (data.get('transaction_type') == 'debit' and 
+            wallet.is_pin_set and not data.get('pin')):
+            raise serializers.ValidationError("PIN is required for debit transactions")
+        
+        # Validate amount
+        amount = data.get('amount')
+        if amount <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero")
+        
+        # Calculate service charge for debit transactions
+        transaction_category = data.get('transaction_category', 'other')
+        service_charge = 0.00
+        
+        if data.get('transaction_type') == 'debit':
+            try:
+                service_charge_config = ServiceCharge.objects.get(
+                    transaction_category=transaction_category, 
+                    is_active=True
+                )
+                service_charge = service_charge_config.calculate_charge(amount)
+            except ServiceCharge.DoesNotExist:
+                service_charge = 0.00
+        
+        # Check sufficient balance including service charge for debit transactions
+        if (data.get('transaction_type') == 'debit' and 
+            not wallet.has_sufficient_balance(amount, service_charge)):
+            raise serializers.ValidationError("Insufficient balance including service charges")
+        
+        data['service_charge'] = service_charge
+        data['net_amount'] = amount
+        
+        return data
 
 class TransactionSerializer(serializers.ModelSerializer):
     wallet_user = serializers.CharField(source='wallet.user.username', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-
+    recipient_username = serializers.CharField(source='recipient_user.username', read_only=True)
+    service_submission_details = serializers.SerializerMethodField()
+    
     class Meta:
         model = Transaction
-        fields = ['id', 'wallet', 'wallet_user', 'amount', 'transaction_type', 
-                 'description', 'created_by', 'created_by_username', 'created_at']
+        fields = [
+            'id', 'wallet', 'wallet_user', 'amount', 'net_amount', 'service_charge',
+            'transaction_type', 'transaction_category', 'status', 'description',
+            'reference_number', 'recipient_user', 'recipient_username',
+            'service_submission', 'service_submission_details', 'service_name',
+            'created_by', 'created_by_username', 'created_at', 'metadata'
+        ]
         read_only_fields = ['created_at']
 
-class BalanceRequestCreateSerializer(serializers.ModelSerializer):
-    retailer_username = serializers.CharField(source='retailer.username', read_only=True)
+    def get_service_submission_details(self, obj):
+        if obj.service_submission:
+            return {
+                'id': obj.service_submission.id,
+                'submission_id': obj.service_submission.submission_id,
+                'service_name': obj.service_submission.service_form.name if obj.service_submission.service_form else 'Direct Service'
+            }
+        return None
 
+
+
+class TransactionFilterSerializer(serializers.Serializer):
+    transaction_type = serializers.ChoiceField(choices=Transaction.TRANSACTION_TYPES, required=False)
+    transaction_category = serializers.ChoiceField(choices=Transaction.TRANSACTION_CATEGORIES, required=False)
+    status = serializers.ChoiceField(choices=Transaction.STATUS_CHOICES, required=False)
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    min_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    max_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    user_id = serializers.IntegerField(required=False)
+    reference_number = serializers.CharField(required=False)
+    service_submission_id = serializers.IntegerField(required=False)
+
+
+class ServiceChargeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = BalanceRequest
-        fields = ['id', 'retailer', 'retailer_username', 'amount', 'description', 'status', 'created_at']
-        read_only_fields = ['status', 'created_at']
+        model = ServiceCharge
+        fields = [
+            'id', 'transaction_category', 'charge_type', 'charge_value',
+            'min_charge', 'max_charge', 'is_active', 'created_at', 'updated_at'
+        ]
 
-    def validate_amount(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("Amount must be greater than zero")
-        return value
 
-class BalanceRequestUpdateSerializer(serializers.ModelSerializer):
-    retailer_username = serializers.CharField(source='retailer.username', read_only=True)
-    processed_by_username = serializers.CharField(source='processed_by.username', read_only=True)
+class WalletBalanceResponseSerializer(serializers.Serializer):
+    balance = serializers.DecimalField(max_digits=15, decimal_places=2)
+    currency = serializers.CharField(default='INR')
+    is_pin_set = serializers.BooleanField()
+    username = serializers.CharField(source='user.username', read_only=True)
 
+
+class FundRequestHistorySerializer(serializers.ModelSerializer):
     class Meta:
-        model = BalanceRequest
-        fields = ['id', 'retailer', 'retailer_username', 'amount', 'status', 
-                 'description', 'admin_notes', 'processed_by', 'processed_by_username', 
-                 'created_at', 'updated_at']
-        read_only_fields = ['retailer', 'amount', 'description', 'created_at', 'updated_at']
+        model = FundRequest
+        fields = [
+            'id', 'reference_number', 'amount', 'status', 'transaction_type',
+            'deposit_bank', 'Your_Bank', 'created_at', 'processed_at'
+        ]
 
+
+
+class TransactionHistoryResponseSerializer(serializers.Serializer):
+    transactions = TransactionSerializer(many=True)
+    fund_requests = FundRequestHistorySerializer(many=True)
+    total_count = serializers.IntegerField()
+    total_credit = serializers.DecimalField(max_digits=15, decimal_places=2)
+    total_debit = serializers.DecimalField(max_digits=15, decimal_places=2)
 
 
 class ServiceSubCategorySerializer(serializers.ModelSerializer):
@@ -65,8 +209,6 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceSubCategory
         fields = ['id', 'name', 'category_name', 'description', 'image', 'is_active']
-
-
 
 
 class UserServiceSerializer(serializers.ModelSerializer):
@@ -388,3 +530,46 @@ class FundRequestStatsSerializer(serializers.Serializer):
     rejected_requests = serializers.IntegerField()
     total_amount = serializers.DecimalField(max_digits=15, decimal_places=2)
     pending_amount = serializers.DecimalField(max_digits=15, decimal_places=2)
+
+
+class RequestWalletPinOTPSerializer(serializers.Serializer):
+    purpose = serializers.ChoiceField(choices=[('set_pin', 'Set PIN'), ('reset_pin', 'Reset PIN')])
+
+class VerifyWalletPinOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(max_length=6)
+    purpose = serializers.ChoiceField(choices=[('set_pin', 'Set PIN'), ('reset_pin', 'Reset PIN')])
+
+class SetWalletPinWithOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(max_length=6)
+    pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    confirm_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+
+    def validate_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
+
+    def validate(self, data):
+        if data['pin'] != data['confirm_pin']:
+            raise serializers.ValidationError("PINs do not match")
+        return data
+
+class ResetWalletPinWithOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(max_length=6)
+    old_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    confirm_new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+
+    def validate_new_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
+
+    def validate(self, data):
+        if data['new_pin'] != data['confirm_new_pin']:
+            raise serializers.ValidationError("New PINs do not match")
+        return data

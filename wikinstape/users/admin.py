@@ -1,7 +1,7 @@
-# admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import User
+from .models import Wallet, Transaction, EmailOTP
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
@@ -14,17 +14,9 @@ class CustomUserAdmin(UserAdmin):
         ('Role Information', {'fields': ('role',)}),
     )
 
-# Other models register karein
-from .models import Wallet, BalanceRequest, Transaction, EmailOTP
-
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
     list_display = ['user', 'balance', 'created_at']
-
-@admin.register(BalanceRequest)
-class BalanceRequestAdmin(admin.ModelAdmin):
-    list_display = ['retailer', 'amount', 'status', 'created_at']
-    list_filter = ['status']
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):

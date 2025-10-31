@@ -7,6 +7,9 @@ import random
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
+from django.core.validators import MinValueValidator
+import hashlib
+import secrets
 
 class User(AbstractUser):
     ROLE_CHOICES = (
@@ -182,7 +185,6 @@ class User(AbstractUser):
         return self.created_by
     
 
-
 class ForgotPasswordOTP(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     otp = models.CharField(max_length=6)
@@ -268,41 +270,89 @@ class EmailOTP(models.Model):
 class Wallet(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="wallet")
     balance = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    pin_hash = models.CharField(max_length=255, blank=True, null=True)
+    is_pin_set = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.username}'s Wallet - ${self.balance}"
+        return f"{self.user.username}'s Wallet - ₹{self.balance}"
 
-class BalanceRequest(models.Model):
-    STATUS_CHOICES = (
-        ('pending', 'Pending'),
-        ('approved', 'Approved'),
-        ('rejected', 'Rejected'),
-    )
-    
-    retailer = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='balance_requests',
-        limit_choices_to={'role': 'retailer'}
-    )
-    amount = models.DecimalField(max_digits=15, decimal_places=2)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
-    description = models.TextField(blank=True)
-    admin_notes = models.TextField(blank=True)
+    def set_pin(self, pin):
+        """Set wallet PIN"""
+        if len(pin) != 4 or not pin.isdigit():
+            raise ValueError("PIN must be 4 digits")
+        
+        self.pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        self.is_pin_set = True
+        self.save()
+
+    def verify_pin(self, pin):
+        """Verify wallet PIN"""
+        if not self.is_pin_set:
+            return False
+        return self.pin_hash == hashlib.sha256(pin.encode()).hexdigest()
+
+    def reset_pin(self, old_pin, new_pin):
+        """Reset wallet PIN"""
+        if not self.verify_pin(old_pin):
+            raise ValueError("Invalid current PIN")
+        self.set_pin(new_pin)
+
+    def has_sufficient_balance(self, amount, service_charge=0):
+        """Check if wallet has sufficient balance including service charge"""
+        total_amount = amount + service_charge
+        return self.balance >= total_amount
+
+    def deduct_amount(self, amount, service_charge=0, pin=None):
+        """Deduct amount from wallet with PIN verification"""
+        if self.is_pin_set and not pin:
+            raise ValueError("PIN is required for this transaction")
+        
+        if self.is_pin_set and not self.verify_pin(pin):
+            raise ValueError("Invalid PIN")
+        
+        total_amount = amount + service_charge
+        
+        if not self.has_sufficient_balance(amount, service_charge):
+            raise ValueError("Insufficient balance")
+        
+        self.balance -= total_amount
+        self.save()
+        return total_amount
+
+    def add_amount(self, amount):
+        """Add amount to wallet"""
+        self.balance += amount
+        self.save()
+
+
+
+
+class WalletPinOTP(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    otp = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=20, choices=[
+        ('set_pin', 'Set PIN'),
+        ('reset_pin', 'Reset PIN')
+    ])
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    processed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='processed_requests'
-    )
+    is_used = models.BooleanField(default=False)
 
-    def __str__(self):
-        return f"{self.retailer.username} - ${self.amount} - {self.status}"
+    def generate_otp(self):
+        self.otp = str(random.randint(100000, 999999))
+        self.created_at = timezone.now()
+        self.is_used = False
+        self.save()
+        return self.otp
+
+    def is_expired(self):
+        return timezone.now() > self.created_at + timedelta(minutes=10)
+
+    def mark_used(self):
+        self.is_used = True
+        self.save()
+        
 
 class Transaction(models.Model):
     TRANSACTION_TYPES = (
@@ -310,17 +360,122 @@ class Transaction(models.Model):
         ('debit', 'Debit'),
     )
     
+    TRANSACTION_CATEGORIES = (
+        ('fund_request', 'Fund Request'),
+        ('money_transfer', 'Money Transfer'),
+        ('bill_payment', 'Bill Payment'),
+        ('recharge', 'Recharge'),
+        ('service_charge', 'Service Charge'),
+        ('cashback', 'Cashback'),
+        ('refund', 'Refund'),
+        ('commission', 'Commission'),
+        ('service_payment', 'Service Payment'),  # New category for service payments
+        ('other', 'Other'),
+    )
+    
+    STATUS_CHOICES = (
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+        ('pending', 'Pending'),
+        ('cancelled', 'Cancelled'),
+    )
+    
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
     amount = models.DecimalField(max_digits=15, decimal_places=2)
+    net_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    service_charge = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+    transaction_category = models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, default='other')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='success')
     description = models.CharField(max_length=255)
-    balance_request = models.ForeignKey(BalanceRequest, on_delete=models.SET_NULL, null=True, blank=True, related_name='transactions')
+    reference_number = models.CharField(max_length=100, unique=True, blank=True)
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='received_transactions'
+    )
+    
+    # Service-related fields (for service payments)
+    service_submission = models.ForeignKey(
+        'services.ServiceSubmission',  # Your service app model
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='transactions'
+    )
+    service_name = models.CharField(max_length=255, blank=True, null=True)
+    
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_transactions')
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Additional fields for filtering
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['wallet', 'created_at']),
+            models.Index(fields=['transaction_type', 'status']),
+            models.Index(fields=['transaction_category', 'created_at']),
+            models.Index(fields=['reference_number']),
+            models.Index(fields=['service_submission']),  # New index
+        ]
 
     def __str__(self):
-        return f"{self.transaction_type} - ${self.amount} - {self.wallet.user.username}"
+        return f"{self.transaction_type} - ₹{self.amount} - {self.wallet.user.username}"
+
+    def save(self, *args, **kwargs):
+        if not self.reference_number:
+            self.reference_number = self.generate_reference_number()
+        if not self.net_amount:
+            self.net_amount = self.amount
+        super().save(*args, **kwargs)
+
+    def generate_reference_number(self):
+        """Generate unique reference number"""
+        timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
+        random_str = str(random.randint(1000, 9999))
+        return f"TXN{timestamp}{random_str}"
+
+
+
+class ServiceCharge(models.Model):
+    """Model to manage service charges for different transaction types"""
+    TRANSACTION_CATEGORIES = Transaction.TRANSACTION_CATEGORIES
     
+    transaction_category = models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, unique=True)
+    charge_type = models.CharField(max_length=10, choices=[('fixed', 'Fixed'), ('percentage', 'Percentage')])
+    charge_value = models.DecimalField(max_digits=10, decimal_places=2)
+    min_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    max_charge = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.transaction_category} - {self.charge_type} - {self.charge_value}"
+
+    def calculate_charge(self, amount):
+        """Calculate service charge for given amount"""
+        if not self.is_active:
+            return 0.00
+        
+        if self.charge_type == 'fixed':
+            charge = self.charge_value
+        else:  # percentage
+            charge = (amount * self.charge_value) / 100
+        
+        # Apply min/max limits
+        if self.min_charge and charge < self.min_charge:
+            charge = self.min_charge
+        if self.max_charge and charge > self.max_charge:
+            charge = self.max_charge
+        
+        return charge
+
+ 
 
 class FundRequest(models.Model):
     TRANSACTION_TYPE_CHOICES = (
@@ -426,7 +581,6 @@ class FundRequest(models.Model):
         """Check if user can approve this request"""
         if user.role in ['superadmin', 'admin']:
             return True
-        # Onboarder can also approve if they created this user
         onboarder = self.get_onboarder()
         return onboarder and onboarder == user
     
