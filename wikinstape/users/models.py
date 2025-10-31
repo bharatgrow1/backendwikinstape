@@ -62,6 +62,7 @@ class User(AbstractUser):
     aadhar_number = models.CharField(max_length=12, blank=True, null=True)
     pan_number = models.CharField(max_length=10, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
+    has_completed_first_time_setup = models.BooleanField(default=False)
     gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
     services = models.ManyToManyField('services.ServiceSubCategory', through='UserService',related_name='users',blank=True)
     business_name = models.CharField(max_length=255, blank=True, null=True)

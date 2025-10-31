@@ -249,16 +249,34 @@ class AuthViewSet(viewsets.ViewSet):
         otp_obj.delete()
 
         refresh = RefreshToken.for_user(user)
+        
+        # Check if user needs to set PIN
+        needs_pin_setup = not user.wallet.is_pin_set
+        
         return Response({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
             'role': user.role,
             'user_id': user.id,
             'username': user.username,
+            'needs_pin_setup': needs_pin_setup, 
+            'is_pin_set': user.wallet.is_pin_set,
             'permissions': list(user.get_all_permissions())
         }, status=status.HTTP_200_OK)
     
 
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def complete_first_time_setup(self, request):
+        """Mark user as completed first time setup"""
+        user = request.user
+        user.has_completed_first_time_setup = True
+        user.save()
+        
+        return Response({
+            'message': 'First time setup completed successfully',
+            'has_completed_first_time_setup': user.has_completed_first_time_setup
+        })
 
     @action(detail=False, methods=['post'])
     def forgot_password(self, request):
