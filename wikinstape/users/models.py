@@ -54,7 +54,6 @@ class User(AbstractUser):
         related_name='created_users'
     )
 
-    # Personal Information
     first_name = models.CharField(max_length=30, blank=True, null=True)
     last_name = models.CharField(max_length=30, blank=True, null=True)
     phone_number = models.CharField(max_length=15, blank=True, null=True)
@@ -71,20 +70,17 @@ class User(AbstractUser):
     gst_number = models.CharField(max_length=15, blank=True, null=True)
     business_ownership_type = models.CharField(max_length=20, choices=BUSINESS_OWNERSHIP_CHOICES, blank=True, null=True)
     
-    # Address Information
     address = models.TextField(blank=True, null=True)
     city = models.CharField(max_length=100, blank=True, null=True)
     state = models.CharField(max_length=100, blank=True, null=True)
     pincode = models.CharField(max_length=10, blank=True, null=True)
     landmark = models.CharField(max_length=255, blank=True, null=True)
     
-    # Bank Information
     bank_name = models.CharField(max_length=255, blank=True, null=True)
     account_number = models.CharField(max_length=50, blank=True, null=True)
     ifsc_code = models.CharField(max_length=11, blank=True, null=True)
     account_holder_name = models.CharField(max_length=255, blank=True, null=True)
     
-    # Document Uploads (store file paths)
     pan_card = models.FileField(upload_to='documents/pan/', blank=True, null=True)
     aadhar_card = models.FileField(upload_to='documents/aadhar/', blank=True, null=True)
     passport_photo = models.FileField(upload_to='documents/passport/', blank=True, null=True)
@@ -113,11 +109,9 @@ class User(AbstractUser):
     
     def has_permission(self, perm_codename):
         """Check if user has specific permission"""
-        # Super Admin and Master have all permissions
         if self.role in ['superadmin', 'master']:
             return True
             
-        # Check user-specific permissions
         return self.user_permissions.filter(codename=perm_codename).exists()
     
     def has_model_permission(self, model, action):
@@ -162,7 +156,7 @@ class User(AbstractUser):
         return self.role in ['superadmin', 'master', 'admin']
     
     def can_manage_balance_requests(self):
-        return self.role in ['superadmin', 'master', 'admin']
+        return self.role in ['superadmin', 'master', 'admin', 'dealer']
     
 
     def can_create_user_with_role(self, target_role):
@@ -633,3 +627,24 @@ class FundRequest(models.Model):
         self.save()
         
         return True, "Fund request rejected"
+    
+
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=User)
+def create_user_wallet(sender, instance, created, **kwargs):
+    """
+    Automatically create wallet when new user is created
+    """
+    if created:
+        Wallet.objects.get_or_create(user=instance)
+
+@receiver(post_save, sender=User)
+def ensure_wallet_exists(sender, instance, **kwargs):
+    """
+    Ensure wallet exists for all users (safety net)
+    """
+    if not hasattr(instance, 'wallet'):
+        Wallet.objects.get_or_create(user=instance)

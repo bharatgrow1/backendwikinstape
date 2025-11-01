@@ -124,3 +124,22 @@ class CanApproveFundRequest(BasePermission):
         if view.action in ['approve', 'reject']:
             return obj.can_approve(request.user)
         return True
+    
+
+class AllowBasicActions(BasePermission):
+    """Allow basic actions without requiring specific permissions"""
+    def has_permission(self, request, view):
+        basic_actions = [
+            'login', 'verify_otp', 'forgot_password', 'verify_forgot_password_otp', 
+            'reset_password', 'balance', 'transaction_history', 'my_requests',
+            'my_profile', 'change_password', 'request_pin_otp', 'verify_pin_otp',
+            'set_pin_with_otp', 'reset_pin_with_otp', 'verify_pin', 'bank_list',
+            'bank_options', 'complete_first_time_setup'
+        ]
+        
+        if hasattr(view, 'action') and view.action in basic_actions:
+            if view.action in ['login', 'verify_otp', 'forgot_password', 'verify_forgot_password_otp', 'reset_password']:
+                return True
+            return bool(request.user and request.user.is_authenticated)
+        
+        return True 

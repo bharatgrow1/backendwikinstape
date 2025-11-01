@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Permission
@@ -248,10 +248,14 @@ class AuthViewSet(viewsets.ViewSet):
 
         otp_obj.delete()
 
+        try:
+            wallet = user.wallet
+        except Wallet.DoesNotExist:
+            wallet = Wallet.objects.create(user=user, balance=0.00)
+
         refresh = RefreshToken.for_user(user)
         
-        # Check if user needs to set PIN
-        needs_pin_setup = not user.wallet.is_pin_set
+        needs_pin_setup = not wallet.is_pin_set
         
         return Response({
             'access': str(refresh.access_token),
@@ -260,10 +264,10 @@ class AuthViewSet(viewsets.ViewSet):
             'user_id': user.id,
             'username': user.username,
             'needs_pin_setup': needs_pin_setup, 
-            'is_pin_set': user.wallet.is_pin_set,
+            'is_pin_set': wallet.is_pin_set,
             'permissions': list(user.get_all_permissions())
         }, status=status.HTTP_200_OK)
-    
+        
 
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
@@ -291,7 +295,6 @@ class AuthViewSet(viewsets.ViewSet):
             otp_obj, _ = ForgotPasswordOTP.objects.get_or_create(user=user)
             otp = otp_obj.generate_otp()
             
-            # Send OTP via email
             send_otp_email(user.email, otp, is_password_reset=True)
 
             return Response({
@@ -354,43 +357,47 @@ class AuthViewSet(viewsets.ViewSet):
         if otp_obj.is_expired():
             return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Reset password
         user.set_password(new_password)
         user.save()
 
-        # Mark OTP as used
         otp_obj.mark_used()
 
-        # Delete all OTPs for this user
         ForgotPasswordOTP.objects.filter(user=user).delete()
 
         return Response({
             'message': 'Password reset successfully'
         }, status=status.HTTP_200_OK)
 
-# Generic Model ViewSet with Dynamic Permissions
+
+
 class DynamicModelViewSet(viewsets.ModelViewSet):
     """
     Base ViewSet that automatically handles model permissions
     Extend this for any model that needs permission control
     """
-    permission_classes = [IsAuthenticated, ModelViewPermission]
+    permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
         
-        # If user doesn't have view permission, return empty queryset
-        if not user.has_model_permission(self.queryset.model, 'view'):
-            return queryset.none()
+        if user.is_admin_user():
+            return queryset
             
-        return queryset
+        if hasattr(self.queryset.model, 'user'):
+            return queryset.filter(user=user)
+        if hasattr(self.queryset.model, 'wallet'):
+            return queryset.filter(wallet__user=user)
+        if hasattr(self.queryset.model, 'created_by'):
+            return queryset.filter(created_by=user)
+            
+        return queryset.none()
 
-# Apply dynamic permissions to existing ViewSets
 class UserViewSet(DynamicModelViewSet):
     """CRUD for Users with dynamic permissions"""
     queryset = User.objects.all()
     serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated] 
 
 
     def get_serializer_class(self):
@@ -399,8 +406,12 @@ class UserViewSet(DynamicModelViewSet):
         return UserSerializer
 
     def get_permissions(self):
-        """Simplify permissions - use role-based checks instead of Django permissions"""
-        if self.action == 'create':
+        """Simplify permissions"""
+        if self.action in ['my_profile', 'change_password', 'available_services']:
+            return [IsAuthenticated()]
+        elif self.action in ['all_users', 'change_role']:
+            return [IsAdminUser()]
+        elif self.action == 'create':
             return [IsAuthenticated()]
         return [IsAuthenticated()]
     
@@ -422,7 +433,6 @@ class UserViewSet(DynamicModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         
-        # Add created_by field
         serializer.validated_data['created_by'] = request.user
         
         self.perform_create(serializer)
@@ -445,10 +455,8 @@ class UserViewSet(DynamicModelViewSet):
         elif user.role == 'master':
             return User.objects.filter(role__in=['master', 'dealer', 'retailer'])
         elif user.role == 'dealer':
-            # Dealers can only see retailers they created
             return User.objects.filter(role='retailer', created_by=user)
         else:
-            # Retailers can only see themselves
             return User.objects.filter(id=user.id)
     
 
@@ -456,14 +464,12 @@ class UserViewSet(DynamicModelViewSet):
         user_to_delete = self.get_object()
         current_user = request.user
         
-        # Prevent users from deleting themselves
         if user_to_delete == current_user:
             return Response(
                 {'error': 'You cannot delete your own account'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Role-based deletion permissions
         if user_to_delete.role == 'superadmin' and current_user.role != 'superadmin':
             return Response(
                 {'error': 'Only Super Admin can delete Super Admin users'},
@@ -482,7 +488,6 @@ class UserViewSet(DynamicModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Dealers can only delete retailers they created
         if user_to_delete.role == 'retailer' and current_user.role == 'dealer':
             if user_to_delete.created_by != current_user:
                 return Response(
@@ -541,17 +546,15 @@ class UserViewSet(DynamicModelViewSet):
             'user': UserSerializer(user).data
         })
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def update_services(self, request, pk=None):
         """Update user services"""
         user = self.get_object()
         service_ids = request.data.get('service_ids', [])
         
         try:
-            # Clear existing services
             UserService.objects.filter(user=user).delete()
             
-            # Add new services
             for service_id in service_ids:
                 try:
                     service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
@@ -566,7 +569,7 @@ class UserViewSet(DynamicModelViewSet):
         except Exception as e:
             return Response({'error': f'Service update failed: {str(e)}'}, status=400)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def available_services(self, request):
         """Get all available services for user creation"""
         try:
@@ -586,8 +589,16 @@ class WalletViewSet(DynamicModelViewSet):
             return Wallet.objects.all()
         return Wallet.objects.filter(user=user)
     
-
-    @action(detail=False, methods=['post'])
+    def get_permissions(self):
+        """Custom permissions for wallet"""
+        if self.action in ['balance', 'transaction_history', 'request_pin_otp', 
+                          'verify_pin_otp', 'set_pin_with_otp', 'reset_pin_with_otp', 
+                          'verify_pin']:
+            return [IsAuthenticated()]
+        return [IsAuthenticated()]
+    
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def request_pin_otp(self, request):
         """Request OTP for wallet PIN operation"""
         serializer = RequestWalletPinOTPSerializer(data=request.data)
@@ -596,14 +607,11 @@ class WalletViewSet(DynamicModelViewSet):
         purpose = serializer.validated_data['purpose']
         user = request.user
         
-        # Delete any existing OTPs for this user and purpose
         WalletPinOTP.objects.filter(user=user, purpose=purpose).delete()
         
-        # Create new OTP
         otp_obj = WalletPinOTP.objects.create(user=user, purpose=purpose)
         otp = otp_obj.generate_otp()
         
-        # Send OTP via email
         try:
             send_otp_email(
                 user.email, 
@@ -622,7 +630,7 @@ class WalletViewSet(DynamicModelViewSet):
             'purpose': purpose
         })
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def verify_pin_otp(self, request):
         """Verify OTP for wallet PIN operation"""
         serializer = VerifyWalletPinOTPSerializer(data=request.data)
@@ -648,7 +656,6 @@ class WalletViewSet(DynamicModelViewSet):
         if otp_obj.is_expired():
             return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Mark OTP as used
         otp_obj.mark_used()
         
         return Response({
@@ -656,7 +663,7 @@ class WalletViewSet(DynamicModelViewSet):
             'purpose': purpose
         })
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def set_pin_with_otp(self, request):
         """Set wallet PIN with OTP verification"""
         serializer = SetWalletPinWithOTPSerializer(data=request.data)
@@ -672,7 +679,6 @@ class WalletViewSet(DynamicModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Verify OTP
         try:
             otp_obj = WalletPinOTP.objects.get(
                 user=request.user, 
@@ -690,9 +696,7 @@ class WalletViewSet(DynamicModelViewSet):
             return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Set PIN
             wallet.set_pin(pin)
-            # Mark OTP as used
             otp_obj.mark_used()
             
             return Response({'message': 'PIN set successfully'})
@@ -700,7 +704,7 @@ class WalletViewSet(DynamicModelViewSet):
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def reset_pin_with_otp(self, request):
         """Reset wallet PIN with OTP verification"""
         serializer = ResetWalletPinWithOTPSerializer(data=request.data)
@@ -717,7 +721,6 @@ class WalletViewSet(DynamicModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Verify OTP
         try:
             otp_obj = WalletPinOTP.objects.get(
                 user=request.user, 
@@ -735,9 +738,7 @@ class WalletViewSet(DynamicModelViewSet):
             return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Reset PIN
             wallet.reset_pin(old_pin, new_pin)
-            # Mark OTP as used
             otp_obj.mark_used()
             
             return Response({'message': 'PIN reset successfully'})
@@ -788,7 +789,7 @@ class WalletViewSet(DynamicModelViewSet):
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def verify_pin(self, request):
         """Verify wallet PIN"""
         wallet = request.user.wallet
@@ -807,7 +808,7 @@ class WalletViewSet(DynamicModelViewSet):
         else:
             return Response({'error': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def balance(self, request):
         """Get wallet balance - NO PIN REQUIRED"""
         wallet = request.user.wallet
@@ -818,20 +819,17 @@ class WalletViewSet(DynamicModelViewSet):
             'username': request.user.username 
         })
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'],  permission_classes=[IsAuthenticated])
     def transaction_history(self, request):
         """Get complete transaction history with fund requests - NO PIN REQUIRED"""
         user = request.user
         
-        # Get transactions
         transactions = Transaction.objects.filter(wallet__user=user).select_related(
             'wallet__user', 'created_by', 'recipient_user', 'service_submission'
         ).order_by('-created_at')
         
-        # Get fund requests
         fund_requests = FundRequest.objects.filter(user=user).order_by('-created_at')
         
-        # Calculate totals
         total_credit = transactions.filter(transaction_type='credit').aggregate(
             total=Sum('amount')
         )['total'] or 0
@@ -866,15 +864,24 @@ class TransactionViewSet(DynamicModelViewSet):
     ordering_fields = ['created_at', 'amount', 'net_amount']
     ordering = ['-created_at']
 
+
+    permission_classes = [IsAuthenticated]
+
     def get_queryset(self):
+        queryset = super().get_queryset()
         user = self.request.user
+        
         if user.is_admin_user():
-            return Transaction.objects.all().select_related(
-                'wallet__user', 'created_by', 'recipient_user', 'service_submission'
-            )
-        return Transaction.objects.filter(wallet__user=user).select_related(
-            'wallet__user', 'created_by', 'recipient_user', 'service_submission'
-        )
+            return queryset
+            
+        if hasattr(self.queryset.model, 'user'):
+            return queryset.filter(user=user)
+        if hasattr(self.queryset.model, 'wallet'):
+            return queryset.filter(wallet__user=user)
+        if hasattr(self.queryset.model, 'created_by'):
+            return queryset.filter(created_by=user)
+            
+        return queryset.none()
 
     def create(self, request, *args, **kwargs):
         """Create a new transaction with PIN verification and service charges"""
@@ -1096,13 +1103,12 @@ class TransactionViewSet(DynamicModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def stats(self, request):
         """Get transaction statistics"""
         user = request.user
         queryset = self.get_queryset()
         
-        # Date range filters
         days = int(request.query_params.get('days', 30))
         start_date = timezone.now() - timedelta(days=days)
         queryset = queryset.filter(created_at__gte=start_date)
@@ -1268,9 +1274,17 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
 
 class FundRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    # Remove DjangoFilterBackend temporarily to fix template error
+
+
+    def get_permissions(self):
+        """Custom permissions for fund requests"""
+        if self.action in ['create', 'my_requests', 'bank_list', 'bank_options', 'stats']:
+            return [IsAuthenticated()]
+        elif self.action in ['approve', 'reject', 'pending_requests']:
+            return [IsAuthenticated()]
+        return [IsAuthenticated()]
+
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    # filterset_fields = ['status', 'transaction_type', 'deposit_bank', 'Your_Bank']  # Comment out for now
     search_fields = ['reference_number', 'remarks', 'user__username']
     ordering_fields = ['created_at', 'amount', 'updated_at']
     ordering = ['-created_at']
@@ -1285,35 +1299,30 @@ class FundRequestViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         
-        # Super Admin and Admin can see all requests
         if user.role in ['superadmin', 'admin']:
             return FundRequest.objects.all().select_related('user', 'processed_by')
         
-        # Master and Dealer can see requests from users they onboarded
         elif user.role in ['master', 'dealer']:
             onboarded_users = User.objects.filter(created_by=user)
             return FundRequest.objects.filter(user__in=onboarded_users).select_related('user', 'processed_by')
         
-        # Regular users can only see their own requests
         else:
             return FundRequest.objects.filter(user=user).select_related('user', 'processed_by')
     
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
     
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def approve(self, request, pk=None):
         """Approve fund request"""
         fund_request = self.get_object()
         
-        # Check permission
         if not fund_request.can_approve(request.user):
             return Response(
                 {'error': 'You do not have permission to approve this request'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Validate the request data
         serializer = FundRequestApproveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1325,18 +1334,17 @@ class FundRequestViewSet(viewsets.ModelViewSet):
         )
         
         if success:
-            # Refresh the fund request object to get updated data
             fund_request.refresh_from_db()
             response_serializer = self.get_serializer(fund_request)
             return Response({
                 'message': message,
                 'data': response_serializer.data,
-                'new_balance': fund_request.user.wallet.balance  # Include new balance in response
+                'new_balance': fund_request.user.wallet.balance
             })
         else:
             return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def my_requests(self, request):
         """Get current user's fund requests"""
         fund_requests = FundRequest.objects.filter(user=request.user)
@@ -1348,7 +1356,7 @@ class FundRequestViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(fund_requests, many=True)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def pending_requests(self, request):
         """Get pending requests for approvers"""
         user = request.user
@@ -1392,14 +1400,14 @@ class FundRequestViewSet(viewsets.ModelViewSet):
         
         return Response(stats)
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def bank_list(self, request):
         """Get list of available banks"""
         banks = FundRequest.BANKS 
         bank_choices = [{'value': bank[0], 'display_name': bank[1]} for bank in banks]
         return Response({'banks': bank_choices})
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def bank_options(self, request):
         """Get bank options for dropdown"""
         banks = FundRequest.BANKS
