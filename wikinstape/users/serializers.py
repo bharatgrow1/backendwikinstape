@@ -573,3 +573,24 @@ class ResetWalletPinWithOTPSerializer(serializers.Serializer):
         if data['new_pin'] != data['confirm_new_pin']:
             raise serializers.ValidationError("New PINs do not match")
         return data
+
+
+
+class SimpleResetPinWithOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+    old_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+    confirm_new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
+
+    def validate_new_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
+
+    def validate(self, data):
+        if data['new_pin'] != data['confirm_new_pin']:
+            raise serializers.ValidationError("New PINs do not match")
+        return data 

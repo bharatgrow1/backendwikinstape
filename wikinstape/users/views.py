@@ -30,7 +30,7 @@ from .serializers import (
     FundRequestStatsSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer, SetWalletPinSerializer,
     TransactionFilterSerializer, TransactionCreateSerializer, ResetWalletPinSerializer, VerifyWalletPinSerializer,
     ServiceChargeSerializer, FundRequestHistorySerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer,
-    SetWalletPinWithOTPSerializer, ResetWalletPinWithOTPSerializer
+    SetWalletPinWithOTPSerializer, ResetWalletPinWithOTPSerializer, SimpleResetPinWithOTPSerializer
 )
 from .utils import send_otp_email
 
@@ -884,6 +884,55 @@ class WalletViewSet(DynamicModelViewSet):
 
 
 
+@action(detail=False, methods=['post'], permission_classes=[AllowAny])
+def simple_reset_pin_with_otp(self, request):
+    """Simple one-step PIN reset with OTP"""
+    serializer = SimpleResetPinWithOTPSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    
+    email = serializer.validated_data['email']
+    otp = serializer.validated_data['otp']
+    old_pin = serializer.validated_data['old_pin']
+    new_pin = serializer.validated_data['new_pin']
+    
+    try:
+        user = User.objects.get(email=email)
+        wallet = user.wallet
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        otp_obj = WalletPinOTP.objects.get(
+            user=user, 
+            purpose='reset_pin', 
+            otp=otp, 
+            is_used=False
+        )
+    except WalletPinOTP.DoesNotExist:
+        return Response(
+            {'error': 'Invalid OTP'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    if otp_obj.is_expired():
+        return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        if not wallet.verify_pin(old_pin):
+            return Response({'error': 'Invalid current PIN'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        wallet.set_pin(new_pin)
+        
+        otp_obj.mark_used()
+        
+        return Response({'message': 'PIN reset successfully'})
+        
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class TransactionViewSet(DynamicModelViewSet):
@@ -1446,3 +1495,4 @@ class FundRequestViewSet(viewsets.ModelViewSet):
             'deposit_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks],
             'your_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks]
         })
+    
