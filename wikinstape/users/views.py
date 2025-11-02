@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from services.models import ServiceSubmission
 
 
-from .models import (User, EmailOTP, Wallet, Transaction, RolePermission, ServiceCharge,
+from .models import (User, EmailOTP, Wallet, Transaction, RolePermission, ServiceCharge, ForgetPinOTP,
                      ForgotPasswordOTP, State, City, UserService, FundRequest, WalletPinOTP)
 from services.models import ServiceSubCategory
 from .permissions import IsSuperAdmin, IsAdminUser, IsMasterUser, HasPermission, ModelViewPermission
@@ -597,6 +597,156 @@ class WalletViewSet(DynamicModelViewSet):
                           'verify_pin', 'set_pin', 'reset_pin']:
             return [IsAuthenticated()]
         return [IsAuthenticated()]
+    
+
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def forget_pin_request_otp(self, request):
+        """Step 1: Request OTP for forget PIN"""
+        email = request.data.get('email')
+        
+        if not email:
+            return Response(
+                {'error': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User with this email not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        if not hasattr(user, 'wallet'):
+            return Response(
+                {'error': 'Wallet not found for this user'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        ForgetPinOTP.objects.filter(user=user).delete()
+        
+        otp_obj = ForgetPinOTP.objects.create(user=user)
+        otp = otp_obj.generate_otp()
+        
+        try:
+            send_otp_email(
+                user.email, 
+                otp, 
+                is_password_reset=False,
+                purpose='forget_pin'
+            )
+        except Exception as e:
+            return Response(
+                {'error': 'Failed to send OTP. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        return Response({
+            'message': 'OTP sent to your email for PIN reset',
+            'email': email
+        })
+    
+
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def verify_forget_pin_otp(self, request):
+        """Step 2: Verify OTP for forget PIN"""
+        email = request.data.get('email')
+        otp = request.data.get('otp')
+        
+        if not email or not otp:
+            return Response(
+                {'error': 'Email and OTP are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+            otp_obj = ForgetPinOTP.objects.get(
+                user=user, 
+                otp=otp, 
+                is_used=False
+            )
+        except (User.DoesNotExist, ForgetPinOTP.DoesNotExist):
+            return Response(
+                {'error': 'Invalid OTP or email'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if otp_obj.is_expired():
+            return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        otp_obj.mark_used()
+        
+        return Response({
+            'message': 'OTP verified successfully',
+            'email': email,
+            'user_id': user.id
+        })
+    
+
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def reset_pin_with_forget_otp(self, request):
+        """Step 3: Reset PIN after OTP verification (no old PIN required)"""
+        email = request.data.get('email')
+        otp = request.data.get('otp')
+        new_pin = request.data.get('new_pin')
+        confirm_pin = request.data.get('confirm_pin')
+        
+        if not all([email, otp, new_pin, confirm_pin]):
+            return Response(
+                {'error': 'All fields are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_pin != confirm_pin:
+            return Response(
+                {'error': 'PINs do not match'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if len(new_pin) != 4 or not new_pin.isdigit():
+            return Response(
+                {'error': 'PIN must be exactly 4 digits'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+            wallet = user.wallet
+            
+            otp_obj = ForgetPinOTP.objects.get(
+                user=user, 
+                otp=otp, 
+                is_used=True
+            )
+            
+            if otp_obj.is_expired():
+                return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+                
+        except (User.DoesNotExist, ForgetPinOTP.DoesNotExist):
+            return Response(
+                {'error': 'Invalid OTP or email'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            wallet.set_pin(new_pin)
+            
+            ForgetPinOTP.objects.filter(user=user).delete()
+            
+            return Response({'message': 'PIN reset successfully'})
+            
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to reset PIN: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
