@@ -726,12 +726,15 @@ class WalletViewSet(DynamicModelViewSet):
             
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        
-
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def forgot_pin_request(self, request):
-        """Special endpoint for forgot PIN flow - sends OTP without authentication"""
+    def reset_pin_with_otp(self, request):
+        """Reset wallet PIN with OTP verification - No auth required"""
+        serializer = ResetWalletPinWithOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        otp = serializer.validated_data['otp']
+        new_pin = serializer.validated_data['new_pin']
         email = request.data.get('email')
         
         if not email:
@@ -739,53 +742,6 @@ class WalletViewSet(DynamicModelViewSet):
                 {'error': 'Email is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'User with this email not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Delete any existing OTPs for reset_pin purpose
-        WalletPinOTP.objects.filter(user=user, purpose='reset_pin').delete()
-        
-        # Create new OTP
-        otp_obj = WalletPinOTP.objects.create(user=user, purpose='reset_pin')
-        otp = otp_obj.generate_otp()
-        
-        try:
-            # Send OTP email
-            send_otp_email(
-                user.email, 
-                otp, 
-                is_password_reset=False,
-                purpose="wallet_pin_reset"
-            )
-            
-            return Response({
-                'message': 'OTP sent to your email for PIN reset',
-                'purpose': 'reset_pin',
-                'email': email
-            })
-            
-        except Exception as e:
-            print(f"Error sending OTP email: {str(e)}")
-            return Response(
-                {'error': 'Failed to send OTP. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def reset_pin_with_otp(self, request):
-        """Reset wallet PIN with OTP verification - No auth required, no old PIN needed"""
-        serializer = ResetWalletPinWithOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        otp = serializer.validated_data['otp']
-        new_pin = serializer.validated_data['new_pin']
-        email = serializer.validated_data['email']
         
         try:
             user = User.objects.get(email=email)
@@ -816,13 +772,7 @@ class WalletViewSet(DynamicModelViewSet):
             wallet.set_pin(new_pin)
             otp_obj.mark_used()
             
-            WalletPinOTP.objects.filter(user=user, purpose='reset_pin', is_used=False).delete()
-            
-            return Response({
-                'message': 'PIN reset successfully',
-                'user_id': user.id,
-                'username': user.username
-            })
+            return Response({'message': 'PIN reset successfully'})
             
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

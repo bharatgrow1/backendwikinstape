@@ -558,9 +558,9 @@ class SetWalletPinWithOTPSerializer(serializers.Serializer):
 
 class ResetWalletPinWithOTPSerializer(serializers.Serializer):
     otp = serializers.CharField(max_length=6)
+    old_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
     new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
     confirm_new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
-    email = serializers.EmailField(write_only=True)
 
     def validate_new_pin(self, value):
         if not value.isdigit():
@@ -573,4 +573,3 @@ class ResetWalletPinWithOTPSerializer(serializers.Serializer):
         if data['new_pin'] != data['confirm_new_pin']:
             raise serializers.ValidationError("New PINs do not match")
         return data
-    
