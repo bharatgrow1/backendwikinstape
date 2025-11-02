@@ -600,9 +600,9 @@ class WalletViewSet(DynamicModelViewSet):
     
 
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ AllowAny for forget PIN
     def forget_pin_request_otp(self, request):
-        """Step 1: Request OTP for forget PIN"""
+        """Step 1: Request OTP for forget PIN - NO AUTH REQUIRED"""
         email = request.data.get('email')
         
         if not email:
@@ -619,14 +619,17 @@ class WalletViewSet(DynamicModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Check if user has a wallet
         if not hasattr(user, 'wallet'):
             return Response(
                 {'error': 'Wallet not found for this user'},
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Delete any existing OTPs
         ForgetPinOTP.objects.filter(user=user).delete()
         
+        # Create new OTP
         otp_obj = ForgetPinOTP.objects.create(user=user)
         otp = otp_obj.generate_otp()
         
@@ -647,12 +650,10 @@ class WalletViewSet(DynamicModelViewSet):
             'message': 'OTP sent to your email for PIN reset',
             'email': email
         })
-    
 
-
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ AllowAny for forget PIN
     def verify_forget_pin_otp(self, request):
-        """Step 2: Verify OTP for forget PIN"""
+        """Step 2: Verify OTP for forget PIN - NO AUTH REQUIRED"""
         email = request.data.get('email')
         otp = request.data.get('otp')
         
@@ -678,6 +679,7 @@ class WalletViewSet(DynamicModelViewSet):
         if otp_obj.is_expired():
             return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
         
+        # Mark OTP as used
         otp_obj.mark_used()
         
         return Response({
@@ -685,12 +687,10 @@ class WalletViewSet(DynamicModelViewSet):
             'email': email,
             'user_id': user.id
         })
-    
 
-
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ AllowAny for forget PIN
     def reset_pin_with_forget_otp(self, request):
-        """Step 3: Reset PIN after OTP verification (no old PIN required)"""
+        """Step 3: Reset PIN after OTP verification - NO AUTH REQUIRED"""
         email = request.data.get('email')
         otp = request.data.get('otp')
         new_pin = request.data.get('new_pin')
@@ -718,10 +718,11 @@ class WalletViewSet(DynamicModelViewSet):
             user = User.objects.get(email=email)
             wallet = user.wallet
             
+            # Verify OTP again for security
             otp_obj = ForgetPinOTP.objects.get(
                 user=user, 
                 otp=otp, 
-                is_used=True
+                is_used=True  # Should be marked as used from previous step
             )
             
             if otp_obj.is_expired():
@@ -734,8 +735,10 @@ class WalletViewSet(DynamicModelViewSet):
             )
         
         try:
+            # Set new PIN directly (no old PIN verification needed in forget PIN flow)
             wallet.set_pin(new_pin)
             
+            # Delete all OTPs for this user
             ForgetPinOTP.objects.filter(user=user).delete()
             
             return Response({'message': 'PIN reset successfully'})
