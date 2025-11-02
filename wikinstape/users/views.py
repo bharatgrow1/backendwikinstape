@@ -748,29 +748,34 @@ class WalletViewSet(DynamicModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Delete any existing OTPs for reset_pin purpose
         WalletPinOTP.objects.filter(user=user, purpose='reset_pin').delete()
         
+        # Create new OTP
         otp_obj = WalletPinOTP.objects.create(user=user, purpose='reset_pin')
         otp = otp_obj.generate_otp()
         
         try:
+            # Send OTP email
             send_otp_email(
                 user.email, 
                 otp, 
                 is_password_reset=False,
                 purpose="wallet_pin_reset"
             )
+            
+            return Response({
+                'message': 'OTP sent to your email for PIN reset',
+                'purpose': 'reset_pin',
+                'email': email
+            })
+            
         except Exception as e:
+            print(f"Error sending OTP email: {str(e)}")
             return Response(
                 {'error': 'Failed to send OTP. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        return Response({
-            'message': 'OTP sent to your email for PIN reset',
-            'purpose': 'reset_pin',
-            'email': email 
-        })
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def reset_pin_with_otp(self, request):
