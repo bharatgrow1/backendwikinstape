@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from .routers import router
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -9,6 +10,7 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls')),
     path('api/services/', include('services.urls')),
     path('api/signup-request/', include('api.urls')),
+    path('apis/', include(router.urls)),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
