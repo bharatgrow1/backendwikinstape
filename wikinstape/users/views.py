@@ -600,7 +600,7 @@ class WalletViewSet(DynamicModelViewSet):
     
 
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ AllowAny for forget PIN
+    @action(detail=False, methods=['post'])
     def forget_pin_request_otp(self, request):
         """Step 1: Request OTP for forget PIN - NO AUTH REQUIRED"""
         email = request.data.get('email')
@@ -651,7 +651,7 @@ class WalletViewSet(DynamicModelViewSet):
             'email': email
         })
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ AllowAny for forget PIN
+    @action(detail=False, methods=['post'])
     def verify_forget_pin_otp(self, request):
         """Step 2: Verify OTP for forget PIN - NO AUTH REQUIRED"""
         email = request.data.get('email')
@@ -688,7 +688,7 @@ class WalletViewSet(DynamicModelViewSet):
             'user_id': user.id
         })
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ AllowAny for forget PIN
+    @action(detail=False, methods=['post'])
     def reset_pin_with_forget_otp(self, request):
         """Step 3: Reset PIN after OTP verification - NO AUTH REQUIRED"""
         email = request.data.get('email')
