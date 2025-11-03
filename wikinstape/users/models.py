@@ -53,7 +53,7 @@ class User(AbstractUser):
         blank=True,
         related_name='created_users'
     )
-
+    profile_picture = models.CharField(max_length=500, null=True, blank=True)
     first_name = models.CharField(max_length=30, blank=True, null=True)
     last_name = models.CharField(max_length=30, blank=True, null=True)
     phone_number = models.CharField(max_length=15, blank=True, null=True)

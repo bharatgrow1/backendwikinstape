@@ -600,7 +600,7 @@ class WalletViewSet(DynamicModelViewSet):
     
 
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ Important: AllowAny
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def forget_pin_request_otp(self, request):
         """Step 1: Request OTP for forget PIN - NO AUTH REQUIRED"""
         email = request.data.get('email')
