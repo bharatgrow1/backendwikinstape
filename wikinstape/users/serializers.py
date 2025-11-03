@@ -639,6 +639,9 @@ class UserKYCSerializer(serializers.ModelSerializer):
             'phone_number': {'required': True},
             'aadhar_number': {'required': True},
             'pan_number': {'required': True},
+            'pan_card': {'required': False},
+            'aadhar_card': {'required': False},
+            'passport_photo': {'required': False},
         }
 
     def validate_aadhar_number(self, value):

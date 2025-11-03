@@ -485,7 +485,7 @@ class UserViewSet(DynamicModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def upload_kyc_document(self, request):
-        """Upload specific KYC documents"""
+        """Upload specific KYC documents using URL (like profile picture)"""
         user = request.user
         document_type = request.data.get('document_type')
         
@@ -498,22 +498,20 @@ class UserViewSet(DynamicModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if document_type not in request.FILES:
+        document_url = request.data.get('document_url')
+        
+        if not document_url:
             return Response(
-                {'error': f'{document_type.replace("_", " ").title()} file is required'},
+                {'error': 'Document URL is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        old_document = getattr(user, document_type)
-        if old_document:
-            pass
-        
-        setattr(user, document_type, request.FILES[document_type])
+        setattr(user, document_type, document_url)
         user.save()
         
         return Response({
             'message': f'{document_type.replace("_", " ").title()} uploaded successfully',
-            'document_url': getattr(user, document_type).url if getattr(user, document_type) else None
+            'document_url': document_url
         })
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])

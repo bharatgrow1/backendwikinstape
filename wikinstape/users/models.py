@@ -81,12 +81,12 @@ class User(AbstractUser):
     ifsc_code = models.CharField(max_length=11, blank=True, null=True)
     account_holder_name = models.CharField(max_length=255, blank=True, null=True)
     
-    pan_card = models.FileField(upload_to='documents/pan/', blank=True, null=True)
-    aadhar_card = models.FileField(upload_to='documents/aadhar/', blank=True, null=True)
-    passport_photo = models.FileField(upload_to='documents/passport/', blank=True, null=True)
-    shop_photo = models.FileField(upload_to='documents/shop/', blank=True, null=True)
-    store_photo = models.FileField(upload_to='documents/store/', blank=True, null=True)
-    other_documents = models.FileField(upload_to='documents/other/', blank=True, null=True)
+    pan_card = models.CharField(max_length=500, blank=True, null=True)
+    aadhar_card = models.CharField(max_length=500, blank=True, null=True)
+    passport_photo = models.CharField(max_length=500, blank=True, null=True)
+    shop_photo = models.CharField(max_length=500, blank=True, null=True)
+    store_photo = models.CharField(max_length=500, blank=True, null=True)
+    other_documents = models.CharField(max_length=500, blank=True, null=True)
 
     def __str__(self):
         return f"{self.username} ({self.role})"
