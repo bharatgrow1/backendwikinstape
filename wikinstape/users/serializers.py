@@ -600,3 +600,63 @@ class ResetPinWithForgetOTPSerializer(serializers.Serializer):
         if data['new_pin'] != data['confirm_pin']:
             raise serializers.ValidationError("PINs do not match")
         return data
+    
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'profile_picture', 'first_name', 'last_name', 'phone_number', 
+            'alternative_phone', 'date_of_birth', 'gender', 'address', 
+            'city', 'state', 'pincode', 'landmark'
+        ]
+        extra_kwargs = {
+            'profile_picture': {'required': False},
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+        }
+
+class UserKYCSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'first_name', 'last_name', 'phone_number', 'alternative_phone',
+            'aadhar_number', 'pan_number', 'date_of_birth', 'gender',
+            
+            'business_name', 'business_nature', 'business_registration_number',
+            'gst_number', 'business_ownership_type',
+            
+            'address', 'city', 'state', 'pincode', 'landmark',
+            
+            'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+            
+            'pan_card', 'aadhar_card', 'passport_photo', 'shop_photo', 
+            'store_photo', 'other_documents'
+        ]
+        extra_kwargs = {
+            'first_name': {'required': True},
+            'last_name': {'required': True},
+            'phone_number': {'required': True},
+            'aadhar_number': {'required': True},
+            'pan_number': {'required': True},
+        }
+
+    def validate_aadhar_number(self, value):
+        if value and (len(value) != 12 or not value.isdigit()):
+            raise serializers.ValidationError("Aadhar number must be 12 digits")
+        return value
+
+    def validate_pan_number(self, value):
+        if value and (len(value) != 10 or not value[:5].isalpha() or not value[5:9].isdigit() or not value[9].isalpha()):
+            raise serializers.ValidationError("Invalid PAN number format")
+        return value
+
+    def validate_account_number(self, value):
+        if value and (len(value) < 9 or len(value) > 18 or not value.isdigit()):
+            raise serializers.ValidationError("Invalid account number")
+        return value
+
+    def validate_ifsc_code(self, value):
+        if value and (len(value) != 11 or not value[:4].isalpha() or not value[4:].isdigit()):
+            raise serializers.ValidationError("Invalid IFSC code format")
+        return value

@@ -30,7 +30,7 @@ from .serializers import (
     FundRequestStatsSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer, SetWalletPinSerializer,
     TransactionFilterSerializer, TransactionCreateSerializer, ResetWalletPinSerializer, VerifyWalletPinSerializer,
     ServiceChargeSerializer, FundRequestHistorySerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer,
-    SetWalletPinWithOTPSerializer, ResetWalletPinWithOTPSerializer
+    SetWalletPinWithOTPSerializer, ResetWalletPinWithOTPSerializer, UserProfileUpdateSerializer, UserKYCSerializer
 )
 from .utils import send_otp_email
 
@@ -415,6 +415,156 @@ class UserViewSet(DynamicModelViewSet):
             return [IsAuthenticated()]
         return [IsAuthenticated()]
     
+
+
+    @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated])
+    def update_profile(self, request):
+        """Update user profile information"""
+        user = request.user
+        serializer = UserProfileUpdateSerializer(
+            user, 
+            data=request.data, 
+            partial=True,
+            context={'request': request}
+        )
+        
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        
+        return Response({
+            'message': 'Profile updated successfully',
+            'user': UserSerializer(user, context={'request': request}).data
+        })
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def upload_profile_picture(self, request):
+        """Upload or update profile picture"""
+        user = request.user
+        
+        if 'profile_picture' not in request.FILES:
+            return Response(
+                {'error': 'Profile picture file is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if user.profile_picture:
+            pass
+        
+        user.profile_picture = request.FILES['profile_picture']
+        user.save()
+        
+        return Response({
+            'message': 'Profile picture uploaded successfully',
+            'profile_picture': user.profile_picture.url if user.profile_picture else None
+        })
+
+    @action(detail=False, methods=['get', 'post', 'put'], permission_classes=[IsAuthenticated])
+    def kyc(self, request):
+        """Handle KYC submission and retrieval"""
+        user = request.user
+        
+        if request.method == 'GET':
+            serializer = UserKYCSerializer(user)
+            return Response(serializer.data)
+        
+        elif request.method in ['POST', 'PUT']:
+            serializer = UserKYCSerializer(
+                user, 
+                data=request.data, 
+                partial=True,
+                context={'request': request}
+            )
+            
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            
+            return Response({
+                'message': 'KYC information saved successfully',
+                'kyc_data': serializer.data
+            })
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def upload_kyc_document(self, request):
+        """Upload specific KYC documents"""
+        user = request.user
+        document_type = request.data.get('document_type')
+        
+        if not document_type or document_type not in [
+            'pan_card', 'aadhar_card', 'passport_photo', 
+            'shop_photo', 'store_photo', 'other_documents'
+        ]:
+            return Response(
+                {'error': 'Valid document type is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if document_type not in request.FILES:
+            return Response(
+                {'error': f'{document_type.replace("_", " ").title()} file is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        old_document = getattr(user, document_type)
+        if old_document:
+            pass
+        
+        setattr(user, document_type, request.FILES[document_type])
+        user.save()
+        
+        return Response({
+            'message': f'{document_type.replace("_", " ").title()} uploaded successfully',
+            'document_url': getattr(user, document_type).url if getattr(user, document_type) else None
+        })
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def kyc_status(self, request):
+        """Get KYC completion status"""
+        user = request.user
+        
+        required_fields = [
+            'first_name', 'last_name', 'phone_number', 'aadhar_number', 'pan_number',
+            'date_of_birth', 'address', 'city', 'state', 'pincode',
+            'bank_name', 'account_number', 'ifsc_code', 'account_holder_name'
+        ]
+        
+        completed_fields = []
+        missing_fields = []
+        
+        for field in required_fields:
+            value = getattr(user, field)
+            if value and str(value).strip():
+                completed_fields.append(field)
+            else:
+                missing_fields.append(field)
+        
+        completion_percentage = int((len(completed_fields) / len(required_fields)) * 100)
+        
+        required_documents = ['pan_card', 'aadhar_card', 'passport_photo']
+        uploaded_documents = []
+        missing_documents = []
+        
+        for doc in required_documents:
+            if getattr(user, doc):
+                uploaded_documents.append(doc)
+            else:
+                missing_documents.append(doc)
+        
+        document_completion_percentage = int((len(uploaded_documents) / len(required_documents)) * 100)
+        
+        overall_completion = int((completion_percentage + document_completion_percentage) / 2)
+        
+        return Response({
+            'kyc_status': {
+                'overall_completion': overall_completion,
+                'personal_info_completion': completion_percentage,
+                'document_completion': document_completion_percentage,
+                'is_kyc_completed': overall_completion >= 80,
+                'completed_fields': completed_fields,
+                'missing_fields': missing_fields,
+                'uploaded_documents': uploaded_documents,
+                'missing_documents': missing_documents
+            }
+        })
 
     def create(self, request, *args, **kwargs):
         """Create user with role-based permissions"""
