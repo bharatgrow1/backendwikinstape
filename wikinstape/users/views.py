@@ -458,7 +458,7 @@ class UserViewSet(DynamicModelViewSet):
             'profile_picture': user.profile_picture.url if user.profile_picture else None
         })
 
-    @action(detail=False, methods=['get', 'post', 'put'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get', 'post', 'put', 'patch'], permission_classes=[IsAuthenticated])
     def kyc(self, request):
         """Handle KYC submission and retrieval"""
         user = request.user
@@ -467,11 +467,11 @@ class UserViewSet(DynamicModelViewSet):
             serializer = UserKYCSerializer(user)
             return Response(serializer.data)
         
-        elif request.method in ['POST', 'PUT']:
+        elif request.method in ['POST', 'PUT', 'PATCH']:
             serializer = UserKYCSerializer(
                 user, 
                 data=request.data, 
-                partial=True,
+                partial=True, 
                 context={'request': request}
             )
             
