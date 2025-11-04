@@ -29,6 +29,12 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceCommissionSerializer
     filter_fields = ['service_category', 'service_subcategory', 'commission_plan', 'is_active']
     
+    def get_serializer_class(self):
+        """Use different serializer when role filter is applied"""
+        if self.request.query_params.get('role'):
+            return RoleFilteredServiceCommissionSerializer
+        return ServiceCommissionSerializer
+    
     def get_queryset(self):
         """Override get_queryset to add role-based filtering"""
         queryset = super().get_queryset()
@@ -47,7 +53,6 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
             elif role == 'retailer':
                 queryset = queryset.filter(retailer_commission__gt=0)
             elif role == 'superadmin':
-                # For superadmin, show services where distribution is less than 100%
                 queryset = queryset.annotate(
                     total_distributed=(
                         models.F('admin_commission') + 
@@ -58,6 +63,12 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
                 ).filter(total_distributed__lt=100)
         
         return queryset
+    
+    def get_serializer_context(self):
+        """Pass request context to serializer"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
     
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -80,7 +91,8 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
         elif category_id:
             queryset = queryset.filter(service_category_id=category_id)
         
-        serializer = self.get_serializer(queryset, many=True)
+        serializer_class = self.get_serializer_class()
+        serializer = serializer_class(queryset, many=True, context={'request': request})
         return Response(serializer.data)
     
     @action(detail=True, methods=['get'])
@@ -105,67 +117,7 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
             ]),
             'superadmin_share': distribution_percentages['superadmin']
         })
-    
-    @action(detail=False, methods=['get'])
-    def role_summary(self, request):
-        """Get summary of services with commission for a specific role"""
-        role = request.query_params.get('role')
-        
-        if not role:
-            return Response(
-                {'error': 'role parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        valid_roles = ['admin', 'master', 'dealer', 'retailer', 'superadmin']
-        if role not in valid_roles:
-            return Response(
-                {'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        queryset = self.get_queryset()
-        
-        # Get role-specific data
-        role_data = []
-        for commission in queryset:
-            distribution_percentages = commission.get_distribution_percentages()
-            role_percentage = distribution_percentages.get(role, 0)
-            
-            if role_percentage > 0:
-                service_data = {
-                    'service_id': commission.service_subcategory.id if commission.service_subcategory else commission.service_category.id,
-                    'service_name': commission.service_subcategory.name if commission.service_subcategory else commission.service_category.name,
-                    'service_category': commission.service_subcategory.category.name if commission.service_subcategory and commission.service_subcategory.category else 'N/A',
-                    'commission_plan': commission.commission_plan.name,
-                    'total_commission_rate': commission.commission_value,
-                    'commission_type': commission.commission_type,
-                    'role_percentage': role_percentage,
-                    'example_commission': self.calculate_example_commission(commission, role_percentage),
-                    'all_roles_distribution': distribution_percentages
-                }
-                role_data.append(service_data)
-        
-        return Response({
-            'role': role,
-            'total_services': len(role_data),
-            'services': role_data
-        })
-    
-    def calculate_example_commission(self, commission, role_percentage):
-        """Calculate example commission for ₹1000 transaction"""
-        example_amount = 1000
-        total_commission = commission.calculate_commission(example_amount)
-        role_commission = (total_commission * role_percentage) / 100
-        
-        return {
-            'transaction_amount': example_amount,
-            'total_commission': total_commission,
-            'role_commission': role_commission,
-            'description': f"₹{role_commission} from ₹{example_amount} transaction"
-        }
-    
-    
+
 class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = CommissionTransactionSerializer
