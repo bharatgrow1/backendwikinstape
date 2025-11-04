@@ -20,6 +20,8 @@ class ServiceCommissionSerializer(serializers.ModelSerializer):
     service_category_name = serializers.CharField(source='service_category.name', read_only=True)
     service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
     commission_plan_name = serializers.CharField(source='commission_plan.name', read_only=True)
+    superadmin_commission = serializers.SerializerMethodField()
+    total_distributed = serializers.SerializerMethodField()
     
     class Meta:
         model = ServiceCommission
@@ -27,11 +29,32 @@ class ServiceCommissionSerializer(serializers.ModelSerializer):
             'id', 'service_category', 'service_category_name', 'service_subcategory', 
             'service_subcategory_name', 'commission_plan', 'commission_plan_name',
             'commission_type', 'commission_value', 'admin_commission', 'master_commission',
-            'dealer_commission', 'retailer_commission', 'is_active', 'created_at', 'updated_at'
+            'dealer_commission', 'retailer_commission', 'superadmin_commission', 'total_distributed',
+            'is_active', 'created_at', 'updated_at'
         ]
+        read_only_fields = ['superadmin_commission', 'total_distributed']
+    
+    def get_superadmin_commission(self, obj):
+        """Calculate superadmin commission percentage"""
+        total_distributed = (
+            obj.admin_commission + 
+            obj.master_commission + 
+            obj.dealer_commission + 
+            obj.retailer_commission
+        )
+        return 100 - total_distributed
+    
+    def get_total_distributed(self, obj):
+        """Get total distributed percentage"""
+        return (
+            obj.admin_commission + 
+            obj.master_commission + 
+            obj.dealer_commission + 
+            obj.retailer_commission
+        )
     
     def validate(self, data):
-        """Validate commission distribution totals 100% for percentage type"""
+        """Validate commission distribution doesn't exceed 100% for percentage type"""
         if data.get('commission_type') == 'percentage':
             total_commission = (
                 data.get('admin_commission', 0) +
@@ -39,9 +62,9 @@ class ServiceCommissionSerializer(serializers.ModelSerializer):
                 data.get('dealer_commission', 0) +
                 data.get('retailer_commission', 0)
             )
-            if total_commission != 100:
+            if total_commission > 100:
                 raise serializers.ValidationError(
-                    "Total commission distribution must equal 100% for percentage type commissions"
+                    "Total commission distribution cannot exceed 100%"
                 )
         return data
 

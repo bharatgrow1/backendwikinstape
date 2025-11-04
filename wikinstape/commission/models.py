@@ -76,7 +76,7 @@ class ServiceCommission(models.Model):
         return f"{service_name} - {self.commission_plan.name} - {self.commission_value}{'%' if self.commission_type == 'percentage' else '₹'}"
     
     def clean(self):
-        """Validate commission distribution totals 100%"""
+        """Validate commission distribution doesn't exceed 100%"""
         if self.commission_type == 'percentage':
             total = (
                 self.admin_commission + 
@@ -84,8 +84,8 @@ class ServiceCommission(models.Model):
                 self.dealer_commission + 
                 self.retailer_commission
             )
-            if total != 100:
-                raise ValidationError("Total commission distribution must equal 100%")
+            if total > 100:
+                raise ValidationError("Total commission distribution cannot exceed 100%")
     
     def calculate_commission(self, transaction_amount):
         """Calculate commission based on transaction amount"""
@@ -96,15 +96,36 @@ class ServiceCommission(models.Model):
             
         return commission
     
+    def get_distribution_percentages(self):
+        """Get distribution percentages including superadmin share"""
+        total_distributed = (
+            self.admin_commission + 
+            self.master_commission + 
+            self.dealer_commission + 
+            self.retailer_commission
+        )
+        superadmin_commission = 100 - total_distributed
+        
+        return {
+            'admin': self.admin_commission,
+            'master': self.master_commission,
+            'dealer': self.dealer_commission,
+            'retailer': self.retailer_commission,
+            'superadmin': superadmin_commission
+        }
+    
     def distribute_commission(self, transaction_amount, retailer_user):
-        """Distribute commission to hierarchy users"""
+        """Distribute commission to hierarchy users including superadmin"""
         total_commission = self.calculate_commission(transaction_amount)
         
+        distribution_percentages = self.get_distribution_percentages()
+        
         distribution = {
-            'admin': (total_commission * self.admin_commission) / 100,
-            'master': (total_commission * self.master_commission) / 100,
-            'dealer': (total_commission * self.dealer_commission) / 100,
-            'retailer': (total_commission * self.retailer_commission) / 100,
+            'admin': (total_commission * distribution_percentages['admin']) / 100,
+            'master': (total_commission * distribution_percentages['master']) / 100,
+            'dealer': (total_commission * distribution_percentages['dealer']) / 100,
+            'retailer': (total_commission * distribution_percentages['retailer']) / 100,
+            'superadmin': (total_commission * distribution_percentages['superadmin']) / 100,
         }
         
         hierarchy_users = self.get_commission_hierarchy(retailer_user)
@@ -112,12 +133,13 @@ class ServiceCommission(models.Model):
         return distribution, hierarchy_users
     
     def get_commission_hierarchy(self, retailer_user):
-        """Get all users in commission hierarchy for a retailer"""
+        """Get all users in commission hierarchy for a retailer including superadmin"""
         hierarchy = {
             'retailer': retailer_user,
             'dealer': retailer_user.created_by if retailer_user.created_by and retailer_user.created_by.role == 'dealer' else None,
             'master': None,
-            'admin': None
+            'admin': None,
+            'superadmin': None
         }
         
         if hierarchy['dealer']:
@@ -126,8 +148,12 @@ class ServiceCommission(models.Model):
         if hierarchy['master']:
             hierarchy['admin'] = hierarchy['master'].created_by if hierarchy['master'].created_by and hierarchy['master'].created_by.role in ['admin', 'superadmin'] else None
         
+        # Find admin if not in hierarchy
         if not hierarchy['admin']:
-            hierarchy['admin'] = User.objects.filter(role__in=['admin', 'superadmin'], is_active=True).first()
+            hierarchy['admin'] = User.objects.filter(role='admin', is_active=True).first()
+        
+        # Find superadmin (always assign to a superadmin)
+        hierarchy['superadmin'] = User.objects.filter(role='superadmin', is_active=True).first()
         
         return hierarchy
 

@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction as db_transaction
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Avg, Max, Min
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import datetime, timedelta
@@ -52,6 +52,29 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def distribution_details(self, request, pk=None):
+        """Get detailed distribution information for a service commission"""
+        service_commission = self.get_object()
+        
+        distribution_percentages = service_commission.get_distribution_percentages()
+        
+        return Response({
+            'service_commission_id': service_commission.id,
+            'service_name': service_commission.service_subcategory.name if service_commission.service_subcategory else service_commission.service_category.name,
+            'commission_plan': service_commission.commission_plan.name,
+            'commission_type': service_commission.commission_type,
+            'commission_value': service_commission.commission_value,
+            'distribution_percentages': distribution_percentages,
+            'total_distributed': sum([
+                service_commission.admin_commission,
+                service_commission.master_commission,
+                service_commission.dealer_commission,
+                service_commission.retailer_commission
+            ]),
+            'superadmin_share': distribution_percentages['superadmin']
+        })
 
 class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -334,12 +357,15 @@ class CommissionCalculatorView(viewsets.ViewSet):
                 transaction_amount, user
             )
             
+            distribution_percentages = commission_config.get_distribution_percentages()
+            
             return Response({
                 'transaction_amount': transaction_amount,
                 'service': service_subcategory.name,
                 'commission_plan': commission_plan.name,
                 'total_commission': commission_config.calculate_commission(transaction_amount),
-                'distribution': distribution,
+                'distribution_amounts': distribution,
+                'distribution_percentages': distribution_percentages,
                 'hierarchy_users': {
                     role: {
                         'username': user.username if user else 'N/A',
@@ -453,7 +479,7 @@ class CommissionStatsViewSet(viewsets.ViewSet):
 class CommissionManager:
     @staticmethod
     def process_service_commission(service_submission, main_transaction):
-        """Process commission for a service submission"""
+        """Process commission for a service submission including superadmin"""
         try:
             with db_transaction.atomic():
                 retailer_user = service_submission.submitted_by
