@@ -262,6 +262,10 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             'notes': request.data.get('notes')
         }
 
+        # Add submitted_by if user is authenticated
+        if request.user.is_authenticated:
+            submission_data['submitted_by'] = request.user.id
+
         serializer = self.get_serializer(data=submission_data)
         serializer.is_valid(raise_exception=True)
         submission = serializer.save()
@@ -276,18 +280,142 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 file_size=file_obj.size
             )
 
+        # Process commission if payment is successful and amount is positive
+        if submission.status == 'submitted' and submission.amount > 0:
+            try:
+                from commission.views import CommissionManager
+                from users.models import Transaction
+                
+                # Find the main transaction for this submission
+                main_transaction = Transaction.objects.filter(
+                    service_submission=submission,
+                    status='success'
+                ).first()
+                
+                if main_transaction:
+                    success, message = CommissionManager.process_service_commission(
+                        submission, main_transaction
+                    )
+                    if not success:
+                        # Log commission processing failure but don't fail the submission
+                        print(f"Commission processing failed: {message}")
+                else:
+                    print(f"No successful transaction found for submission {submission.id}")
+                    
+            except ImportError:
+                print("Commission app not available")
+            except Exception as e:
+                print(f"Error in commission processing: {str(e)}")
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         submission = self.get_object()
         new_status = request.data.get('status')
+        
         if new_status not in dict(ServiceSubmission.STATUS_CHOICES):
             return Response({'error': 'Invalid status'}, status=status.HTTP_400_BAD_REQUEST)
+        
         submission.status = new_status
         submission.save()
+        
+        # Process commission when status changes to 'success'
+        if new_status == 'success' and submission.amount > 0:
+            try:
+                from commission.views import CommissionManager
+                from users.models import Transaction
+                
+                # Find the main transaction
+                main_transaction = Transaction.objects.filter(
+                    service_submission=submission,
+                    status='success'
+                ).first()
+                
+                if main_transaction:
+                    success, message = CommissionManager.process_service_commission(
+                        submission, main_transaction
+                    )
+                    if not success:
+                        print(f"Commission processing failed: {message}")
+                else:
+                    print(f"No transaction found for successful submission {submission.id}")
+                    
+            except Exception as e:
+                print(f"Error in commission processing: {str(e)}")
+        
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def process_payment(self, request, pk=None):
+        """Process payment for service submission and then handle commission"""
+        submission = self.get_object()
+        payment_amount = request.data.get('amount', submission.amount)
+        pin = request.data.get('pin')
+        
+        if submission.payment_status == 'paid':
+            return Response({'error': 'Payment already processed'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with db_transaction.atomic():
+                # Process payment from user's wallet
+                wallet = request.user.wallet
+                
+                # Deduct amount from wallet
+                total_deducted = wallet.deduct_amount(
+                    amount=payment_amount,
+                    service_charge=0,  # You can add service charge if needed
+                    pin=pin
+                )
+                
+                # Create transaction record
+                transaction = Transaction.objects.create(
+                    wallet=wallet,
+                    amount=payment_amount,
+                    net_amount=payment_amount,
+                    service_charge=0,
+                    transaction_type='debit',
+                    transaction_category='service_payment',
+                    description=f"Payment for {submission.service_form.name}",
+                    created_by=request.user,
+                    service_submission=submission,
+                    service_name=submission.service_form.name,
+                    status='success'
+                )
+                
+                # Update submission payment status
+                submission.payment_status = 'paid'
+                submission.transaction_id = transaction.reference_number
+                submission.status = 'success'
+                submission.save()
+                
+                # Process commission after successful payment
+                try:
+                    from commission.views import CommissionManager
+                    success, message = CommissionManager.process_service_commission(
+                        submission, transaction
+                    )
+                    
+                    if success:
+                        commission_message = "Commission processed successfully"
+                    else:
+                        commission_message = f"Commission processing failed: {message}"
+                        
+                except Exception as e:
+                    commission_message = f"Commission processing error: {str(e)}"
+                
+                serializer = self.get_serializer(submission)
+                return Response({
+                    'message': 'Payment processed successfully',
+                    'commission_message': commission_message,
+                    'data': serializer.data
+                })
+                
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f'Payment processing failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ServiceImageViewSet(viewsets.ModelViewSet):
     queryset = UploadImage.objects.all()

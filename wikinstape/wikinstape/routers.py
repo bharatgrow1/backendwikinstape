@@ -1,8 +1,9 @@
+from rest_framework.routers import DefaultRouter
+from rest_framework import routers
 from api.views import *
 from users.views import *
 from services.views import *
-from rest_framework import routers
-from rest_framework.routers import DefaultRouter
+from commission.views import *
 
 router = DefaultRouter()
 
@@ -30,4 +31,11 @@ router.register(r'direct-service-forms', DirectServiceFormViewSet, basename='dir
 router.register(r'service-submissions', ServiceSubmissionViewSet)
 router.register(r'upload-images', ServiceImageViewSet)
 
+
+# Existing routes...
+router.register(r'commission-plans', CommissionPlanViewSet, basename='commission-plans')
+router.register(r'service-commissions', ServiceCommissionViewSet, basename='service-commissions')
+router.register(r'commission-transactions', CommissionTransactionViewSet, basename='commission-transactions')
+router.register(r'user-commission-plans', UserCommissionPlanViewSet, basename='user-commission-plans')
+router.register(r'commission-payouts', CommissionPayoutViewSet, basename='commission-payouts')
 
