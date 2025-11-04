@@ -134,3 +134,23 @@ class CommissionCalculatorSerializer(serializers.Serializer):
     service_subcategory_id = serializers.IntegerField()
     transaction_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     user_id = serializers.IntegerField(required=False)
+
+
+
+class RoleSpecificServiceCommissionSerializer(serializers.ModelSerializer):
+    service_category_name = serializers.CharField(source='service_category.name', read_only=True)
+    service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
+    commission_plan_name = serializers.CharField(source='commission_plan.name', read_only=True)
+    
+    # Role-specific fields (will be populated in view)
+    role_percentage = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
+    example_commission = serializers.DictField(read_only=True)
+    
+    class Meta:
+        model = ServiceCommission
+        fields = [
+            'id', 'service_category', 'service_category_name', 'service_subcategory', 
+            'service_subcategory_name', 'commission_plan', 'commission_plan_name',
+            'commission_type', 'commission_value', 'role_percentage', 'example_commission',
+            'is_active', 'created_at', 'updated_at'
+        ]
