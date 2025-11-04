@@ -61,9 +61,6 @@ class ServiceCommission(models.Model):
         default=0
     )
     
-    min_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    max_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -96,11 +93,6 @@ class ServiceCommission(models.Model):
             commission = (transaction_amount * self.commission_value) / 100
         else:
             commission = self.commission_value
-        
-        if commission < self.min_amount:
-            commission = self.min_amount
-        if self.max_amount and commission > self.max_amount:
-            commission = self.max_amount
             
         return commission
     
@@ -181,6 +173,7 @@ class CommissionTransaction(models.Model):
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['retailer_user', 'created_at']),
             models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['role', 'created_at']),
         ]
     
     def __str__(self):

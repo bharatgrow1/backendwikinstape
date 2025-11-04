@@ -59,40 +59,122 @@ class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
+        queryset = CommissionTransaction.objects.all()
+        
+        # Apply role-based filtering
+        role = self.request.query_params.get('role')
+        if role:
+            queryset = queryset.filter(role=role)
+        
+        # Apply date range filtering
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        if start_date and end_date:
+            try:
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+                queryset = queryset.filter(
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date
+                )
+            except ValueError:
+                pass
         
         if user.is_admin_user():
-            return CommissionTransaction.objects.all()
+            return queryset
         
-        return CommissionTransaction.objects.filter(user=user)
+        return queryset.filter(user=user)
     
     @action(detail=False, methods=['get'])
     def my_commissions(self, request):
         """Get current user's commissions with stats"""
         user = request.user
         
-        total_commission = CommissionTransaction.objects.filter(
+        # Get filter parameters
+        role = request.query_params.get('role')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        # Base queryset
+        commission_qs = CommissionTransaction.objects.filter(
             user=user, 
             status='success',
             transaction_type='credit'
-        ).aggregate(total=Sum('commission_amount'))['total'] or 0
+        )
         
-        recent_commissions = self.get_queryset().filter(user=user)[:10]
+        # Apply filters
+        if role:
+            commission_qs = commission_qs.filter(role=role)
         
+        if start_date and end_date:
+            try:
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+                commission_qs = commission_qs.filter(
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date
+                )
+            except ValueError:
+                pass
+        
+        total_commission = commission_qs.aggregate(total=Sum('commission_amount'))['total'] or 0
+        
+        # Commission by role breakdown
+        commission_by_role = CommissionTransaction.objects.filter(
+            user=user,
+            status='success',
+            transaction_type='credit'
+        ).values('role').annotate(
+            total=Sum('commission_amount'),
+            count=Count('id')
+        ).order_by('-total')
+        
+        # Recent commissions
+        recent_commissions = commission_qs.order_by('-created_at')[:10]
+        
+        # Monthly breakdown for current year
+        current_year = timezone.now().year
         monthly_data = CommissionTransaction.objects.filter(
             user=user,
             status='success',
             transaction_type='credit',
-            created_at__gte=timezone.now() - timedelta(days=30)
-        ).extra({'month': "date_trunc('month', created_at)"}).values('month').annotate(
+            created_at__year=current_year
+        ).extra({'month': "EXTRACT(month FROM created_at)"}).values('month').annotate(
             total=Sum('commission_amount')
-        ).order_by('-month')
+        ).order_by('month')
         
         serializer = self.get_serializer(recent_commissions, many=True)
         
         return Response({
             'total_commission': total_commission,
+            'commission_by_role': list(commission_by_role),
             'recent_commissions': serializer.data,
-            'monthly_breakdown': monthly_data
+            'monthly_breakdown': list(monthly_data),
+            'filters_applied': {
+                'role': role,
+                'start_date': start_date,
+                'end_date': end_date
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def role_stats(self, request):
+        """Get commission statistics by role for current user"""
+        user = request.user
+        
+        role_stats = CommissionTransaction.objects.filter(
+            user=user,
+            status='success',
+            transaction_type='credit'
+        ).values('role').annotate(
+            total_commission=Sum('commission_amount'),
+            transaction_count=Count('id'),
+            avg_commission=Avg('commission_amount')
+        ).order_by('-total_commission')
+        
+        return Response({
+            'role_stats': list(role_stats),
+            'user_role': user.role
         })
 
 class UserCommissionPlanViewSet(viewsets.ModelViewSet):
@@ -158,6 +240,21 @@ class CommissionPayoutViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
     queryset = CommissionPayout.objects.all()
     serializer_class = CommissionPayoutSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by user role if provided
+        user_role = self.request.query_params.get('user_role')
+        if user_role:
+            queryset = queryset.filter(user__role=user_role)
+        
+        # Filter by status if provided
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        return queryset
     
     @action(detail=True, methods=['post'])
     def process_payout(self, request, pk=None):
@@ -246,7 +343,8 @@ class CommissionCalculatorView(viewsets.ViewSet):
                 'hierarchy_users': {
                     role: {
                         'username': user.username if user else 'N/A',
-                        'user_id': user.id if user else None
+                        'user_id': user.id if user else None,
+                        'role': role
                     } for role, user in hierarchy_users.items()
                 }
             })
@@ -262,11 +360,35 @@ class CommissionStatsViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['get'])
     def overview(self, request):
-        """Get commission statistics overview"""
-        total_commission = CommissionTransaction.objects.filter(
+        """Get commission statistics overview with role-based filtering"""
+        
+        # Get filter parameters
+        role = request.query_params.get('role')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        # Base queryset
+        commission_qs = CommissionTransaction.objects.filter(
             status='success', 
             transaction_type='credit'
-        ).aggregate(total=Sum('commission_amount'))['total'] or 0
+        )
+        
+        # Apply filters
+        if role:
+            commission_qs = commission_qs.filter(role=role)
+        
+        if start_date and end_date:
+            try:
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+                commission_qs = commission_qs.filter(
+                    created_at__date__gte=start_date,
+                    created_at__date__lte=end_date
+                )
+            except ValueError:
+                pass
+        
+        total_commission = commission_qs.aggregate(total=Sum('commission_amount'))['total'] or 0
         
         pending_payouts = CommissionPayout.objects.filter(
             status='pending'
@@ -276,17 +398,12 @@ class CommissionStatsViewSet(viewsets.ViewSet):
             status='completed'
         ).aggregate(total=Sum('total_amount'))['total'] or 0
         
-        commission_by_role = CommissionTransaction.objects.filter(
-            status='success', 
-            transaction_type='credit'
-        ).values('role').annotate(
-            total=Sum('commission_amount')
+        commission_by_role = commission_qs.values('role').annotate(
+            total=Sum('commission_amount'),
+            count=Count('id')
         ).order_by('-total')
         
-        top_services = CommissionTransaction.objects.filter(
-            status='success', 
-            transaction_type='credit'
-        ).values(
+        top_services = commission_qs.values(
             'service_submission__service_form__name'
         ).annotate(
             total=Sum('commission_amount'),
@@ -298,7 +415,39 @@ class CommissionStatsViewSet(viewsets.ViewSet):
             'pending_payouts': pending_payouts,
             'total_payouts': total_payouts,
             'commission_by_role': list(commission_by_role),
-            'top_services': list(top_services)
+            'top_services': list(top_services),
+            'filters_applied': {
+                'role': role,
+                'start_date': start_date,
+                'end_date': end_date
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def role_performance(self, request):
+        """Get detailed performance statistics by role"""
+        
+        role_stats = CommissionTransaction.objects.filter(
+            status='success',
+            transaction_type='credit'
+        ).values('role').annotate(
+            total_commission=Sum('commission_amount'),
+            transaction_count=Count('id'),
+            avg_commission=Avg('commission_amount'),
+            max_commission=Max('commission_amount'),
+            min_commission=Min('commission_amount')
+        ).order_by('-total_commission')
+        
+        # User count by role
+        user_count_by_role = User.objects.filter(
+            is_active=True
+        ).exclude(role__in=['superadmin']).values('role').annotate(
+            user_count=Count('id')
+        )
+        
+        return Response({
+            'role_performance': list(role_stats),
+            'user_distribution': list(user_count_by_role)
         })
 
 class CommissionManager:

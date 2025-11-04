@@ -27,8 +27,7 @@ class ServiceCommissionSerializer(serializers.ModelSerializer):
             'id', 'service_category', 'service_category_name', 'service_subcategory', 
             'service_subcategory_name', 'commission_plan', 'commission_plan_name',
             'commission_type', 'commission_value', 'admin_commission', 'master_commission',
-            'dealer_commission', 'retailer_commission', 'min_amount', 'max_amount',
-            'is_active', 'created_at', 'updated_at'
+            'dealer_commission', 'retailer_commission', 'is_active', 'created_at', 'updated_at'
         ]
     
     def validate(self, data):
