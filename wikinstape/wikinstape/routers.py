@@ -38,4 +38,5 @@ router.register(r'service-commissions', ServiceCommissionViewSet, basename='serv
 router.register(r'commission-transactions', CommissionTransactionViewSet, basename='commission-transactions')
 router.register(r'user-commission-plans', UserCommissionPlanViewSet, basename='user-commission-plans')
 router.register(r'commission-payouts', CommissionPayoutViewSet, basename='commission-payouts')
+router.register(r'my-service-commissions', DealerRetailerCommissionViewSet, basename='my-service-commissions')
 

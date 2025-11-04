@@ -136,8 +136,6 @@ class CommissionCalculatorSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(required=False)
     
 
-
-
 class RoleFilteredServiceCommissionSerializer(serializers.ModelSerializer):
     service_category_name = serializers.CharField(source='service_category.name', read_only=True)
     service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
@@ -164,3 +162,52 @@ class RoleFilteredServiceCommissionSerializer(serializers.ModelSerializer):
                 distribution_percentages = obj.get_distribution_percentages()
                 return distribution_percentages.get(role, 0)
         return 0
+    
+
+
+class DealerRetailerServiceCommissionSerializer(serializers.ModelSerializer):
+    service_category_name = serializers.CharField(source='service_category.name', read_only=True)
+    service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
+    commission_plan_name = serializers.CharField(source='commission_plan.name', read_only=True)
+    
+    # Only show the user's role commission
+    my_commission_percentage = serializers.SerializerMethodField()
+    example_commission = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ServiceCommission
+        fields = [
+            'id', 'service_category', 'service_category_name', 'service_subcategory', 
+            'service_subcategory_name', 'commission_plan', 'commission_plan_name',
+            'commission_type', 'commission_value', 'my_commission_percentage', 
+            'example_commission', 'is_active'
+        ]
+    
+    def get_my_commission_percentage(self, obj):
+        """Get commission percentage for the current user's role"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            user_role = request.user.role
+            distribution_percentages = obj.get_distribution_percentages()
+            return distribution_percentages.get(user_role, 0)
+        return 0
+    
+    def get_example_commission(self, obj):
+        """Calculate example commission for ₹1000 transaction"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            user_role = request.user.role
+            distribution_percentages = obj.get_distribution_percentages()
+            role_percentage = distribution_percentages.get(user_role, 0)
+            
+            if role_percentage > 0:
+                example_amount = 1000
+                total_commission = obj.calculate_commission(example_amount)
+                role_commission = (total_commission * role_percentage) / 100
+                
+                return {
+                    'transaction_amount': example_amount,
+                    'your_commission': role_commission,
+                    'description': f"You earn ₹{role_commission} from ₹{example_amount} transaction"
+                }
+        return None

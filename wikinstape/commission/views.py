@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import datetime, timedelta
 import random
+from decimal import InvalidOperation
+
 
 from .models import *
 from .serializers import *
@@ -593,3 +595,147 @@ class CommissionManager:
                 
         except Exception as e:
             return False, f"Commission processing failed: {str(e)}"
+        
+
+
+class DealerRetailerCommissionViewSet(viewsets.ReadOnlyModelViewSet):
+    """View for dealers and retailers to see their commission rates"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = DealerRetailerServiceCommissionSerializer
+    
+    def get_queryset(self):
+        """Only show services where the user's role gets commission"""
+        user = self.request.user
+        user_role = user.role
+        
+        # Only allow dealer and retailer roles
+        if user_role not in ['dealer', 'retailer']:
+            return ServiceCommission.objects.none()
+        
+        queryset = ServiceCommission.objects.filter(is_active=True)
+        
+        # Filter based on user's role
+        if user_role == 'dealer':
+            queryset = queryset.filter(dealer_commission__gt=0)
+        elif user_role == 'retailer':
+            queryset = queryset.filter(retailer_commission__gt=0)
+        
+        # Additional filtering
+        service_category_id = self.request.query_params.get('service_category_id')
+        if service_category_id:
+            queryset = queryset.filter(service_category_id=service_category_id)
+        
+        service_subcategory_id = self.request.query_params.get('service_subcategory_id')
+        if service_subcategory_id:
+            queryset = queryset.filter(service_subcategory_id=service_subcategory_id)
+        
+        return queryset
+    
+    def get_serializer_context(self):
+        """Pass request context to serializer"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+    
+    @action(detail=False, methods=['get'])
+    def my_commission_summary(self, request):
+        """Get summary of commission rates for current user"""
+        user = request.user
+        user_role = user.role
+        
+        if user_role not in ['dealer', 'retailer']:
+            return Response(
+                {'error': 'This endpoint is only for dealers and retailers'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        queryset = self.get_queryset()
+        
+        summary_data = []
+        total_services = queryset.count()
+        
+        for commission in queryset:
+            distribution_percentages = commission.get_distribution_percentages()
+            user_percentage = distribution_percentages.get(user_role, 0)
+            
+            service_data = {
+                'service_id': commission.service_subcategory.id if commission.service_subcategory else commission.service_category.id,
+                'service_name': commission.service_subcategory.name if commission.service_subcategory else commission.service_category.name,
+                'service_category': commission.service_subcategory.category.name if commission.service_subcategory and commission.service_subcategory.category else 'N/A',
+                'total_commission_rate': commission.commission_value,
+                'commission_type': commission.commission_type,
+                'your_commission_percentage': user_percentage,
+                'commission_plan': commission.commission_plan.name
+            }
+            summary_data.append(service_data)
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user_role
+            },
+            'total_services': total_services,
+            'commission_rates': summary_data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def calculate_my_commission(self, request):
+        """Calculate commission for a specific service and amount"""
+        user = request.user
+        user_role = user.role
+        
+        if user_role not in ['dealer', 'retailer']:
+            return Response(
+                {'error': 'This endpoint is only for dealers and retailers'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        service_subcategory_id = request.query_params.get('service_subcategory_id')
+        transaction_amount = request.query_params.get('transaction_amount')
+        
+        if not service_subcategory_id or not transaction_amount:
+            return Response(
+                {'error': 'Both service_subcategory_id and transaction_amount are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            transaction_amount = Decimal(transaction_amount)
+            service_commission = ServiceCommission.objects.get(
+                service_subcategory_id=service_subcategory_id,
+                is_active=True
+            )
+            
+            # Check if user's role gets commission for this service
+            distribution_percentages = service_commission.get_distribution_percentages()
+            user_percentage = distribution_percentages.get(user_role, 0)
+            
+            if user_percentage == 0:
+                return Response({
+                    'error': f'Your role ({user_role}) does not get commission for this service'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            total_commission = service_commission.calculate_commission(transaction_amount)
+            user_commission = (total_commission * user_percentage) / 100
+            
+            return Response({
+                'service': service_commission.service_subcategory.name if service_commission.service_subcategory else service_commission.service_category.name,
+                'transaction_amount': transaction_amount,
+                'total_commission_rate': service_commission.commission_value,
+                'commission_type': service_commission.commission_type,
+                'your_commission_percentage': user_percentage,
+                'your_commission_amount': user_commission,
+                'calculation': f"{user_percentage}% of {service_commission.commission_value}{'%' if service_commission.commission_type == 'percentage' else '₹'} = ₹{user_commission}"
+            })
+            
+        except ServiceCommission.DoesNotExist:
+            return Response(
+                {'error': 'Service commission configuration not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except (ValueError, InvalidOperation):
+            return Response(
+                {'error': 'Invalid transaction amount'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
