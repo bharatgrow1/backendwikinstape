@@ -358,7 +358,7 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Payment already processed'}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            with db_transaction.atomic():
+            with transaction.atomic():
                 # Process payment from user's wallet
                 wallet = request.user.wallet
                 
@@ -370,7 +370,7 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 )
                 
                 # Create transaction record
-                transaction = Transaction.objects.create(
+                transaction_obj = Transaction.objects.create(
                     wallet=wallet,
                     amount=payment_amount,
                     net_amount=payment_amount,
@@ -386,7 +386,7 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 
                 # Update submission payment status
                 submission.payment_status = 'paid'
-                submission.transaction_id = transaction.reference_number
+                submission.transaction_id = transaction_obj.reference_number
                 submission.status = 'success'
                 submission.save()
                 
@@ -394,7 +394,7 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 try:
                     from commission.views import CommissionManager
                     success, message = CommissionManager.process_service_commission(
-                        submission, transaction
+                        submission, transaction_obj
                     )
                     
                     if success:
@@ -487,9 +487,6 @@ def create_form_from_boolean_fields(request):
         
     except ServiceSubCategory.DoesNotExist:
         return Response({'error': 'Subcategory not found'}, status=status.HTTP_404_NOT_FOUND)
-    
-
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])

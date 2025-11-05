@@ -306,22 +306,6 @@ class ServiceFormWithFieldsSerializer(serializers.ModelSerializer):
         model = ServiceForm
         fields = ['id', 'name', 'description', 'service_type', 'fields']
 
-
-
-class ServiceCategoryWithFormsSerializer(serializers.ModelSerializer):
-    subcategories = ServiceSubCategorySerializer(many=True, read_only=True)
-    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    can_create_direct_form = serializers.BooleanField(source='allow_direct_service', read_only=True)
-    
-    class Meta:
-        model = ServiceCategory
-        fields = [
-            'id', 'name', 'description', 'icon', 'is_active', 
-            'allow_direct_service', 'can_create_direct_form',
-            'subcategories', 'created_by', 'created_by_username', 
-            'created_at', 'updated_at'
-        ]
-
 class DirectServiceFormSerializer(serializers.ModelSerializer):
     service_category_name = serializers.CharField(source='service_category.name', read_only=True)
     
