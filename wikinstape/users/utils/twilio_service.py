@@ -12,24 +12,47 @@ class TwilioService:
     def send_otp_sms(self, mobile):
         """Send OTP via SMS using Twilio Verify"""
         try:
+            print(f"🔧 DEBUG: Starting OTP send for: {mobile}")
+            
+            # Format mobile number
             if not mobile.startswith('+'):
                 if mobile.startswith('91'):
                     mobile = '+' + mobile
                 else:
                     mobile = '+91' + mobile
 
+            print(f"🔧 DEBUG: Formatted mobile: {mobile}")
+            print(f"🔧 DEBUG: Using Service SID: {self.verify_service_sid}")
+
+            # Test Twilio connection
+            try:
+                service = self.client.verify.v2.services(self.verify_service_sid).fetch()
+                print(f"🔧 DEBUG: Twilio service found: {service.friendly_name}")
+            except Exception as e:
+                print(f"🔧 DEBUG: Twilio service error: {e}")
+                return {
+                    'success': False,
+                    'error': f'Twilio service error: {str(e)}'
+                }
+
+            # Send verification
+            print(f"🔧 DEBUG: Sending verification to: {mobile}")
             verification = self.client.verify \
                 .v2 \
                 .services(self.verify_service_sid) \
                 .verifications \
                 .create(to=mobile, channel='sms')
 
+            print(f"🔧 DEBUG: OTP sent successfully! SID: {verification.sid}")
+            
             return {
                 'success': True,
                 'sid': verification.sid,
                 'status': verification.status
             }
+            
         except Exception as e:
+            print(f"🔧 DEBUG: Twilio OTP send failed: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)

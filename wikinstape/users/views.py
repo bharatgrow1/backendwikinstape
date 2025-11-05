@@ -364,32 +364,47 @@ class AuthViewSet(viewsets.ViewSet):
         
         mobile = serializer.validated_data['mobile']
         
-        # Check if user exists with this mobile number
+        # Check if user exists
         try:
             user = User.objects.get(phone_number=mobile)
+            print(f"✅ User found: {user.username}")
         except User.DoesNotExist:
+            print(f"❌ User not found for mobile: {mobile}")
             return Response(
                 {'error': 'No account found with this mobile number'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Send OTP via Twilio
-        result = twilio_service.send_otp_sms(mobile)
-        
-        if not result['success']:
-            return Response(
-                {'error': 'Failed to send OTP. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        # Try Twilio first
+        if twilio_service:
+            print(f"🔧 Trying Twilio for: {mobile}")
+            result = twilio_service.send_otp_sms(mobile)
+            
+            if result['success']:
+                print(f"✅ Twilio OTP sent successfully")
+                # Store in our database too
+                otp_obj, created = MobileOTP.objects.get_or_create(mobile=mobile)
+                otp_obj.generate_otp()
+                
+                return Response({
+                    'message': 'OTP sent successfully to your mobile',
+                    'mobile': mobile,
+                    'status': result['status']
+                })
+            else:
+                print(f"❌ Twilio failed: {result.get('error')}")
 
-        # Store OTP record (optional - for tracking)
+        # Fallback to database OTP
+        print(f"🔧 Using database OTP fallback for: {mobile}")
         otp_obj, created = MobileOTP.objects.get_or_create(mobile=mobile)
-        otp_obj.generate_otp()
+        otp, token = otp_obj.generate_otp()
         
         return Response({
-            'message': 'OTP sent successfully to your mobile',
+            'message': 'OTP generated successfully',
             'mobile': mobile,
-            'status': result['status']
+            'otp': otp,  # Development के लिए
+            'method': 'database_fallback',
+            'note': 'Twilio failed, using database OTP'
         })
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
