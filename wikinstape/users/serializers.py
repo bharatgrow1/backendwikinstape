@@ -1,8 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from .models import (User, Wallet, FundRequest, Transaction, RolePermission, UserService, State, 
-                     City, ServiceCharge)
+from .models import *
 from services.models import ServiceSubCategory
 from django.core.validators import MinValueValidator
 import re
@@ -663,3 +662,18 @@ class UserKYCSerializer(serializers.ModelSerializer):
         if value and (len(value) != 11 or not value[:4].isalpha() or not value[4:].isdigit()):
             raise serializers.ValidationError("Invalid IFSC code format")
         return value
+    
+
+class MobileOTPLoginSerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15, required=True)
+
+    def validate_mobile(self, value):
+        if not value.startswith(('9', '8', '7', '6')):
+            raise serializers.ValidationError("Invalid mobile number format")
+        if len(value) != 10:
+            raise serializers.ValidationError("Mobile number must be 10 digits")
+        return value
+
+class MobileOTPVerifySerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15, required=True)
+    otp = serializers.CharField(max_length=6, required=True)

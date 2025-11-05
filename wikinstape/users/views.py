@@ -15,24 +15,12 @@ from django.apps import apps
 from django.utils import timezone
 from datetime import datetime, timedelta
 from services.models import ServiceSubmission
+from .utils.twilio_service import twilio_service
 
-
-from .models import (User, EmailOTP, Wallet, Transaction, RolePermission, ServiceCharge, ForgetPinOTP,
-                     ForgotPasswordOTP, State, City, UserService, FundRequest, WalletPinOTP)
+from .models import *
 from services.models import ServiceSubCategory
-from .permissions import IsSuperAdmin, IsAdminUser, IsMasterUser, HasPermission, ModelViewPermission
-from .serializers import (
-    LoginSerializer, OTPVerifySerializer, UserSerializer, WalletSerializer, TransactionSerializer,
-    PermissionSerializer, UserPermissionSerializer, UserPermissionsSerializer,
-    ForgotPasswordSerializer, GrantRolePermissionSerializer, VerifyForgotPasswordOTPSerializer, 
-    ResetPasswordSerializer, RolePermissionSerializer, UserCreateSerializer, ServiceSubCategorySerializer, 
-    StateSerializer, CitySerializer, UserServiceSerializer, FundRequestCreateSerializer, 
-    FundRequestStatsSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer, SetWalletPinSerializer,
-    TransactionFilterSerializer, TransactionCreateSerializer, ResetWalletPinSerializer, VerifyWalletPinSerializer,
-    ServiceChargeSerializer, FundRequestHistorySerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer,
-    SetWalletPinWithOTPSerializer, ResetWalletPinWithOTPSerializer, UserProfileUpdateSerializer, UserKYCSerializer
-)
-from .utils import send_otp_email
+from .permissions import *
+from .serializers import *
 
 class PermissionViewSet(viewsets.ViewSet):
     """Manage permissions - Super Admin and Master only"""
@@ -367,6 +355,134 @@ class AuthViewSet(viewsets.ViewSet):
         return Response({
             'message': 'Password reset successfully'
         }, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def send_mobile_otp(self, request):
+        """Send OTP to mobile number"""
+        serializer = MobileOTPLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        mobile = serializer.validated_data['mobile']
+        
+        # Check if user exists with this mobile number
+        try:
+            user = User.objects.get(phone_number=mobile)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'No account found with this mobile number'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Send OTP via Twilio
+        result = twilio_service.send_otp_sms(mobile)
+        
+        if not result['success']:
+            return Response(
+                {'error': 'Failed to send OTP. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # Store OTP record (optional - for tracking)
+        otp_obj, created = MobileOTP.objects.get_or_create(mobile=mobile)
+        otp_obj.generate_otp()
+        
+        return Response({
+            'message': 'OTP sent successfully to your mobile',
+            'mobile': mobile,
+            'status': result['status']
+        })
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def verify_mobile_otp(self, request):
+        """Verify mobile OTP and login user"""
+        serializer = MobileOTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        mobile = serializer.validated_data['mobile']
+        otp = serializer.validated_data['otp']
+
+        # Verify OTP with Twilio
+        result = twilio_service.verify_otp(mobile, otp)
+        
+        if not result['success']:
+            return Response(
+                {'error': 'OTP verification failed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not result['valid']:
+            return Response(
+                {'error': 'Invalid OTP'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get user and generate tokens
+        try:
+            user = User.objects.get(phone_number=mobile)
+            
+            # Get or create wallet
+            try:
+                wallet = user.wallet
+            except Wallet.DoesNotExist:
+                wallet = Wallet.objects.create(user=user, balance=0.00)
+
+            # Generate JWT tokens
+            refresh = RefreshToken.for_user(user)
+            
+            # Mark OTP as verified
+            try:
+                otp_obj = MobileOTP.objects.get(mobile=mobile)
+                otp_obj.mark_verified()
+            except MobileOTP.DoesNotExist:
+                pass
+
+            return Response({
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'role': user.role,
+                'user_id': user.id,
+                'username': user.username,
+                'needs_pin_setup': not wallet.is_pin_set,
+                'is_pin_set': wallet.is_pin_set,
+                'permissions': list(user.get_all_permissions()),
+                'message': 'Login successful'
+            })
+
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def resend_mobile_otp(self, request):
+        """Resend OTP to mobile number"""
+        serializer = MobileOTPLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        mobile = serializer.validated_data['mobile']
+        
+        try:
+            user = User.objects.get(phone_number=mobile)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'No account found with this mobile number'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        result = twilio_service.send_otp_sms(mobile)
+        
+        if not result['success']:
+            return Response(
+                {'error': 'Failed to send OTP. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response({
+            'message': 'OTP resent successfully',
+            'mobile': mobile,
+            'status': result['status']
+        })
 
 
 
