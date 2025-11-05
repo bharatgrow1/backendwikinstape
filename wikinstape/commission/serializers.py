@@ -211,3 +211,56 @@ class DealerRetailerServiceCommissionSerializer(serializers.ModelSerializer):
                     'description': f"You earn ₹{role_commission} from ₹{example_amount} transaction"
                 }
         return None
+
+
+
+class BulkServiceCommissionSerializer(serializers.Serializer):
+    service_subcategories = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=True
+    )
+    commission_plan = serializers.IntegerField(required=True)
+    commission_type = serializers.ChoiceField(
+        choices=ServiceCommission.COMMISSION_TYPES, 
+        default='percentage'
+    )
+    commission_value = serializers.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        validators=[MinValueValidator(0)]
+    )
+    admin_commission = serializers.DecimalField(
+        max_digits=5, decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    master_commission = serializers.DecimalField(
+        max_digits=5, decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    dealer_commission = serializers.DecimalField(
+        max_digits=5, decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    retailer_commission = serializers.DecimalField(
+        max_digits=5, decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    is_active = serializers.BooleanField(default=True)
+
+    def validate(self, data):
+        if data.get('commission_type') == 'percentage':
+            total_commission = (
+                data.get('admin_commission', 0) +
+                data.get('master_commission', 0) +
+                data.get('dealer_commission', 0) +
+                data.get('retailer_commission', 0)
+            )
+            if total_commission > 100:
+                raise serializers.ValidationError(
+                    "Total commission distribution cannot exceed 100%"
+                )
+        return data

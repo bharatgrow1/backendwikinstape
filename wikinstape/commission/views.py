@@ -121,7 +121,115 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
             ]),
             'superadmin_share': distribution_percentages['superadmin']
         })
+    
 
+
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """Create multiple service commissions at once"""
+        serializer = BulkServiceCommissionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        service_subcategory_ids = serializer.validated_data['service_subcategories']
+        commission_plan_id = serializer.validated_data['commission_plan']
+        
+        try:
+            commission_plan = CommissionPlan.objects.get(id=commission_plan_id)
+        except CommissionPlan.DoesNotExist:
+            return Response(
+                {'error': 'Commission plan not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        created_count = 0
+        errors = []
+        
+        for subcategory_id in service_subcategory_ids:
+            try:
+                service_subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
+                
+                # Check if commission already exists
+                existing_commission = ServiceCommission.objects.filter(
+                    service_subcategory=service_subcategory,
+                    commission_plan=commission_plan
+                ).first()
+                
+                if existing_commission:
+                    errors.append(f"Commission already exists for {service_subcategory.name}")
+                    continue
+                
+                ServiceCommission.objects.create(
+                    service_category=service_subcategory.category,
+                    service_subcategory=service_subcategory,
+                    commission_plan=commission_plan,
+                    commission_type=serializer.validated_data['commission_type'],
+                    commission_value=serializer.validated_data['commission_value'],
+                    admin_commission=serializer.validated_data['admin_commission'],
+                    master_commission=serializer.validated_data['master_commission'],
+                    dealer_commission=serializer.validated_data['dealer_commission'],
+                    retailer_commission=serializer.validated_data['retailer_commission'],
+                    is_active=serializer.validated_data['is_active'],
+                    created_by=request.user
+                )
+                created_count += 1
+                
+            except ServiceSubCategory.DoesNotExist:
+                errors.append(f"Service subcategory {subcategory_id} not found")
+            except Exception as e:
+                errors.append(f"Error creating commission for subcategory {subcategory_id}: {str(e)}")
+        
+        response_data = {
+            'message': f'Successfully created {created_count} commissions',
+            'created_count': created_count,
+            'errors': errors
+        }
+        
+        if errors:
+            response_data['has_errors'] = True
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['put'])
+    def bulk_update(self, request):
+        """Update multiple service commissions"""
+        commissions_data = request.data.get('commissions', [])
+        
+        updated_count = 0
+        errors = []
+        
+        for commission_data in commissions_data:
+            try:
+                commission_id = commission_data.get('id')
+                commission = ServiceCommission.objects.get(id=commission_id)
+                
+                serializer = ServiceCommissionSerializer(
+                    commission, 
+                    data=commission_data, 
+                    partial=True
+                )
+                if serializer.is_valid():
+                    serializer.save()
+                    updated_count += 1
+                else:
+                    errors.append(f"Validation error for commission {commission_id}: {serializer.errors}")
+                    
+            except ServiceCommission.DoesNotExist:
+                errors.append(f"Commission {commission_data.get('id')} not found")
+            except Exception as e:
+                errors.append(f"Error updating commission {commission_data.get('id')}: {str(e)}")
+        
+        response_data = {
+            'message': f'Successfully updated {updated_count} commissions',
+            'updated_count': updated_count,
+            'errors': errors
+        }
+        
+        if errors:
+            response_data['has_errors'] = True
+        
+        return Response(response_data)
+    
+    
 class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = CommissionTransactionSerializer
