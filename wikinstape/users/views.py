@@ -16,7 +16,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from services.models import ServiceSubmission
 from .utils.twilio_service import twilio_service
-
+from .email_utils import send_otp_email
 from .models import *
 from services.models import ServiceSubCategory
 from .permissions import *
