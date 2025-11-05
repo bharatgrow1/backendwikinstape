@@ -426,22 +426,47 @@ class AuthViewSet(viewsets.ViewSet):
         mobile = serializer.validated_data['mobile']
         otp = serializer.validated_data['otp']
 
-        # Verify OTP with Twilio
-        result = twilio_service.verify_otp(mobile, otp)
-        
-        if not result['success']:
-            return Response(
-                {'error': 'OTP verification failed'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Format mobile for Twilio (if needed)
+        formatted_mobile = mobile
+        if not mobile.startswith('+'):
+            formatted_mobile = '+91' + mobile
 
-        if not result['valid']:
-            return Response(
-                {'error': 'Invalid OTP'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # First try Twilio verification
+        twilio_success = False
+        if twilio_service:
+            result = twilio_service.verify_otp(formatted_mobile, otp)
+            if result['success'] and result['valid']:
+                twilio_success = True
+                print(f"✅ Twilio OTP verification successful")
 
-        # Get user and generate tokens
+        # If Twilio fails or not available, try database verification
+        if not twilio_success:
+            print(f"🔧 Trying database OTP verification for: {mobile}")
+            try:
+                # Use your MobileOTP model's verification method
+                otp_obj = MobileOTP.objects.get(
+                    mobile=mobile,
+                    otp=otp,
+                    is_verified=False
+                )
+                
+                if otp_obj.is_expired():
+                    return Response(
+                        {'error': 'OTP expired'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Mark OTP as verified
+                otp_obj.mark_verified()
+                print(f"✅ Database OTP verification successful")
+                
+            except MobileOTP.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid OTP'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Get user and generate tokens (common for both methods)
         try:
             user = User.objects.get(phone_number=mobile)
             
@@ -454,13 +479,6 @@ class AuthViewSet(viewsets.ViewSet):
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             
-            # Mark OTP as verified
-            try:
-                otp_obj = MobileOTP.objects.get(mobile=mobile)
-                otp_obj.mark_verified()
-            except MobileOTP.DoesNotExist:
-                pass
-
             return Response({
                 'access': str(refresh.access_token),
                 'refresh': str(refresh),
@@ -470,7 +488,8 @@ class AuthViewSet(viewsets.ViewSet):
                 'needs_pin_setup': not wallet.is_pin_set,
                 'is_pin_set': wallet.is_pin_set,
                 'permissions': list(user.get_all_permissions()),
-                'message': 'Login successful'
+                'message': 'Login successful',
+                'verification_method': 'twilio' if twilio_success else 'database'
             })
 
         except User.DoesNotExist:
