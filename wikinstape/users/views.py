@@ -208,43 +208,6 @@ class PermissionViewSet(viewsets.ViewSet):
 class AuthViewSet(viewsets.ViewSet):
     """Handles login with password + OTP verification"""
 
-
-
-
-
-
-    # Add this to your AuthViewSet
-@action(detail=False, methods=['get'], permission_classes=[AllowAny])
-def debug_twilio(self, request):
-    """Debug endpoint to check Twilio configuration"""
-    debug_info = {
-        'twilio_account_sid': settings.TWILIO_ACCOUNT_SID[:10] + '...' if settings.TWILIO_ACCOUNT_SID else 'Not set',
-        'twilio_verify_service_sid': settings.TWILIO_VERIFY_SERVICE_SID,
-        'twilio_client_initialized': bool(twilio_service and twilio_service.client),
-        'mobile_to_test': '9170475552'
-    }
-    
-    # Test Twilio connection
-    if twilio_service and twilio_service.client:
-        try:
-            # Test service exists
-            service = twilio_service.client.verify.v2.services(settings.TWILIO_VERIFY_SERVICE_SID).fetch()
-            debug_info['twilio_service_status'] = 'Connected'
-            debug_info['service_friendly_name'] = service.friendly_name
-            
-            # Test sending OTP
-            test_result = twilio_service.send_otp_sms('9170475552')
-            debug_info['send_test_result'] = test_result
-            
-        except Exception as e:
-            debug_info['twilio_service_status'] = f'Error: {str(e)}'
-    else:
-        debug_info['twilio_service_status'] = 'Client not initialized'
-    
-    return Response(debug_info)
-
-
-
     @action(detail=False, methods=['post'])
     def login(self, request):
         """Step 1: Verify username/password and send OTP"""
@@ -423,10 +386,16 @@ def debug_twilio(self, request):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # DEBUG: Log Twilio service status
+        logger.info(f"🔧 Twilio Service Status - Client: {twilio_service.client}")
+        logger.info(f"🔧 Twilio Service SID: {twilio_service.verify_service_sid}")
+        
         # Try Twilio first
         if twilio_service and twilio_service.client:
             logger.info(f"🔧 Trying Twilio for: {mobile}")
             result = twilio_service.send_otp_sms(mobile)
+            
+            logger.info(f"🔧 Twilio Result: {result}")
             
             if result['success']:
                 logger.info(f"✅ Twilio OTP sent successfully")
@@ -446,6 +415,10 @@ def debug_twilio(self, request):
                 })
             else:
                 logger.warning(f"⚠️ Twilio failed: {result.get('error')}")
+                return Response({
+                    'error': f"Failed to send OTP via Twilio: {result.get('error')}",
+                    'mobile': mobile
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Fallback to database OTP
         logger.info(f"🔧 Using database OTP fallback for: {mobile}")

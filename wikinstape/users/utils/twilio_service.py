@@ -1,4 +1,3 @@
-# users/utils/twilio_service.py
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 from django.conf import settings
@@ -8,17 +7,21 @@ logger = logging.getLogger(__name__)
 
 class TwilioService:
     def __init__(self):
-        self.account_sid = settings.TWILIO_ACCOUNT_SID
-        self.auth_token = settings.TWILIO_AUTH_TOKEN
-        self.verify_service_sid = settings.TWILIO_VERIFY_SERVICE_SID
+        self.account_sid = getattr(settings, 'TWILIO_ACCOUNT_SID', None)
+        self.auth_token = getattr(settings, 'TWILIO_AUTH_TOKEN', None)
+        self.verify_service_sid = getattr(settings, 'TWILIO_VERIFY_SERVICE_SID', None)
         self.client = None
+        
+        logger.info(f"🔧 Twilio Config - SID: {self.account_sid}, Service SID: {self.verify_service_sid}")
         self._initialize_client()
 
     def _initialize_client(self):
         """Initialize Twilio client with error handling"""
         try:
             if not self.account_sid or not self.auth_token:
-                logger.error("❌ Twilio credentials missing")
+                logger.error("❌ Twilio credentials missing in settings")
+                logger.error(f"Account SID: {self.account_sid}")
+                logger.error(f"Auth Token: {'*' * len(self.auth_token) if self.auth_token else 'None'}")
                 return
             
             self.client = Client(self.account_sid, self.auth_token)
@@ -33,6 +36,7 @@ class TwilioService:
         except Exception as e:
             logger.error(f"❌ Unexpected error during Twilio initialization: {e}")
             self.client = None
+
 
     def send_otp_sms(self, mobile):
         """Send OTP via SMS using Twilio Verify"""

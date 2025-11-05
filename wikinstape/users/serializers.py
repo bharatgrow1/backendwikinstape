@@ -668,11 +668,23 @@ class MobileOTPLoginSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15, required=True)
 
     def validate_mobile(self, value):
-        if not value.startswith(('9', '8', '7', '6')):
+        value = value.strip()
+        if value.startswith('+91'):
+            if len(value) != 13:
+                raise serializers.ValidationError("Invalid mobile number format with country code")
+            if not value[1:].isdigit():
+                raise serializers.ValidationError("Mobile number must contain only digits after country code")
+        elif value.startswith(('9', '8', '7', '6')):
+            if len(value) != 10:
+                raise serializers.ValidationError("Mobile number must be 10 digits")
+            if not value.isdigit():
+                raise serializers.ValidationError("Mobile number must contain only digits")
+        else:
             raise serializers.ValidationError("Invalid mobile number format")
-        if len(value) != 10:
-            raise serializers.ValidationError("Mobile number must be 10 digits")
+        
         return value
+    
+    
 
 class MobileOTPVerifySerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15, required=True)
