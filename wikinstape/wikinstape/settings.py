@@ -241,7 +241,3 @@ ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
 ALLOWED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
 
 
-# Twilio Configuration
-TWILIO_ACCOUNT_SID = 'AC079c36a7c26c213aef5c2d0b7d73e465'
-TWILIO_AUTH_TOKEN = '700565abf45d287e8b5800e0cd6f8ffe'
-TWILIO_VERIFY_SERVICE_SID = 'VA3c418db7da1f4e1149ba4f0655359952'
