@@ -1,49 +1,48 @@
+# users/utils/twilio_service.py
 from twilio.rest import Client
 from django.conf import settings
+import logging
 
+logger = logging.getLogger(__name__)
 
 class TwilioService:
     def __init__(self):
         self.account_sid = settings.TWILIO_ACCOUNT_SID
         self.auth_token = settings.TWILIO_AUTH_TOKEN
         self.verify_service_sid = settings.TWILIO_VERIFY_SERVICE_SID
-        self.client = Client(self.account_sid, self.auth_token)
+        try:
+            self.client = Client(self.account_sid, self.auth_token)
+            logger.info("✅ Twilio client initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Twilio client initialization failed: {e}")
+            self.client = None
 
     def send_otp_sms(self, mobile):
         """Send OTP via SMS using Twilio Verify"""
         try:
-            print(f"🔧 DEBUG: Starting OTP send for: {mobile}")
-            
-            # Format mobile number
+            if not self.client:
+                return {
+                    'success': False,
+                    'error': 'Twilio client not initialized'
+                }
+
+            # Format mobile number for Twilio
             if not mobile.startswith('+'):
                 if mobile.startswith('91'):
                     mobile = '+' + mobile
                 else:
                     mobile = '+91' + mobile
 
-            print(f"🔧 DEBUG: Formatted mobile: {mobile}")
-            print(f"🔧 DEBUG: Using Service SID: {self.verify_service_sid}")
-
-            # Test Twilio connection
-            try:
-                service = self.client.verify.v2.services(self.verify_service_sid).fetch()
-                print(f"🔧 DEBUG: Twilio service found: {service.friendly_name}")
-            except Exception as e:
-                print(f"🔧 DEBUG: Twilio service error: {e}")
-                return {
-                    'success': False,
-                    'error': f'Twilio service error: {str(e)}'
-                }
+            logger.info(f"🔧 Sending OTP to: {mobile}")
 
             # Send verification
-            print(f"🔧 DEBUG: Sending verification to: {mobile}")
             verification = self.client.verify \
                 .v2 \
                 .services(self.verify_service_sid) \
                 .verifications \
                 .create(to=mobile, channel='sms')
 
-            print(f"🔧 DEBUG: OTP sent successfully! SID: {verification.sid}")
+            logger.info(f"✅ OTP sent successfully! SID: {verification.sid}")
             
             return {
                 'success': True,
@@ -52,7 +51,7 @@ class TwilioService:
             }
             
         except Exception as e:
-            print(f"🔧 DEBUG: Twilio OTP send failed: {str(e)}")
+            logger.error(f"❌ Twilio OTP send failed: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
@@ -61,6 +60,12 @@ class TwilioService:
     def verify_otp(self, mobile, otp):
         """Verify OTP using Twilio Verify"""
         try:
+            if not self.client:
+                return {
+                    'success': False,
+                    'error': 'Twilio client not initialized'
+                }
+
             # Format mobile number
             if not mobile.startswith('+'):
                 if mobile.startswith('91'):
@@ -80,9 +85,11 @@ class TwilioService:
                 'status': verification_check.status
             }
         except Exception as e:
+            logger.error(f"❌ Twilio OTP verification failed: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
             }
 
+# Global instance
 twilio_service = TwilioService()

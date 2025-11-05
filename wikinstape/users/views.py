@@ -358,7 +358,7 @@ class AuthViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def send_mobile_otp(self, request):
-        """Send OTP to mobile number"""
+        """Send OTP to mobile number with proper Twilio integration"""
         serializer = MobileOTPLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -367,83 +367,92 @@ class AuthViewSet(viewsets.ViewSet):
         # Check if user exists
         try:
             user = User.objects.get(phone_number=mobile)
-            print(f"✅ User found: {user.username}")
+            logger.info(f"✅ User found: {user.username} for mobile: {mobile}")
         except User.DoesNotExist:
-            print(f"❌ User not found for mobile: {mobile}")
+            logger.error(f"❌ User not found for mobile: {mobile}")
             return Response(
                 {'error': 'No account found with this mobile number'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
 
         # Try Twilio first
-        if twilio_service:
-            print(f"🔧 Trying Twilio for: {mobile}")
+        if twilio_service and twilio_service.client:
+            logger.info(f"🔧 Trying Twilio for: {mobile}")
             result = twilio_service.send_otp_sms(mobile)
             
             if result['success']:
-                print(f"✅ Twilio OTP sent successfully")
-                # Store in our database too with expires_at
+                logger.info(f"✅ Twilio OTP sent successfully")
+                # Also create database entry as backup
                 otp_obj, created = MobileOTP.objects.get_or_create(
                     mobile=mobile,
-                    defaults={
-                        'expires_at': timezone.now() + timedelta(minutes=10)
-                    }
+                    defaults={'expires_at': timezone.now() + timedelta(minutes=10)}
                 )
-                otp_obj.generate_otp()
+                if created:
+                    otp_obj.generate_otp()
                 
                 return Response({
                     'message': 'OTP sent successfully to your mobile',
                     'mobile': mobile,
+                    'method': 'twilio',
                     'status': result['status']
                 })
             else:
-                print(f"❌ Twilio failed: {result.get('error')}")
+                logger.warning(f"⚠️ Twilio failed: {result.get('error')}")
 
-        # Fallback to database OTP with expires_at
-        print(f"🔧 Using database OTP fallback for: {mobile}")
-        otp_obj, created = MobileOTP.objects.get_or_create(
-            mobile=mobile,
-            defaults={
-                'expires_at': timezone.now() + timedelta(minutes=10)
-            }
-        )
-        otp, token = otp_obj.generate_otp()
-        
-        return Response({
-            'message': 'OTP generated successfully',
-            'mobile': mobile,
-            'otp': otp,  # Development के लिए
-            'method': 'database_fallback',
-            'note': 'Twilio failed, using database OTP'
-        })
+        # Fallback to database OTP
+        logger.info(f"🔧 Using database OTP fallback for: {mobile}")
+        try:
+            otp_obj, created = MobileOTP.objects.get_or_create(
+                mobile=mobile,
+                defaults={'expires_at': timezone.now() + timedelta(minutes=10)}
+            )
+            otp, token = otp_obj.generate_otp()
+            
+            # In development, you might want to log the OTP
+            if settings.DEBUG:
+                logger.info(f"📱 Database OTP for {mobile}: {otp}")
+            
+            return Response({
+                'message': 'OTP generated successfully',
+                'mobile': mobile,
+                'method': 'database_fallback',
+                'note': 'Twilio service unavailable, using database OTP'
+            })
+        except Exception as e:
+            logger.error(f"❌ Database OTP creation failed: {e}")
+            return Response(
+                {'error': 'Failed to generate OTP. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def verify_mobile_otp(self, request):
-        """Verify mobile OTP and login user"""
+        """Verify mobile OTP with both Twilio and database fallback"""
         serializer = MobileOTPVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         mobile = serializer.validated_data['mobile']
         otp = serializer.validated_data['otp']
-
-        # Format mobile for Twilio (if needed)
-        formatted_mobile = mobile
-        if not mobile.startswith('+'):
-            formatted_mobile = '+91' + mobile
+        
+        verification_method = None
+        is_verified = False
 
         # First try Twilio verification
-        twilio_success = False
-        if twilio_service:
+        if twilio_service and twilio_service.client:
+            formatted_mobile = mobile
+            if not mobile.startswith('+'):
+                formatted_mobile = '+91' + mobile
+                
             result = twilio_service.verify_otp(formatted_mobile, otp)
             if result['success'] and result['valid']:
-                twilio_success = True
-                print(f"✅ Twilio OTP verification successful")
+                verification_method = 'twilio'
+                is_verified = True
+                logger.info(f"✅ Twilio OTP verification successful for: {mobile}")
 
         # If Twilio fails or not available, try database verification
-        if not twilio_success:
-            print(f"🔧 Trying database OTP verification for: {mobile}")
+        if not is_verified:
+            logger.info(f"🔧 Trying database OTP verification for: {mobile}")
             try:
-                # Use your MobileOTP model's verification method
                 otp_obj = MobileOTP.objects.get(
                     mobile=mobile,
                     otp=otp,
@@ -452,30 +461,36 @@ class AuthViewSet(viewsets.ViewSet):
                 
                 if otp_obj.is_expired():
                     return Response(
-                        {'error': 'OTP expired'},
+                        {'error': 'OTP has expired. Please request a new one.'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
                 
                 # Mark OTP as verified
                 otp_obj.mark_verified()
-                print(f"✅ Database OTP verification successful")
+                verification_method = 'database'
+                is_verified = True
+                logger.info(f"✅ Database OTP verification successful for: {mobile}")
                 
             except MobileOTP.DoesNotExist:
+                logger.error(f"❌ Invalid OTP for mobile: {mobile}")
                 return Response(
-                    {'error': 'Invalid OTP'},
+                    {'error': 'Invalid OTP. Please check and try again.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Get user and generate tokens (common for both methods)
+        if not is_verified:
+            return Response(
+                {'error': 'OTP verification failed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get user and generate tokens
         try:
             user = User.objects.get(phone_number=mobile)
             
             # Get or create wallet
-            try:
-                wallet = user.wallet
-            except Wallet.DoesNotExist:
-                wallet = Wallet.objects.create(user=user, balance=0.00)
-
+            wallet, created = Wallet.objects.get_or_create(user=user)
+            
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             
@@ -489,10 +504,11 @@ class AuthViewSet(viewsets.ViewSet):
                 'is_pin_set': wallet.is_pin_set,
                 'permissions': list(user.get_all_permissions()),
                 'message': 'Login successful',
-                'verification_method': 'twilio' if twilio_success else 'database'
+                'verification_method': verification_method
             })
 
         except User.DoesNotExist:
+            logger.error(f"❌ User not found after OTP verification for mobile: {mobile}")
             return Response(
                 {'error': 'User not found'}, 
                 status=status.HTTP_404_NOT_FOUND
