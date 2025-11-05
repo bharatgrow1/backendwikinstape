@@ -382,8 +382,13 @@ class AuthViewSet(viewsets.ViewSet):
             
             if result['success']:
                 print(f"✅ Twilio OTP sent successfully")
-                # Store in our database too
-                otp_obj, created = MobileOTP.objects.get_or_create(mobile=mobile)
+                # Store in our database too with expires_at
+                otp_obj, created = MobileOTP.objects.get_or_create(
+                    mobile=mobile,
+                    defaults={
+                        'expires_at': timezone.now() + timedelta(minutes=10)
+                    }
+                )
                 otp_obj.generate_otp()
                 
                 return Response({
@@ -394,9 +399,14 @@ class AuthViewSet(viewsets.ViewSet):
             else:
                 print(f"❌ Twilio failed: {result.get('error')}")
 
-        # Fallback to database OTP
+        # Fallback to database OTP with expires_at
         print(f"🔧 Using database OTP fallback for: {mobile}")
-        otp_obj, created = MobileOTP.objects.get_or_create(mobile=mobile)
+        otp_obj, created = MobileOTP.objects.get_or_create(
+            mobile=mobile,
+            defaults={
+                'expires_at': timezone.now() + timedelta(minutes=10)
+            }
+        )
         otp, token = otp_obj.generate_otp()
         
         return Response({
