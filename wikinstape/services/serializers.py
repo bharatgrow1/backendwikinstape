@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import (ServiceCategory, ServiceSubCategory, ServiceForm, FormField, ServiceSubmission, 
-                     FormSubmissionFile, UploadImage)
+from .models import *
 
 class UploadImageSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
