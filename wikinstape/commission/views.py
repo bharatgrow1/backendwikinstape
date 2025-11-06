@@ -9,6 +9,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 import random
 from decimal import InvalidOperation
+from django.db.models.functions import ExtractMonth, ExtractYear
 
 
 from .models import *
@@ -809,11 +810,13 @@ class CommissionDashboardViewSet(viewsets.ViewSet):
             created_at__date=timezone.now().date()
         ).aggregate(total=Sum('commission_amount'))['total'] or 0
         
-        # Monthly breakdown
+        # Fixed monthly breakdown - using Django's ExtractMonth instead of raw SQL
         monthly_data = CommissionTransaction.objects.filter(
             user=user, status='success', transaction_type='credit',
             created_at__year=timezone.now().year
-        ).extra({'month': "EXTRACT(month FROM created_at)"}).values('month').annotate(
+        ).annotate(
+            month=ExtractMonth('created_at')
+        ).values('month').annotate(
             total=Sum('commission_amount'),
             count=Count('id')
         ).order_by('month')

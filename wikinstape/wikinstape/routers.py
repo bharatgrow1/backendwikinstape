@@ -41,3 +41,4 @@ router.register(r'commission-payouts', CommissionPayoutViewSet, basename='commis
 router.register(r'my-service-commissions', DealerRetailerCommissionViewSet, basename='my-service-commissions')
 
 router.register(r'user-hierarchy', UserHierarchyViewSet, basename='user-hierarchy')
+router.register(r'commission-dashboard', CommissionDashboardViewSet, basename='commission-dashboard')

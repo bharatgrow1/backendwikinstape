@@ -22,6 +22,7 @@ from .models import *
 from services.models import ServiceSubCategory
 from .permissions import *
 from .serializers import *
+from commission.models import *
 import logging
 
 logger = logging.getLogger(__name__)

@@ -1,12 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import (
-    ServiceCategoryViewSet, ServiceSubCategoryViewSet, ServiceFormViewSet, 
-    ServiceSubmissionViewSet, ServiceImageViewSet, DirectServiceFormViewSet,
-    get_subcategory_form_config, create_form_from_boolean_fields, create_service_submission_direct,
-    get_category_form_config, copy_category_fields_to_subcategory, create_direct_category_form,
-    get_categories_with_direct_services
-)
+from .views import *
 
 router = DefaultRouter()
 router.register(r'categories', ServiceCategoryViewSet)
@@ -15,6 +9,7 @@ router.register(r'service-forms', ServiceFormViewSet)
 router.register(r'direct-service-forms', DirectServiceFormViewSet, basename='direct-service-form')
 router.register(r'service-submissions', ServiceSubmissionViewSet)
 router.register(r'upload-images', ServiceImageViewSet)
+
 
 urlpatterns = [
     path('', include(router.urls)),
