@@ -8,14 +8,9 @@ from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 
-from .models import (
-    ServiceCategory, ServiceSubCategory, ServiceForm, FormField, ServiceSubmission, FormSubmissionFile, UploadImage
-)
-from .serializers import (
-    ServiceCategorySerializer, ServiceSubCategorySerializer, ServiceFormSerializer,
-    ServiceSubmissionSerializer, DynamicFormSubmissionSerializer, ServiceFormWithFieldsSerializer, 
-    UploadImageSerializer, DirectServiceFormSerializer, ServiceCategoryWithFormsSerializer
-)
+from .models import *
+from .serializers import *
+from commission.views import *
 
 # -------------------------------
 # Service Category ViewSet
@@ -349,73 +344,56 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def process_payment(self, request, pk=None):
-        """Process payment for service submission and then handle commission"""
         submission = self.get_object()
         payment_amount = request.data.get('amount', submission.amount)
         pin = request.data.get('pin')
         
-        if submission.payment_status == 'paid':
-            return Response({'error': 'Payment already processed'}, status=status.HTTP_400_BAD_REQUEST)
+        if not pin:
+            return Response({'error': 'Wallet PIN is required'}, status=400)
         
         try:
-            with transaction.atomic():
-                # Process payment from user's wallet
-                wallet = request.user.wallet
-                
-                # Deduct amount from wallet
-                total_deducted = wallet.deduct_amount(
-                    amount=payment_amount,
-                    service_charge=0,  # You can add service charge if needed
-                    pin=pin
-                )
-                
-                # Create transaction record
-                transaction_obj = Transaction.objects.create(
-                    wallet=wallet,
-                    amount=payment_amount,
-                    net_amount=payment_amount,
-                    service_charge=0,
-                    transaction_type='debit',
-                    transaction_category='service_payment',
-                    description=f"Payment for {submission.service_form.name}",
-                    created_by=request.user,
-                    service_submission=submission,
-                    service_name=submission.service_form.name,
-                    status='success'
-                )
-                
-                # Update submission payment status
-                submission.payment_status = 'paid'
-                submission.transaction_id = transaction_obj.reference_number
-                submission.status = 'success'
-                submission.save()
-                
-                # Process commission after successful payment
-                try:
-                    from commission.views import CommissionManager
-                    success, message = CommissionManager.process_service_commission(
-                        submission, transaction_obj
-                    )
-                    
-                    if success:
-                        commission_message = "Commission processed successfully"
-                    else:
-                        commission_message = f"Commission processing failed: {message}"
-                        
-                except Exception as e:
-                    commission_message = f"Commission processing error: {str(e)}"
-                
-                serializer = self.get_serializer(submission)
-                return Response({
-                    'message': 'Payment processed successfully',
-                    'commission_message': commission_message,
-                    'data': serializer.data
-                })
-                
+            wallet = request.user.wallet
+            
+            # Verify PIN first
+            if not wallet.verify_pin(pin):
+                return Response({'error': 'Invalid PIN'}, status=400)
+            
+            # Process payment
+            total_deducted = wallet.deduct_amount(payment_amount, 0, pin)
+            
+            # Create transaction
+            transaction_obj = Transaction.objects.create(
+                wallet=wallet,
+                amount=payment_amount,
+                transaction_type='debit',
+                transaction_category='service_payment',
+                description=f"Payment for {submission.service_form.name}",
+                created_by=request.user,
+                service_submission=submission,
+                status='success'
+            )
+            
+            # Update submission status
+            submission.payment_status = 'paid'
+            submission.transaction_id = transaction_obj.reference_number
+            submission.status = 'success'
+            submission.save()
+            
+            # ✅ Auto commission processing
+            success, message = CommissionManager.process_service_commission(
+                submission, transaction_obj
+            )
+            
+            return Response({
+                'message': 'Payment successful',
+                'commission_processed': success,
+                'commission_message': message
+            })
+            
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({'error': f'Payment processing failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': str(e)}, status=400)
+    
+
 
 class ServiceImageViewSet(viewsets.ModelViewSet):
     queryset = UploadImage.objects.all()
@@ -533,8 +511,28 @@ def create_service_submission_direct(request):
         
         serializer = ServiceSubmissionSerializer(data=submission_data)
         if serializer.is_valid():
-            # Pass submitted_by separately during save
             submission = serializer.save(submitted_by=request.user if request.user.is_authenticated else None)
+            
+            # ✅ ADD COMMISSION PROCESSING
+            if submission.amount > 0:
+                try:
+                    from commission.views import CommissionManager
+                    from users.models import Transaction
+                    
+                    # Find or create transaction for this submission
+                    main_transaction = Transaction.objects.filter(
+                        service_submission=submission,
+                        status='success'
+                    ).first()
+                    
+                    if main_transaction:
+                        success, message = CommissionManager.process_service_commission(
+                            submission, main_transaction
+                        )
+                        print(f"Commission processing: {success} - {message}")
+                except Exception as e:
+                    print(f"Commission processing error: {e}")
+            
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
             service_form.delete()

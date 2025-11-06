@@ -1414,14 +1414,20 @@ class TransactionViewSet(DynamicModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """Create a new transaction with PIN verification and service charges"""
-        serializer = TransactionCreateSerializer(
-            data=request.data, 
-            context={'request': request}
-        )
+        serializer = TransactionCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         
         data = serializer.validated_data
         wallet = request.user.wallet
+        
+        if data['transaction_type'] == 'debit':
+            pin = data.get('pin')
+            if not pin:
+                return Response({'error': 'PIN required for debit transactions'}, status=400)
+            
+            if not wallet.verify_pin(pin):
+                return Response({'error': 'Invalid PIN'}, status=400)
+        
         pin = data.get('pin')
         amount = data['amount']
         service_charge = data['service_charge']
