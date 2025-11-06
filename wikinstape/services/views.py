@@ -344,6 +344,7 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def process_payment(self, request, pk=None):
+        """Process payment for service submission and trigger commission distribution"""
         submission = self.get_object()
         payment_amount = request.data.get('amount', submission.amount)
         pin = request.data.get('pin')
@@ -377,23 +378,37 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             submission.payment_status = 'paid'
             submission.transaction_id = transaction_obj.reference_number
             submission.status = 'success'
+            submission.amount = payment_amount  # Ensure amount is set
             submission.save()
             
-            # ✅ Auto commission processing
+            # ✅ Auto commission processing - THIS IS THE KEY PART
             success, message = CommissionManager.process_service_commission(
                 submission, transaction_obj
             )
             
+            # Get commission distribution details
+            commission_details = None
+            if success:
+                commission_transactions = CommissionTransaction.objects.filter(
+                    main_transaction=transaction_obj
+                )
+                commission_details = CommissionTransactionSerializer(
+                    commission_transactions, many=True
+                ).data
+            
             return Response({
                 'message': 'Payment successful',
                 'commission_processed': success,
-                'commission_message': message
+                'commission_message': message,
+                'commission_details': commission_details,
+                'transaction_reference': transaction_obj.reference_number,
+                'total_deducted': total_deducted,
+                'new_balance': wallet.balance
             })
             
         except ValueError as e:
             return Response({'error': str(e)}, status=400)
     
-
 
 class ServiceImageViewSet(viewsets.ModelViewSet):
     queryset = UploadImage.objects.all()

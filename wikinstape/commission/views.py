@@ -584,71 +584,101 @@ class CommissionManager:
                 retailer_user = service_submission.submitted_by
                 transaction_amount = service_submission.amount
                 
+                print(f"🔄 Processing commission for submission {service_submission.id}, amount: {transaction_amount}")
+                
                 if not retailer_user:
                     return False, "No retailer user found for this submission"
                 
+                # Get retailer's commission plan
                 try:
                     user_plan = UserCommissionPlan.objects.get(user=retailer_user, is_active=True)
                     commission_plan = user_plan.commission_plan
+                    print(f"📋 Using commission plan: {commission_plan.name} for user: {retailer_user.username}")
                 except UserCommissionPlan.DoesNotExist:
                     return False, "No active commission plan for user"
                 
+                # Find commission configuration
+                commission_config = None
                 try:
+                    # First try subcategory
                     commission_config = ServiceCommission.objects.get(
                         service_subcategory=service_submission.service_subcategory,
                         commission_plan=commission_plan,
                         is_active=True
                     )
+                    print(f"🎯 Found subcategory commission config: {commission_config}")
                 except ServiceCommission.DoesNotExist:
                     try:
+                        # Fallback to category
                         commission_config = ServiceCommission.objects.get(
                             service_category=service_submission.service_subcategory.category,
                             commission_plan=commission_plan,
                             is_active=True
                         )
+                        print(f"🎯 Found category commission config: {commission_config}")
                     except ServiceCommission.DoesNotExist:
                         return False, "No commission configuration found for this service"
                 
+                # Calculate distribution
                 distribution, hierarchy_users = commission_config.distribute_commission(
                     transaction_amount, retailer_user
                 )
                 
+                print(f"💰 Commission distribution: {distribution}")
+                print(f"👥 Hierarchy users: { {role: user.username if user else None for role, user in hierarchy_users.items()} }")
+                
+                total_commission_distributed = 0
+                commission_transactions = []
+                
                 for role, amount in distribution.items():
                     if amount > 0 and hierarchy_users[role]:
-                        CommissionTransaction.objects.create(
+                        recipient_user = hierarchy_users[role]
+                        recipient_wallet = recipient_user.wallet
+                        
+                        # Create commission transaction
+                        commission_txn = CommissionTransaction.objects.create(
                             main_transaction=main_transaction,
                             service_submission=service_submission,
                             commission_config=commission_config,
                             commission_plan=commission_plan,
-                            user=hierarchy_users[role],
+                            user=recipient_user,
                             role=role,
                             commission_amount=amount,
                             transaction_type='credit',
                             status='success',
-                            description=f"Commission for {service_submission.service_form.name}",
+                            description=f"Commission for {service_submission.service_form.name} - {role}",
                             retailer_user=retailer_user,
                             original_transaction_amount=transaction_amount
                         )
                         
-                        wallet = hierarchy_users[role].wallet
-                        wallet.balance += amount
-                        wallet.save()
+                        # Add to wallet
+                        recipient_wallet.balance += amount
+                        recipient_wallet.save()
                         
+                        # Create wallet transaction
                         Transaction.objects.create(
-                            wallet=wallet,
+                            wallet=recipient_wallet,
                             amount=amount,
                             net_amount=amount,
                             service_charge=0,
                             transaction_type='credit',
                             transaction_category='commission',
-                            description=f"Commission from {service_submission.service_form.name}",
-                            created_by=hierarchy_users[role],
+                            description=f"Commission from {service_submission.service_form.name} as {role}",
+                            created_by=recipient_user,
                             status='success'
                         )
+                        
+                        total_commission_distributed += amount
+                        commission_transactions.append(commission_txn)
+                        
+                        print(f"✅ Commission credited: {amount} to {recipient_user.username} ({role})")
                 
-                return True, "Commission processed and distributed successfully"
+                print(f"🎉 Total commission distributed: {total_commission_distributed}")
+                
+                return True, f"Commission processed and distributed successfully. Total: ₹{total_commission_distributed}"
                 
         except Exception as e:
+            print(f"❌ Commission processing failed: {str(e)}")
             return False, f"Commission processing failed: {str(e)}"
         
 
@@ -757,4 +787,80 @@ class DealerRetailerCommissionViewSet(viewsets.ReadOnlyModelViewSet):
                 'service_subcategory': request.query_params.get('service_subcategory'),
                 'commission_plan': request.query_params.get('commission_plan')
             }
+        })
+    
+
+
+class CommissionDashboardViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def my_commission_dashboard(self, request):
+        """Get comprehensive commission dashboard for current user"""
+        user = request.user
+        
+        # Basic stats
+        total_commission = CommissionTransaction.objects.filter(
+            user=user, status='success', transaction_type='credit'
+        ).aggregate(total=Sum('commission_amount'))['total'] or 0
+        
+        today_commission = CommissionTransaction.objects.filter(
+            user=user, status='success', transaction_type='credit',
+            created_at__date=timezone.now().date()
+        ).aggregate(total=Sum('commission_amount'))['total'] or 0
+        
+        # Monthly breakdown
+        monthly_data = CommissionTransaction.objects.filter(
+            user=user, status='success', transaction_type='credit',
+            created_at__year=timezone.now().year
+        ).extra({'month': "EXTRACT(month FROM created_at)"}).values('month').annotate(
+            total=Sum('commission_amount'),
+            count=Count('id')
+        ).order_by('month')
+        
+        # Top performing services
+        top_services = CommissionTransaction.objects.filter(
+            user=user, status='success', transaction_type='credit'
+        ).values(
+            'service_submission__service_subcategory__name'
+        ).annotate(
+            total=Sum('commission_amount'),
+            count=Count('id')
+        ).order_by('-total')[:5]
+        
+        # Recent commissions
+        recent_commissions = CommissionTransaction.objects.filter(
+            user=user, status='success', transaction_type='credit'
+        ).select_related(
+            'service_submission', 'service_submission__service_subcategory'
+        ).order_by('-created_at')[:10]
+        
+        # Hierarchy stats (for users who have downline)
+        if user.role in ['superadmin', 'admin', 'master', 'dealer']:
+            downline_users = User.objects.filter(created_by=user)
+            downline_commission = CommissionTransaction.objects.filter(
+                user__in=downline_users, status='success', transaction_type='credit'
+            ).aggregate(total=Sum('commission_amount'))['total'] or 0
+        else:
+            downline_commission = 0
+        
+        return Response({
+            'user': {
+                'username': user.username,
+                'role': user.role,
+                'wallet_balance': user.wallet.balance
+            },
+            'commission_stats': {
+                'total_commission': total_commission,
+                'today_commission': today_commission,
+                'downline_commission': downline_commission,
+                'total_transactions': CommissionTransaction.objects.filter(
+                    user=user, status='success', transaction_type='credit'
+                ).count()
+            },
+            'monthly_breakdown': list(monthly_data),
+            'top_services': list(top_services),
+            'recent_commissions': CommissionTransactionSerializer(
+                recent_commissions, many=True
+            ).data
         })

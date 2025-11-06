@@ -1956,3 +1956,104 @@ class FundRequestViewSet(viewsets.ModelViewSet):
             'deposit_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks],
             'your_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks]
         })
+    
+
+
+class UserHierarchyViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def my_hierarchy(self, request):
+        """Get current user's hierarchy - who created them and who they created"""
+        user = request.user
+        
+        creator = user.created_by
+        
+        created_users = User.objects.filter(created_by=user).select_related('wallet')
+        
+        hierarchy_stats = {
+            'total_downline': created_users.count(),
+            'downline_by_role': created_users.values('role').annotate(count=Count('id')),
+            'total_commission_earned': CommissionTransaction.objects.filter(
+                user=user, status='success', transaction_type='credit'
+            ).aggregate(total=Sum('commission_amount'))['total'] or 0
+        }
+        
+        creator_data = None
+        if creator:
+            creator_data = {
+                'id': creator.id,
+                'username': creator.username,
+                'role': creator.role,
+                'phone_number': creator.phone_number,
+                'created_at': creator.date_joined
+            }
+        
+        created_users_data = []
+        for created_user in created_users:
+            user_data = {
+                'id': created_user.id,
+                'username': created_user.username,
+                'role': created_user.role,
+                'phone_number': created_user.phone_number,
+                'created_at': created_user.date_joined,
+                'wallet_balance': created_user.wallet.balance if hasattr(created_user, 'wallet') else 0,
+                'services_count': created_user.user_services.count()
+            }
+            created_users_data.append(user_data)
+        
+        return Response({
+            'current_user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'created_at': user.date_joined
+            },
+            'creator': creator_data,
+            'created_users': created_users_data,
+            'hierarchy_stats': hierarchy_stats
+        })
+    
+    @action(detail=False, methods=['get'])
+    def full_hierarchy(self, request):
+        """Get full hierarchy tree for admin users"""
+        if not request.user.is_admin_user():
+            return Response(
+                {'error': 'Permission denied'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        def get_user_hierarchy(user, depth=0):
+            """Recursively get user hierarchy"""
+            created_users = User.objects.filter(created_by=user)
+            
+            user_data = {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'depth': depth,
+                'created_at': user.date_joined,
+                'wallet_balance': user.wallet.balance if hasattr(user, 'wallet') else 0,
+                'total_commission_earned': CommissionTransaction.objects.filter(
+                    user=user, status='success', transaction_type='credit'
+                ).aggregate(total=Sum('commission_amount'))['total'] or 0,
+                'downline': []
+            }
+            
+            for created_user in created_users:
+                user_data['downline'].append(get_user_hierarchy(created_user, depth + 1))
+            
+            return user_data
+        
+        # Start from superadmin users
+        superadmins = User.objects.filter(role='superadmin')
+        hierarchy_tree = []
+        
+        for superadmin in superadmins:
+            hierarchy_tree.append(get_user_hierarchy(superadmin))
+        
+        return Response({
+            'hierarchy_tree': hierarchy_tree,
+            'total_users': User.objects.count(),
+            'users_by_role': User.objects.values('role').annotate(count=Count('id'))
+        })
