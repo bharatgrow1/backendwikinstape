@@ -1518,6 +1518,7 @@ class TransactionViewSet(DynamicModelViewSet):
         wallet = request.user.wallet
         pin = data.get('pin')
         amount = data['amount']
+        service_charge = data['service_charge']
         service_submission_id = data.get('service_submission_id')
         
         # Validate service submission
@@ -1535,29 +1536,8 @@ class TransactionViewSet(DynamicModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Calculate service charge for service payment
-        try:
-            service_charge_config = ServiceCharge.objects.get(
-                transaction_category='service_payment', 
-                is_active=True
-            )
-            service_charge = service_charge_config.calculate_charge(amount)
-        except ServiceCharge.DoesNotExist:
-            service_charge = 0.00
-        
         try:
             with db_transaction.atomic():
-                # Verify PIN first
-                if not wallet.verify_pin(pin):
-                    return Response({'error': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
-                
-                # Check sufficient balance including service charge
-                if not wallet.has_sufficient_balance(amount, service_charge):
-                    return Response(
-                        {'error': 'Insufficient balance including service charges'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
                 # Deduct amount including service charge
                 total_deducted = wallet.deduct_amount(amount, service_charge, pin)
                 
@@ -1579,23 +1559,7 @@ class TransactionViewSet(DynamicModelViewSet):
                 # Update service submission payment status
                 service_submission.payment_status = 'paid'
                 service_submission.transaction_id = transaction.reference_number
-                service_submission.amount = amount  # Make sure amount is set
                 service_submission.save()
-                
-                # ✅ Process commission immediately after successful payment
-                try:
-                    from commission.views import CommissionManager
-                    success, message = CommissionManager.process_service_commission(
-                        service_submission, transaction
-                    )
-                    
-                    if not success:
-                        logger.warning(f"Commission processing failed: {message}")
-                    else:
-                        logger.info(f"Commission processed successfully: {message}")
-                        
-                except Exception as e:
-                    logger.error(f"Commission processing error: {str(e)}")
                 
                 response_serializer = TransactionSerializer(transaction)
                 return Response({
@@ -1604,8 +1568,6 @@ class TransactionViewSet(DynamicModelViewSet):
                     'service_charge': service_charge,
                     'total_deducted': total_deducted,
                     'new_balance': wallet.balance,
-                    'commission_processed': success if 'success' in locals() else False,
-                    'commission_message': message if 'message' in locals() else 'Commission processing not attempted',
                     'service_submission': {
                         'id': service_submission.id,
                         'submission_id': service_submission.submission_id,
@@ -1616,7 +1578,6 @@ class TransactionViewSet(DynamicModelViewSet):
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Service payment failed: {str(e)}")
             return Response(
                 {'error': f'Service payment failed: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1989,4 +1950,4 @@ class FundRequestViewSet(viewsets.ModelViewSet):
             'deposit_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks],
             'your_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks]
         })
-        
+       
