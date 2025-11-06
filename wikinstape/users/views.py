@@ -1382,6 +1382,8 @@ class WalletViewSet(DynamicModelViewSet):
 
 
 
+
+
 class TransactionViewSet(DynamicModelViewSet):
     serializer_class = TransactionSerializer
     queryset = Transaction.objects.all()
@@ -1718,6 +1720,8 @@ class TransactionViewSet(DynamicModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
         
+
+
 class ServiceChargeViewSet(DynamicModelViewSet):
     """Manage service charges"""
     permission_classes = [IsAuthenticated, IsAdminUser]
@@ -1946,4 +1950,3 @@ class FundRequestViewSet(viewsets.ModelViewSet):
             'deposit_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks],
             'your_banks': [{'value': bank[0], 'label': bank[1]} for bank in banks]
         })
-       
