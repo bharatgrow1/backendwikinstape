@@ -1538,6 +1538,12 @@ class TransactionViewSet(DynamicModelViewSet):
         
         try:
             with db_transaction.atomic():
+                # Ensure amount and service_charge are Decimal
+                if isinstance(amount, float):
+                    amount = Decimal(str(amount))
+                if isinstance(service_charge, float):
+                    service_charge = Decimal(str(service_charge))
+                
                 # Deduct amount including service charge
                 total_deducted = wallet.deduct_amount(amount, service_charge, pin)
                 

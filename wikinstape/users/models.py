@@ -529,12 +529,16 @@ class ServiceCharge(models.Model):
     def calculate_charge(self, amount):
         """Calculate service charge for given amount"""
         if not self.is_active:
-            return 0.00
+            return Decimal('0.00')
+        
+        # Ensure amount is Decimal
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
         
         if self.charge_type == 'fixed':
             charge = self.charge_value
         else:  # percentage
-            charge = (amount * self.charge_value) / 100
+            charge = (amount * self.charge_value) / Decimal('100')
         
         # Apply min/max limits
         if self.min_charge and charge < self.min_charge:
