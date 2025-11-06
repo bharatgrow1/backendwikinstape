@@ -10,6 +10,7 @@ from django.db import transaction as db_transaction
 from django.core.validators import MinValueValidator
 import hashlib
 import secrets
+from decimal import Decimal
 
 
 class MobileOTP(models.Model):
@@ -335,6 +336,10 @@ class Wallet(models.Model):
 
     def has_sufficient_balance(self, amount, service_charge=0):
         """Check if wallet has sufficient balance including service charge"""
+        # Convert service_charge to Decimal if it's a float
+        if isinstance(service_charge, float):
+            service_charge = Decimal(str(service_charge))
+        
         total_amount = amount + service_charge
         return self.balance >= total_amount
 
@@ -345,6 +350,10 @@ class Wallet(models.Model):
         
         if self.is_pin_set and not self.verify_pin(pin):
             raise ValueError("Invalid PIN")
+        
+        # Convert service_charge to Decimal if it's a float
+        if isinstance(service_charge, float):
+            service_charge = Decimal(str(service_charge))
         
         total_amount = amount + service_charge
         
