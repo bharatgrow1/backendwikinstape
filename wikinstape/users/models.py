@@ -336,7 +336,9 @@ class Wallet(models.Model):
 
     def has_sufficient_balance(self, amount, service_charge=0):
         """Check if wallet has sufficient balance including service charge"""
-        # Convert service_charge to Decimal if it's a float
+        # Convert both amount and service_charge to Decimal
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
         if isinstance(service_charge, float):
             service_charge = Decimal(str(service_charge))
         
@@ -351,7 +353,9 @@ class Wallet(models.Model):
         if self.is_pin_set and not self.verify_pin(pin):
             raise ValueError("Invalid PIN")
         
-        # Convert service_charge to Decimal if it's a float
+        # Convert both to Decimal to ensure type consistency
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
         if isinstance(service_charge, float):
             service_charge = Decimal(str(service_charge))
         
@@ -366,6 +370,9 @@ class Wallet(models.Model):
 
     def add_amount(self, amount):
         """Add amount to wallet"""
+        # Convert to Decimal if it's a float
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
         self.balance += amount
         self.save()
 
