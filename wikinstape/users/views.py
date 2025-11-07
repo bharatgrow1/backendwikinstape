@@ -18,13 +18,26 @@ from datetime import datetime, timedelta
 from services.models import ServiceSubmission
 from .utils.twilio_service import twilio_service
 from .email_utils import send_otp_email
+from decimal import Decimal
+
 
 from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
-                          RolePermission, State, City, FundRequest, EmailOTP )
+                          RolePermission, State, City, FundRequest, EmailOTP, ForgotPasswordOTP, 
+                           MobileOTP, ForgetPinOTP, WalletPinOTP )
 
 from services.models import ServiceSubCategory
-from users.permissions import *
-from users.serializers import *
+from users.permissions import (IsSuperAdmin, IsAdminUser)
+from users.serializers import (LoginSerializer, OTPVerifySerializer, WalletSerializer, SetWalletPinSerializer,
+        ResetWalletPinSerializer, VerifyWalletPinSerializer, TransactionCreateSerializer, TransactionSerializer,
+        TransactionFilterSerializer, ServiceChargeSerializer, WalletBalanceResponseSerializer, FundRequestHistorySerializer,
+        ServiceSubCategorySerializer, UserServiceSerializer, UserCreateSerializer, UserSerializer, PermissionSerializer,
+        UserPermissionsSerializer, ContentTypeSerializer, GrantRolePermissionSerializer, ModelPermissionSerializer,
+        RolePermissionSerializer, ForgotPasswordSerializer, VerifyForgotPasswordOTPSerializer, ResetPasswordSerializer,
+        StateSerializer, CitySerializer, FundRequestCreateSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer,
+        FundRequestStatsSerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer, SetWalletPinWithOTPSerializer,
+         ResetPinWithForgetOTPSerializer,
+        UserKYCSerializer, MobileOTPLoginSerializer, MobileOTPVerifySerializer, UserPermissionSerializer, ResetWalletPinWithOTPSerializer)
+
 from commission.models import CommissionTransaction
 
 import logging
@@ -619,24 +632,24 @@ class UserViewSet(DynamicModelViewSet):
     
 
 
-    @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated])
-    def update_profile(self, request):
-        """Update user profile information"""
-        user = request.user
-        serializer = UserProfileUpdateSerializer(
-            user, 
-            data=request.data, 
-            partial=True,
-            context={'request': request}
-        )
+    # @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated])
+    # def update_profile(self, request):
+    #     """Update user profile information"""
+    #     user = request.user
+    #     serializer = UserProfileUpdateSerializer(
+    #         user, 
+    #         data=request.data, 
+    #         partial=True,
+    #         context={'request': request}
+    #     )
         
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+    #     serializer.is_valid(raise_exception=True)
+    #     serializer.save()
         
-        return Response({
-            'message': 'Profile updated successfully',
-            'user': UserSerializer(user, context={'request': request}).data
-        })
+    #     return Response({
+    #         'message': 'Profile updated successfully',
+    #         'user': UserSerializer(user, context={'request': request}).data
+    #     })
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def upload_profile_picture(self, request):
@@ -1384,10 +1397,6 @@ class WalletViewSet(DynamicModelViewSet):
             'current_balance': user.wallet.balance
         })
     
-
-
-
-
 
 class TransactionViewSet(DynamicModelViewSet):
     serializer_class = TransactionSerializer

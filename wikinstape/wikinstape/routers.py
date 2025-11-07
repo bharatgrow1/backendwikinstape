@@ -1,11 +1,17 @@
 from rest_framework.routers import DefaultRouter
 from rest_framework import routers
-from api.views import *
-from users.views import *
-from services.views import *
-from commission.views import *
-
+from api.views import SignUPRequestViewSet
+from services.views import (ServiceCategoryViewSet, DirectServiceFormViewSet, ServiceSubCategoryViewSet,
+    ServiceFormViewSet, ServiceSubmissionViewSet, ServiceImageViewSet)
+from users.views import (PermissionViewSet, AuthViewSet, UserViewSet, WalletViewSet,
+        TransactionViewSet, UserHierarchyViewSet, OnBoardServiceViewSet, FundRequestViewSet, ServiceChargeViewSet,
+        StateViewSet, CityViewSet)
+from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, CommissionTransactionViewSet,
+        UserCommissionPlanViewSet, CommissionPayoutViewSet, CommissionStatsViewSet, DealerRetailerCommissionViewSet, 
+        CommissionDashboardViewSet)
 router = DefaultRouter()
+
+
 
 # Users
 router.register(r'upload-images', ServiceImageViewSet)

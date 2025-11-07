@@ -603,7 +603,7 @@ class ResetPinWithForgetOTPSerializer(serializers.Serializer):
         return data
     
 
-class UserProfileUpdateSerializer(serializers.ModelSerializer):
+class ResetPinWithForgetOTPSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [

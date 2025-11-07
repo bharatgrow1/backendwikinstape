@@ -11,6 +11,8 @@ from django.core.validators import MinValueValidator
 import hashlib
 import secrets
 from decimal import Decimal
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class MobileOTP(models.Model):
@@ -706,10 +708,6 @@ class FundRequest(models.Model):
         
         return True, "Fund request rejected"
     
-
-
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 @receiver(post_save, sender=User)
 def create_user_wallet(sender, instance, created, **kwargs):
