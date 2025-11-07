@@ -361,9 +361,13 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             submission.amount = payment_amount
             submission.save()
             
+            # ✅ FIX: Always process commission after successful payment
+            from commission.views import CommissionManager
             success, message = CommissionManager.process_service_commission(
                 submission, transaction_obj
             )
+            
+            print(f"🔄 Commission processing result: {success} - {message}")
             
             commission_details = None
             if success:

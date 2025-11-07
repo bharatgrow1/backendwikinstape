@@ -19,7 +19,7 @@ from commission.serializers import (CommissionPlanSerializer, ServiceCommissionS
         AssignCommissionPlanSerializer, CommissionCalculatorSerializer)
 
 from users.models import (User, Wallet, Transaction)
-from services.models import (ServiceCategory, ServiceSubCategory)
+from services.models import (ServiceCategory, ServiceSubCategory, ServiceSubmission)
 from users.permissions import (IsAdminUser, IsSuperAdmin)
 from services.serializers import (ServiceSubCategorySerializer, ServiceCategorySerializer)
 
@@ -305,6 +305,58 @@ class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
             'role_stats': list(role_stats),
             'user_role': user.role
         })
+    
+
+    @action(detail=False, methods=['post'])
+    def process_commission_manually(self, request):
+        """Manually process commission for a service submission"""
+        submission_id = request.data.get('submission_id')
+        
+        if not submission_id:
+            return Response(
+                {'error': 'submission_id is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            submission = ServiceSubmission.objects.get(id=submission_id)
+            transaction = Transaction.objects.filter(
+                service_submission=submission,
+                status='success'
+            ).first()
+            
+            if not transaction:
+                return Response(
+                    {'error': 'No successful transaction found for this submission'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            success, message = CommissionManager.process_service_commission(
+                submission, transaction
+            )
+            
+            if success:
+                commission_transactions = CommissionTransaction.objects.filter(
+                    service_submission=submission
+                )
+                serializer = CommissionTransactionSerializer(commission_transactions, many=True)
+                
+                return Response({
+                    'message': message,
+                    'commission_transactions': serializer.data,
+                    'total_commissions': commission_transactions.count()
+                })
+            else:
+                return Response(
+                    {'error': message}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except ServiceSubmission.DoesNotExist:
+            return Response(
+                {'error': 'Service submission not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 class UserCommissionPlanViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
@@ -582,6 +634,8 @@ class CommissionStatsViewSet(viewsets.ViewSet):
             'user_distribution': list(user_count_by_role)
         })
 
+# In commission/views.py - CommissionManager
+
 class CommissionManager:
     @staticmethod
     def process_service_commission(service_submission, main_transaction):
@@ -594,6 +648,7 @@ class CommissionManager:
                 print(f"🔄 Processing commission for submission {service_submission.id}, amount: {transaction_amount}")
                 
                 if not retailer_user:
+                    print("❌ No retailer user found for this submission")
                     return False, "No retailer user found for this submission"
                 
                 # Get retailer's commission plan
@@ -602,6 +657,7 @@ class CommissionManager:
                     commission_plan = user_plan.commission_plan
                     print(f"📋 Using commission plan: {commission_plan.name} for user: {retailer_user.username}")
                 except UserCommissionPlan.DoesNotExist:
+                    print(f"❌ No active commission plan for user: {retailer_user.username}")
                     return False, "No active commission plan for user"
                 
                 # Find commission configuration
@@ -624,6 +680,7 @@ class CommissionManager:
                         )
                         print(f"🎯 Found category commission config: {commission_config}")
                     except ServiceCommission.DoesNotExist:
+                        print(f"❌ No commission configuration found for service: {service_submission.service_subcategory.name}")
                         return False, "No commission configuration found for this service"
                 
                 # Calculate distribution
@@ -686,6 +743,8 @@ class CommissionManager:
                 
         except Exception as e:
             print(f"❌ Commission processing failed: {str(e)}")
+            import traceback
+            print(f"🔍 Stack trace: {traceback.format_exc()}")
             return False, f"Commission processing failed: {str(e)}"
         
 
