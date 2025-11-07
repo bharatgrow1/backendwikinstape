@@ -617,6 +617,23 @@ class ResetPinWithForgetOTPSerializer(serializers.ModelSerializer):
             'last_name': {'required': False},
         }
 
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'profile_picture', 'first_name', 'last_name', 'phone_number', 
+            'alternative_phone', 'date_of_birth', 'gender', 'address', 
+            'city', 'state', 'pincode', 'landmark'
+        ]
+        extra_kwargs = {
+            'profile_picture': {'required': False},
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+        }
+
+
 class UserKYCSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

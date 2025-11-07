@@ -35,7 +35,7 @@ from users.serializers import (LoginSerializer, OTPVerifySerializer, WalletSeria
         RolePermissionSerializer, ForgotPasswordSerializer, VerifyForgotPasswordOTPSerializer, ResetPasswordSerializer,
         StateSerializer, CitySerializer, FundRequestCreateSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer,
         FundRequestStatsSerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer, SetWalletPinWithOTPSerializer,
-         ResetPinWithForgetOTPSerializer,
+        ForgetPinRequestOTPSerializer, VerifyForgetPinOTPSerializer, ResetPinWithForgetOTPSerializer, UserProfileUpdateSerializer,
         UserKYCSerializer, MobileOTPLoginSerializer, MobileOTPVerifySerializer, UserPermissionSerializer, ResetWalletPinWithOTPSerializer)
 
 from commission.models import CommissionTransaction
@@ -632,24 +632,24 @@ class UserViewSet(DynamicModelViewSet):
     
 
 
-    # @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated])
-    # def update_profile(self, request):
-    #     """Update user profile information"""
-    #     user = request.user
-    #     serializer = UserProfileUpdateSerializer(
-    #         user, 
-    #         data=request.data, 
-    #         partial=True,
-    #         context={'request': request}
-    #     )
+    @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated])
+    def update_profile(self, request):
+        """Update user profile information"""
+        user = request.user
+        serializer = UserProfileUpdateSerializer(
+            user, 
+            data=request.data, 
+            partial=True,
+            context={'request': request}
+        )
         
-    #     serializer.is_valid(raise_exception=True)
-    #     serializer.save()
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         
-    #     return Response({
-    #         'message': 'Profile updated successfully',
-    #         'user': UserSerializer(user, context={'request': request}).data
-    #     })
+        return Response({
+            'message': 'Profile updated successfully',
+            'user': UserSerializer(user, context={'request': request}).data
+        })
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def upload_profile_picture(self, request):
