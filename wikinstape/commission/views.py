@@ -12,12 +12,16 @@ from decimal import InvalidOperation
 from django.db.models.functions import ExtractMonth, ExtractYear
 
 
-from .models import *
-from .serializers import *
-from users.models import User, Wallet, Transaction
-from services.models import ServiceSubmission, ServiceSubCategory
-from users.permissions import IsAdminUser, IsSuperAdmin
-from services.serializers import *
+from commission.models import (CommissionPlan, ServiceCommission, UserCommissionPlan, CommissionPayout,  CommissionTransaction)
+from commission.serializers import (CommissionPlanSerializer, ServiceCommissionSerializer, RoleFilteredServiceCommissionSerializer,
+        BulkServiceCommissionCreateSerializer, CommissionTransactionSerializer, UserCommissionPlanSerializer,
+        CommissionPayoutSerializer, DealerRetailerServiceCommissionSerializer, 
+        AssignCommissionPlanSerializer, CommissionCalculatorSerializer)
+
+from users.models import (User, Wallet, Transaction)
+from services.models import (ServiceCategory, ServiceSubCategory)
+from users.permissions import (IsAdminUser, IsSuperAdmin)
+from services.serializers import (ServiceSubCategorySerializer, ServiceCategorySerializer)
 
 
 class CommissionPlanViewSet(viewsets.ModelViewSet):
@@ -255,14 +259,16 @@ class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         # Recent commissions
         recent_commissions = commission_qs.order_by('-created_at')[:10]
         
-        # Monthly breakdown for current year
+        # Fixed monthly breakdown for current year - using ExtractMonth
         current_year = timezone.now().year
         monthly_data = CommissionTransaction.objects.filter(
             user=user,
             status='success',
             transaction_type='credit',
             created_at__year=current_year
-        ).extra({'month': "EXTRACT(month FROM created_at)"}).values('month').annotate(
+        ).annotate(
+            month=ExtractMonth('created_at')
+        ).values('month').annotate(
             total=Sum('commission_amount')
         ).order_by('month')
         

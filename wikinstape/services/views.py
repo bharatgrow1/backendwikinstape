@@ -8,13 +8,16 @@ from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 
-from .models import *
-from .serializers import *
-from commission.views import *
+from services.models import (UploadImage, ServiceCategory, ServiceSubCategory, 
+                             ServiceForm, FormField, ServiceSubmission, FormSubmissionFile)
+from services.serializers import (DirectServiceFormSerializer, ServiceFormWithFieldsSerializer, 
+        ServiceCategoryWithFormsSerializer, ServiceFormSerializer, ServiceSubmissionSerializer, 
+        DynamicFormSubmissionSerializer, UploadImageSerializer, ServiceFormWithFieldsSerializer, 
+        ServiceSubmissionSerializer)
 
-# -------------------------------
-# Service Category ViewSet
-# -------------------------------
+from commission.views import (ServiceCategorySerializer, ServiceSubCategorySerializer, ServiceSubCategorySerializer)
+
+
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     queryset = ServiceCategory.objects.all()
@@ -26,9 +29,8 @@ class ServiceCategoryViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-# -------------------------------
-# Direct Service Form ViewSet  
-# -------------------------------
+
+
 class DirectServiceFormViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     queryset = ServiceForm.objects.filter(service_subcategory__isnull=True)
@@ -71,7 +73,6 @@ def copy_category_fields_to_subcategory(request):
         category = ServiceCategory.objects.get(id=category_id)
         subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
         
-        # Copy boolean fields
         category.copy_boolean_fields_to_subcategory(subcategory)
         
         serializer = ServiceSubCategorySerializer(subcategory)
@@ -102,17 +103,15 @@ def create_direct_category_form(request):
         if not category.allow_direct_service:
             return Response({'error': 'This category does not allow direct services'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Create service form directly for category
         service_form = ServiceForm.objects.create(
             service_type='direct_category',
             service_category=category,
-            service_subcategory=None,  # Direct form, no subcategory
+            service_subcategory=None,
             name=form_name,
             description=form_description,
             created_by=request.user
         )
         
-        # Create form fields based on category's boolean flags
         required_fields = category.get_required_fields()
         for index, field_config in enumerate(required_fields):
             FormField.objects.create(
@@ -141,9 +140,7 @@ def get_categories_with_direct_services(request):
     return Response(serializer.data)
 
 
-# -------------------------------
-# Service SubCategory ViewSet
-# -------------------------------
+
 class ServiceSubCategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     queryset = ServiceSubCategory.objects.all()
@@ -168,9 +165,7 @@ class ServiceSubCategoryViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(subcategories, many=True)
         return Response(serializer.data)
 
-# -------------------------------
-# Service Form ViewSet
-# -------------------------------
+
 class ServiceFormViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     queryset = ServiceForm.objects.all()
@@ -204,9 +199,7 @@ class ServiceFormViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(forms, many=True)
         return Response(serializer.data)
 
-# -------------------------------
-# Service Submission ViewSet
-# -------------------------------
+
 class ServiceSubmissionViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     queryset = ServiceSubmission.objects.all()
@@ -239,12 +232,10 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             elif field.field_name in request.FILES:
                 files_to_save[field.field_name] = request.FILES[field.field_name]
 
-        # Validate form data
         dynamic_serializer = DynamicFormSubmissionSerializer(data=form_data, form_fields=form_fields)
         if not dynamic_serializer.is_valid():
             return Response({'errors': dynamic_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create submission
         submission_data = {
             'service_form': service_form.id,
             'service_subcategory': service_form.service_subcategory.id,
@@ -257,7 +248,6 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             'notes': request.data.get('notes')
         }
 
-        # Add submitted_by if user is authenticated
         if request.user.is_authenticated:
             submission_data['submitted_by'] = request.user.id
 
@@ -265,7 +255,6 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         submission = serializer.save()
 
-        # Save files
         for field_name, file_obj in files_to_save.items():
             FormSubmissionFile.objects.create(
                 submission=submission,
@@ -275,13 +264,11 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 file_size=file_obj.size
             )
 
-        # Process commission if payment is successful and amount is positive
         if submission.status == 'submitted' and submission.amount > 0:
             try:
                 from commission.views import CommissionManager
                 from users.models import Transaction
                 
-                # Find the main transaction for this submission
                 main_transaction = Transaction.objects.filter(
                     service_submission=submission,
                     status='success'
@@ -292,7 +279,6 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                         submission, main_transaction
                     )
                     if not success:
-                        # Log commission processing failure but don't fail the submission
                         print(f"Commission processing failed: {message}")
                 else:
                     print(f"No successful transaction found for submission {submission.id}")
@@ -315,13 +301,11 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
         submission.status = new_status
         submission.save()
         
-        # Process commission when status changes to 'success'
         if new_status == 'success' and submission.amount > 0:
             try:
                 from commission.views import CommissionManager
                 from users.models import Transaction
                 
-                # Find the main transaction
                 main_transaction = Transaction.objects.filter(
                     service_submission=submission,
                     status='success'
@@ -355,14 +339,11 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
         try:
             wallet = request.user.wallet
             
-            # Verify PIN first
             if not wallet.verify_pin(pin):
                 return Response({'error': 'Invalid PIN'}, status=400)
             
-            # Process payment
             total_deducted = wallet.deduct_amount(payment_amount, 0, pin)
             
-            # Create transaction
             transaction_obj = Transaction.objects.create(
                 wallet=wallet,
                 amount=payment_amount,
@@ -374,19 +355,16 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 status='success'
             )
             
-            # Update submission status
             submission.payment_status = 'paid'
             submission.transaction_id = transaction_obj.reference_number
             submission.status = 'success'
-            submission.amount = payment_amount  # Ensure amount is set
+            submission.amount = payment_amount
             submission.save()
             
-            # ✅ Auto commission processing - THIS IS THE KEY PART
             success, message = CommissionManager.process_service_commission(
                 submission, transaction_obj
             )
             
-            # Get commission distribution details
             commission_details = None
             if success:
                 commission_transactions = CommissionTransaction.objects.filter(
@@ -421,7 +399,7 @@ class ServiceImageViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-# New API Views for Boolean Fields System
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_subcategory_form_config(request, subcategory_id):
@@ -452,7 +430,6 @@ def create_form_from_boolean_fields(request):
     try:
         subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
         
-        # Create service form
         service_form = ServiceForm.objects.create(
             service_type='custom',
             service_subcategory=subcategory,
@@ -461,7 +438,6 @@ def create_form_from_boolean_fields(request):
             created_by=request.user
         )
         
-        # Create form fields based on boolean flags
         required_fields = subcategory.get_required_fields()
         for field_config in required_fields:
             FormField.objects.create(
@@ -494,14 +470,12 @@ def create_service_submission_direct(request):
         
         subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
         
-        # Collect form data
         form_data = {}
         for key, value in request.data.items():
             if key not in ['service_subcategory', 'customer_name', 'customer_email', 
                           'customer_phone', 'amount', 'notes', 'status']:
                 form_data[key] = value
         
-        # Create a minimal service form for this submission
         service_form = ServiceForm.objects.create(
             service_type='direct_submission',
             service_subcategory=subcategory,
@@ -510,7 +484,6 @@ def create_service_submission_direct(request):
             created_by=request.user if request.user.is_authenticated else None
         )
         
-        # Create submission - DON'T include submitted_by in the data
         submission_data = {
             'service_form': service_form.id,
             'service_subcategory': subcategory.id,
@@ -521,20 +494,17 @@ def create_service_submission_direct(request):
             'customer_email': request.data.get('customer_email', ''),
             'customer_phone': request.data.get('customer_phone', ''),
             'notes': request.data.get('notes', ''),
-            # Remove submitted_by completely from here
         }
         
         serializer = ServiceSubmissionSerializer(data=submission_data)
         if serializer.is_valid():
             submission = serializer.save(submitted_by=request.user if request.user.is_authenticated else None)
             
-            # ✅ ADD COMMISSION PROCESSING
             if submission.amount > 0:
                 try:
                     from commission.views import CommissionManager
                     from users.models import Transaction
                     
-                    # Find or create transaction for this submission
                     main_transaction = Transaction.objects.filter(
                         service_submission=submission,
                         status='success'

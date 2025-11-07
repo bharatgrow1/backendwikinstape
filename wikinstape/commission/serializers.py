@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import *
+from commission.models import (CommissionPlan, UserCommissionPlan, ServiceCommission, CommissionTransaction,
+                               CommissionPayout,)
 from users.models import User
 from services.models import ServiceCategory, ServiceSubCategory
 

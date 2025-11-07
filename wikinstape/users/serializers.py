@@ -1,10 +1,12 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from .models import *
 from services.models import ServiceSubCategory
 from django.core.validators import MinValueValidator
 import re
+
+from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
+                          RolePermission, State, City, FundRequest)
 
 
 class LoginSerializer(serializers.Serializer):
@@ -14,7 +16,7 @@ class LoginSerializer(serializers.Serializer):
 class OTPVerifySerializer(serializers.Serializer):
     username = serializers.CharField()
     otp = serializers.CharField(max_length=6)
-
+ 
 class WalletSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)

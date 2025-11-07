@@ -18,11 +18,15 @@ from datetime import datetime, timedelta
 from services.models import ServiceSubmission
 from .utils.twilio_service import twilio_service
 from .email_utils import send_otp_email
-from .models import *
+
+from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
+                          RolePermission, State, City, FundRequest, EmailOTP )
+
 from services.models import ServiceSubCategory
-from .permissions import *
-from .serializers import *
-from commission.models import *
+from users.permissions import *
+from users.serializers import *
+from commission.models import CommissionTransaction
+
 import logging
 
 logger = logging.getLogger(__name__)
