@@ -656,6 +656,17 @@ class ServiceSubmission(models.Model):
         if self.status == 'submitted' and not self.submitted_at:
             self.submitted_at = timezone.now()
         
+        # ✅ AUTO COMMISSION: When payment status changes to paid
+        if self.pk:  # Only for existing instances
+            old_instance = ServiceSubmission.objects.get(pk=self.pk)
+            if (old_instance.payment_status != 'paid' and 
+                self.payment_status == 'paid' and 
+                self.amount > 0):
+                
+                # Trigger commission processing
+                from commission.utils import auto_process_commission
+                auto_process_commission(self)
+        
         super().save(*args, **kwargs)
 
     def __str__(self):
