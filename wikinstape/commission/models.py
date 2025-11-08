@@ -115,7 +115,7 @@ class ServiceCommission(models.Model):
         }
     
     def distribute_commission(self, transaction_amount, retailer_user):
-        """Distribute commission to hierarchy users including superadmin"""
+        """Distribute commission to hierarchy users including superadmin - NO LIMITS"""
         total_commission = self.calculate_commission(transaction_amount)
         
         distribution_percentages = self.get_distribution_percentages()
@@ -128,9 +128,18 @@ class ServiceCommission(models.Model):
             'superadmin': (total_commission * distribution_percentages['superadmin']) / 100,
         }
         
-        hierarchy_users = self.get_commission_hierarchy(retailer_user)
+        hierarchy = self.get_commission_hierarchy(retailer_user)
         
-        return distribution, hierarchy_users
+        if not hierarchy['superadmin']:
+            hierarchy['superadmin'] = User.objects.filter(role='superadmin', is_active=True).first()
+        if not hierarchy['admin']:
+            hierarchy['admin'] = User.objects.filter(role='admin', is_active=True).first()
+        if not hierarchy['master'] and retailer_user.role != 'master':
+            hierarchy['master'] = User.objects.filter(role='master', is_active=True).first()
+        if not hierarchy['dealer'] and retailer_user.role != 'dealer':
+            hierarchy['dealer'] = User.objects.filter(role='dealer', is_active=True).first()
+        
+        return distribution, hierarchy
     
     def get_commission_hierarchy(self, retailer_user):
         """Get all users in commission hierarchy for a retailer including superadmin"""
