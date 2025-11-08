@@ -344,6 +344,7 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             
             total_deducted = wallet.deduct_amount(payment_amount, 0, pin)
             
+            # ✅ Create transaction record
             transaction_obj = Transaction.objects.create(
                 wallet=wallet,
                 amount=payment_amount,
@@ -355,13 +356,16 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
                 status='success'
             )
             
+            # ✅ Update submission status
             submission.payment_status = 'paid'
             submission.transaction_id = transaction_obj.reference_number
             submission.status = 'success'
             submission.amount = payment_amount
             submission.save()
             
-            # ✅ FIX: Always process commission after successful payment
+            # ✅ CRITICAL FIX: Force commission processing
+            print(f"🔄 Starting commission processing for submission {submission.id}")
+            
             from commission.views import CommissionManager
             success, message = CommissionManager.process_service_commission(
                 submission, transaction_obj
@@ -369,20 +373,33 @@ class ServiceSubmissionViewSet(viewsets.ModelViewSet):
             
             print(f"🔄 Commission processing result: {success} - {message}")
             
-            commission_details = None
+            # ✅ Get commission details to verify
+            commission_transactions = []
+            wallet_updates = []
+            
             if success:
+                from commission.models import CommissionTransaction
                 commission_transactions = CommissionTransaction.objects.filter(
-                    main_transaction=transaction_obj
+                    service_submission=submission
                 )
-                commission_details = CommissionTransactionSerializer(
-                    commission_transactions, many=True
-                ).data
+                
+                # Check wallet balances
+                for ct in commission_transactions:
+                    user_wallet = ct.user.wallet
+                    wallet_updates.append({
+                        'user': ct.user.username,
+                        'role': ct.role,
+                        'commission_amount': ct.commission_amount,
+                        'wallet_balance': user_wallet.balance,
+                        'commission_added': True
+                    })
             
             return Response({
                 'message': 'Payment successful',
                 'commission_processed': success,
                 'commission_message': message,
-                'commission_details': commission_details,
+                'commission_details': CommissionTransactionSerializer(commission_transactions, many=True).data if success else [],
+                'wallet_updates': wallet_updates,
                 'transaction_reference': transaction_obj.reference_number,
                 'total_deducted': total_deducted,
                 'new_balance': wallet.balance

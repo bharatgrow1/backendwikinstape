@@ -658,63 +658,58 @@ class CommissionManager:
                 retailer_user = service_submission.submitted_by
                 transaction_amount = service_submission.amount
                 
-                print(f"🔄 Processing commission for submission {service_submission.id}, amount: {transaction_amount}")
+                print(f"🔄 COMMISSION DEBUG: Starting for submission {service_submission.id}")
+                print(f"🔄 COMMISSION DEBUG: Retailer: {retailer_user.username if retailer_user else 'None'}")
+                print(f"🔄 COMMISSION DEBUG: Amount: {transaction_amount}")
                 
                 if not retailer_user:
-                    print("❌ No retailer user found for this submission")
+                    print("❌ COMMISSION DEBUG: No retailer user found")
                     return False, "No retailer user found for this submission"
                 
                 # Get retailer's commission plan
                 try:
                     user_plan = UserCommissionPlan.objects.get(user=retailer_user, is_active=True)
                     commission_plan = user_plan.commission_plan
-                    print(f"📋 Using commission plan: {commission_plan.name} for user: {retailer_user.username}")
+                    print(f"✅ COMMISSION DEBUG: Commission plan found: {commission_plan.name}")
                 except UserCommissionPlan.DoesNotExist:
-                    print(f"❌ No active commission plan for user: {retailer_user.username}")
+                    print(f"❌ COMMISSION DEBUG: No active commission plan for {retailer_user.username}")
                     return False, "No active commission plan for user"
                 
                 # Find commission configuration
                 commission_config = None
                 try:
-                    # First try subcategory
                     commission_config = ServiceCommission.objects.get(
                         service_subcategory=service_submission.service_subcategory,
                         commission_plan=commission_plan,
                         is_active=True
                     )
-                    print(f"🎯 Found subcategory commission config: {commission_config}")
+                    print(f"✅ COMMISSION DEBUG: Commission config found")
                 except ServiceCommission.DoesNotExist:
-                    try:
-                        # Fallback to category
-                        commission_config = ServiceCommission.objects.get(
-                            service_category=service_submission.service_subcategory.category,
-                            commission_plan=commission_plan,
-                            is_active=True
-                        )
-                        print(f"🎯 Found category commission config: {commission_config}")
-                    except ServiceCommission.DoesNotExist:
-                        print(f"❌ No commission configuration found for service: {service_submission.service_subcategory.name}")
-                        return False, "No commission configuration found for this service"
+                    print(f"❌ COMMISSION DEBUG: No commission config found")
+                    return False, "No commission configuration found for this service"
                 
                 # Calculate distribution
                 distribution, hierarchy_users = commission_config.distribute_commission(
                     transaction_amount, retailer_user
                 )
                 
-                print(f"💰 Commission distribution: {distribution}")
-                print(f"👥 Hierarchy users: { {role: user.username if user else None for role, user in hierarchy_users.items()} }")
+                print(f"💰 COMMISSION DEBUG: Distribution: {distribution}")
                 
                 total_commission_distributed = 0
-                commission_transactions = []
                 
                 for role, amount in distribution.items():
                     if amount > 0 and hierarchy_users[role]:
                         recipient_user = hierarchy_users[role]
                         
-                        # ✅ FIX: Ensure recipient has a wallet
+                        print(f"🎯 COMMISSION DEBUG: Processing {role}: {recipient_user.username} - Amount: {amount}")
+                        
+                        # Ensure wallet exists
                         recipient_wallet, created = Wallet.objects.get_or_create(user=recipient_user)
                         if created:
-                            print(f"✅ Created wallet for user: {recipient_user.username}")
+                            print(f"✅ COMMISSION DEBUG: Created wallet for {recipient_user.username}")
+                        
+                        # Get current balance before adding commission
+                        old_balance = recipient_wallet.balance
                         
                         # Create commission transaction
                         commission_txn = CommissionTransaction.objects.create(
@@ -732,11 +727,11 @@ class CommissionManager:
                             original_transaction_amount=transaction_amount
                         )
                         
-                        # ✅ FIX: CRITICAL - Add commission to wallet balance
+                        # ✅ CRITICAL: Add to wallet balance
                         recipient_wallet.balance += amount
                         recipient_wallet.save()
                         
-                        # ✅ FIX: Create wallet transaction record
+                        # Create wallet transaction
                         Transaction.objects.create(
                             wallet=recipient_wallet,
                             amount=amount,
@@ -750,18 +745,17 @@ class CommissionManager:
                         )
                         
                         total_commission_distributed += amount
-                        commission_transactions.append(commission_txn)
                         
-                        print(f"✅ Commission credited: {amount} to {recipient_user.username} ({role}) - New Balance: {recipient_wallet.balance}")
+                        print(f"✅ COMMISSION DEBUG: Added {amount} to {recipient_user.username} | Old: {old_balance} | New: {recipient_wallet.balance}")
                 
-                print(f"🎉 Total commission distributed: {total_commission_distributed}")
+                print(f"🎉 COMMISSION DEBUG: Total distributed: {total_commission_distributed}")
                 
-                return True, f"Commission processed and distributed successfully. Total: ₹{total_commission_distributed}"
+                return True, f"Commission processed successfully. Total: ₹{total_commission_distributed}"
                 
         except Exception as e:
-            print(f"❌ Commission processing failed: {str(e)}")
+            print(f"❌ COMMISSION DEBUG: Error: {str(e)}")
             import traceback
-            print(f"🔍 Stack trace: {traceback.format_exc()}")
+            print(f"🔍 COMMISSION DEBUG: Stack trace: {traceback.format_exc()}")
             return False, f"Commission processing failed: {str(e)}"
         
 
