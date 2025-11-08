@@ -336,14 +336,27 @@ class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
             )
             
             if success:
+                # Check wallet balances after commission distribution
                 commission_transactions = CommissionTransaction.objects.filter(
                     service_submission=submission
                 )
+                
+                wallet_updates = []
+                for ct in commission_transactions:
+                    wallet = ct.user.wallet
+                    wallet_updates.append({
+                        'user': ct.user.username,
+                        'role': ct.role,
+                        'commission_amount': ct.commission_amount,
+                        'wallet_balance': wallet.balance
+                    })
+                
                 serializer = CommissionTransactionSerializer(commission_transactions, many=True)
                 
                 return Response({
                     'message': message,
                     'commission_transactions': serializer.data,
+                    'wallet_updates': wallet_updates,
                     'total_commissions': commission_transactions.count()
                 })
             else:
@@ -697,7 +710,11 @@ class CommissionManager:
                 for role, amount in distribution.items():
                     if amount > 0 and hierarchy_users[role]:
                         recipient_user = hierarchy_users[role]
-                        recipient_wallet = recipient_user.wallet
+                        
+                        # ✅ FIX: Ensure recipient has a wallet
+                        recipient_wallet, created = Wallet.objects.get_or_create(user=recipient_user)
+                        if created:
+                            print(f"✅ Created wallet for user: {recipient_user.username}")
                         
                         # Create commission transaction
                         commission_txn = CommissionTransaction.objects.create(
@@ -715,11 +732,11 @@ class CommissionManager:
                             original_transaction_amount=transaction_amount
                         )
                         
-                        # Add to wallet
+                        # ✅ FIX: CRITICAL - Add commission to wallet balance
                         recipient_wallet.balance += amount
                         recipient_wallet.save()
                         
-                        # Create wallet transaction
+                        # ✅ FIX: Create wallet transaction record
                         Transaction.objects.create(
                             wallet=recipient_wallet,
                             amount=amount,
@@ -735,7 +752,7 @@ class CommissionManager:
                         total_commission_distributed += amount
                         commission_transactions.append(commission_txn)
                         
-                        print(f"✅ Commission credited: {amount} to {recipient_user.username} ({role})")
+                        print(f"✅ Commission credited: {amount} to {recipient_user.username} ({role}) - New Balance: {recipient_wallet.balance}")
                 
                 print(f"🎉 Total commission distributed: {total_commission_distributed}")
                 
