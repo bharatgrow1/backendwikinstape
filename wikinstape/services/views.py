@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.http import JsonResponse
 from django.db import transaction
 import uuid
 from django.shortcuts import get_object_or_404
@@ -548,3 +549,374 @@ def create_service_submission_direct(request):
         return Response({'error': 'Subcategory not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def fetch_bill_details(request):
+    """
+    Fetch bill details based on consumer number or other identifiers
+    """
+    consumer_number = request.data.get('consumer_number')
+    service_type = request.data.get('service_type')
+    
+    if not consumer_number:
+        return JsonResponse({'error': 'Consumer number is required'}, status=400)
+    
+    # Static bill data for testing - Replace with actual API integration
+    static_bills = {
+        '1234567890': {
+            'consumer_name': 'Rajesh Kumar',
+            'consumer_number': '1234567890',
+            'bill_amount': 1250.00,
+            'due_date': '2024-12-25',
+            'billing_period': 'Nov 2024',
+            'service_provider': 'BSES Yamuna',
+            'state': 'Delhi',
+            'city': 'Delhi',
+            'outstanding_amount': 1250.00,
+            'late_fee': 0.00,
+            'tax_amount': 150.00,
+            'base_amount': 1100.00
+        },
+        '9876543210': {
+            'consumer_name': 'Priya Sharma',
+            'consumer_number': '9876543210',
+            'bill_amount': 1850.50,
+            'due_date': '2024-12-28',
+            'billing_period': 'Nov 2024',
+            'service_provider': 'Tata Power',
+            'state': 'Maharashtra',
+            'city': 'Mumbai',
+            'outstanding_amount': 1850.50,
+            'late_fee': 50.00,
+            'tax_amount': 200.50,
+            'base_amount': 1600.00
+        }
+    }
+    
+    bill_data = static_bills.get(consumer_number)
+    
+    if not bill_data:
+        return JsonResponse({
+            'error': f'No bill found for consumer number: {consumer_number}',
+            'suggestions': ['Check consumer number', 'Ensure service is active']
+        }, status=404)
+    
+    return JsonResponse({
+        'success': True,
+        'bill_details': bill_data
+    })
+
+
+
+# services/views.py
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def process_service_payment(request):
+    """
+    Process payment for service with commission distribution
+    """
+    try:
+        submission_id = request.data.get('submission_id')
+        payment_method = request.data.get('payment_method', 'wallet')
+        pin = request.data.get('pin')
+        card_details = request.data.get('card_details', {})
+        
+        if not submission_id:
+            return Response({'error': 'Submission ID is required'}, status=400)
+        
+        submission = ServiceSubmission.objects.get(id=submission_id)
+        
+        if payment_method == 'wallet':
+            if not pin:
+                return Response({'error': 'Wallet PIN is required'}, status=400)
+            
+            # Process wallet payment
+            wallet = request.user.wallet
+            
+            if not wallet.verify_pin(pin):
+                return Response({'error': 'Invalid PIN'}, status=400)
+            
+            total_amount = submission.amount
+            total_deducted = wallet.deduct_amount(total_amount, 0, pin)
+            
+            # Create transaction record
+            transaction_obj = Transaction.objects.create(
+                wallet=wallet,
+                amount=total_amount,
+                transaction_type='debit',
+                transaction_category='service_payment',
+                description=f"Payment for {submission.service_form.name}",
+                created_by=request.user,
+                service_submission=submission,
+                status='success'
+            )
+            
+        elif payment_method == 'card':
+            # Process card payment (simulated)
+            # In production, integrate with payment gateway
+            card_number = card_details.get('card_number')
+            expiry = card_details.get('expiry')
+            cvv = card_details.get('cvv')
+            
+            if not all([card_number, expiry, cvv]):
+                return Response({'error': 'Card details incomplete'}, status=400)
+            
+            # Simulate successful card payment
+            transaction_obj = Transaction.objects.create(
+                wallet=request.user.wallet,
+                amount=submission.amount,
+                transaction_type='debit',
+                transaction_category='service_payment',
+                description=f"Card Payment for {submission.service_form.name}",
+                created_by=request.user,
+                service_submission=submission,
+                status='success',
+                payment_method='card'
+            )
+        
+        # Update submission status
+        submission.payment_status = 'paid'
+        submission.transaction_id = transaction_obj.reference_number
+        submission.status = 'success'
+        submission.save()
+        
+        # Process commission
+        commission_result = handle_commission_processing(submission, transaction_obj)
+        
+        return Response({
+            'success': True,
+            'message': 'Payment successful',
+            'transaction_id': transaction_obj.reference_number,
+            'submission_id': submission.id,
+            'amount': submission.amount,
+            'commission_processed': commission_result.get('success', False),
+            'commission_message': commission_result.get('message', '')
+        })
+        
+    except ServiceSubmission.DoesNotExist:
+        return Response({'error': 'Submission not found'}, status=404)
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
+    except Exception as e:
+        return Response({'error': f'Payment failed: {str(e)}'}, status=500)
+
+def handle_commission_processing(submission, transaction):
+    """
+    Handle commission distribution for service payment
+    """
+    try:
+        from commission.views import CommissionManager
+        success, message = CommissionManager.process_service_commission(
+            submission, transaction
+        )
+        
+        return {
+            'success': success,
+            'message': message
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'message': f'Commission processing error: {str(e)}'
+        }
+    
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def fetch_bill_details_enhanced(request):
+    """
+    Enhanced bill fetching for all service types
+    """
+    identifier = request.data.get('identifier')
+    service_type = request.data.get('service_type')
+    subcategory_id = request.data.get('subcategory_id')
+    
+    if not identifier:
+        return Response({'error': 'Identifier is required'}, status=400)
+    
+    # Static bill data for all service types
+    static_bills = {
+        # Electricity Bills
+        '1234567890': {
+            'service_type': 'electricity',
+            'consumer_name': 'Rajesh Kumar',
+            'consumer_number': '1234567890',
+            'bill_amount': 1250.00,
+            'due_date': '2024-12-25',
+            'billing_period': 'Nov 2024',
+            'service_provider': 'BSES Yamuna',
+            'outstanding_amount': 1250.00,
+            'late_fee': 0.00,
+            'tax_amount': 150.00,
+            'base_amount': 1100.00
+        },
+        '9876543210': {
+            'service_type': 'electricity', 
+            'consumer_name': 'Priya Sharma',
+            'consumer_number': '9876543210',
+            'bill_amount': 1850.50,
+            'due_date': '2024-12-28',
+            'billing_period': 'Nov 2024',
+            'service_provider': 'Tata Power',
+            'outstanding_amount': 1850.50,
+            'late_fee': 50.00,
+            'tax_amount': 200.50,
+            'base_amount': 1600.00
+        },
+        
+        # Water Bills
+        'WB123456': {
+            'service_type': 'water',
+            'consumer_name': 'Amit Singh',
+            'consumer_number': 'WB123456',
+            'bill_amount': 850.00,
+            'due_date': '2024-12-20',
+            'billing_period': 'Nov 2024',
+            'service_provider': 'Delhi Jal Board',
+            'outstanding_amount': 850.00,
+            'late_fee': 25.00,
+            'usage_charge': 700.00,
+            'sewage_charge': 150.00
+        },
+        
+        # Broadband Bills
+        'BB789012': {
+            'service_type': 'broadband',
+            'account_number': 'BB789012',
+            'customer_name': 'Neha Gupta',
+            'bill_amount': 899.00,
+            'due_date': '2024-12-15',
+            'billing_period': 'Nov 2024',
+            'service_provider': 'Airtel Xstream',
+            'plan_name': '100 Mbps Unlimited',
+            'gst_amount': 162.00,
+            'base_plan_amount': 737.00
+        },
+        
+        # Loan EMI
+        'LN551237': {
+            'service_type': 'loan_emi',
+            'loan_account': 'LN551237',
+            'customer_name': 'Rohit Verma',
+            'emi_amount': 15250.00,
+            'due_date': '2024-12-05',
+            'principal_amount': 12500.00,
+            'interest_amount': 2750.00,
+            'outstanding_principal': 485000.00,
+            'bank_name': 'HDFC Bank'
+        },
+        
+        # Fastag Recharge
+        'DL01AB1234': {
+            'service_type': 'fastag',
+            'vehicle_number': 'DL01AB1234',
+            'vehicle_type': 'Car',
+            'current_balance': 125.50,
+            'recharge_amount': 500.00,
+            'customer_name': 'Sanjay Mehta',
+            'fastag_provider': 'ICICI Bank'
+        },
+        
+        # Credit Card Bill
+        '4123456789012345': {
+            'service_type': 'credit_card',
+            'card_number': '4123456789012345',
+            'customer_name': 'Anjali Patel',
+            'total_amount': 25480.00,
+            'due_date': '2024-12-10',
+            'minimum_amount': 2548.00,
+            'credit_limit': 100000.00,
+            'available_limit': 74520.00,
+            'bank_name': 'SBI Card'
+        },
+        
+        # Society Maintenance
+        'A504': {
+            'service_type': 'society_maintenance',
+            'flat_number': 'A504',
+            'customer_name': 'Kiran Desai',
+            'maintenance_amount': 3500.00,
+            'due_date': '2024-12-03',
+            'society_name': 'Shanti Apartments',
+            'water_charges': 500.00,
+            'electricity_common': 800.00,
+            'sinking_fund': 300.00,
+            'other_charges': 1900.00
+        },
+        
+        # Traffic Challan
+        'CH12345678': {
+            'service_type': 'traffic_challan',
+            'challan_number': 'CH12345678',
+            'vehicle_number': 'DL02CD5678',
+            'violation_date': '2024-11-15',
+            'violation_type': 'Signal Jumping',
+            'challan_amount': 500.00,
+            'late_fee': 100.00,
+            'total_amount': 600.00,
+            'traffic_authority': 'Delhi Traffic Police'
+        },
+        
+        # Education Fee
+        'STU2024001': {
+            'service_type': 'education_fee',
+            'student_id': 'STU2024001',
+            'student_name': 'Rahul Sharma',
+            'total_fee': 25000.00,
+            'due_date': '2024-12-20',
+            'tuition_fee': 18000.00,
+            'examination_fee': 2000.00,
+            'library_fee': 1000.00,
+            'other_charges': 4000.00,
+            'institute_name': 'Delhi Public School'
+        },
+        
+        # Mobile Recharge
+        '9876543210': {
+            'service_type': 'mobile',
+            'mobile_number': '9876543210',
+            'operator': 'Jio',
+            'current_balance': 15.50,
+            'validity': '2024-11-30',
+            'plan_type': 'Prepaid'
+        },
+        
+        # DTH Recharge
+        'DTH123456789': {
+            'service_type': 'dth',
+            'subscriber_id': 'DTH123456789',
+            'customer_name': 'Vikram Joshi',
+            'due_amount': 349.00,
+            'due_date': '2024-12-25',
+            'plan_name': 'South Family Pack',
+            'operator': 'Tata Play'
+        }
+    }
+    
+    # Find bill data by identifier
+    bill_data = None
+    for key, data in static_bills.items():
+        if key == identifier:
+            bill_data = data
+            break
+    
+    if not bill_data:
+        return Response({
+            'error': f'No bill found for identifier: {identifier}',
+            'suggestions': [
+                'Check the identifier number',
+                'Ensure the service is active',
+                'Contact customer support if issue persists'
+            ]
+        }, status=404)
+    
+    return Response({
+        'success': True,
+        'bill_details': bill_data,
+        'service_type': service_type
+    })

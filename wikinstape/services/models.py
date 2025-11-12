@@ -326,6 +326,33 @@ class ServiceCategory(ServiceFieldRequirements):
         self.copy_boolean_fields_to(subcategory)
 
 
+class BillFetchConfig(models.Model):
+    SERVICE_TYPES = [
+        ('electricity', 'Electricity Bill'),
+        ('water', 'Water Bill'),
+        ('gas', 'Gas Bill'),
+        ('broadband', 'Broadband Bill'),
+        ('loan_emi', 'Loan EMI'),
+        ('fastag', 'Fastag Recharge'),
+        ('credit_card', 'Credit Card Bill'),
+        ('society_maintenance', 'Society Maintenance'),
+        ('traffic_challan', 'Traffic Challan'),
+        ('education_fee', 'Education Fee'),
+        ('rent', 'Rent Payment'),
+        ('dth', 'DTH Recharge'),
+        ('mobile', 'Mobile Recharge'),
+    ]
+    
+    service_type = models.CharField(max_length=50, choices=SERVICE_TYPES, unique=True)
+    identifier_field = models.CharField(max_length=100, help_text="Field name used to fetch bill")
+    identifier_label = models.CharField(max_length=100, help_text="Label for identifier field")
+    fetch_endpoint = models.CharField(max_length=200, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    
+    def __str__(self):
+        return f"{self.get_service_type_display()} - {self.identifier_field}"
+
+
 class ServiceSubCategory(ServiceFieldRequirements):
     category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, related_name='subcategories')
     name = models.CharField(max_length=100)
@@ -346,6 +373,33 @@ class ServiceSubCategory(ServiceFieldRequirements):
 
     def __str__(self):
         return f"{self.category.name} - {self.name}"
+    
+
+    def get_bill_fetch_config(self):
+        """Get bill fetch configuration for this subcategory"""
+        try:
+            service_type_map = {
+                'electricity': 'electricity',
+                'water': 'water', 
+                'gas': 'gas',
+                'broadband': 'broadband',
+                'loan': 'loan_emi',
+                'fastag': 'fastag',
+                'credit card': 'credit_card',
+                'society maintenance': 'society_maintenance',
+                'traffic challan': 'traffic_challan',
+                'education fee': 'education_fee',
+                'rent': 'rent',
+                'dth': 'dth',
+                'mobile_recharge': 'mobile',
+            }
+            
+            service_type = service_type_map.get(self.name.lower())
+            if service_type:
+                return BillFetchConfig.objects.get(service_type=service_type, is_active=True)
+        except BillFetchConfig.DoesNotExist:
+            return None
+        return None
 
 
 class ServiceForm(models.Model):
