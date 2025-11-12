@@ -743,7 +743,7 @@ def fetch_bill_details_enhanced(request):
     static_bills = {
         # Electricity Bills
         '1234567890': {
-            'service_type': 'electricity',
+            'service_type': 'electricity bill',
             'consumer_name': 'Rajesh Kumar',
             'consumer_number': '1234567890',
             'bill_amount': 1250.00,
@@ -756,7 +756,7 @@ def fetch_bill_details_enhanced(request):
             'base_amount': 1100.00
         },
         '9876543210': {
-            'service_type': 'electricity', 
+            'service_type': 'electricity bill', 
             'consumer_name': 'Priya Sharma',
             'consumer_number': '9876543210',
             'bill_amount': 1850.50,
