@@ -294,7 +294,6 @@ class ServiceFieldRequirements(models.Model):
             ('require_water_board', 'water_board', 'select', 'Water Board'),
             ('require_broadband_name', 'broadband_name', 'select', 'Broadband Name'),
             ('require_landline_number', 'landline_number', 'phone', 'Landline Number'),
-            ('require_card_number', 'card_number', 'text', 'Card Number'),
             ('require_corporation', 'corporation', 'select', 'Corporation'),
             ('require_flat_number', 'flat_number', 'text', 'Flat Number'),
             ('require_upi_id', 'upi_id', 'text', 'UPI ID'),
