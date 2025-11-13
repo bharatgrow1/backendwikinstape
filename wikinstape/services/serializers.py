@@ -69,7 +69,18 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
             # New Additional fields
             'require_bill_due_date', 'require_late_fee', 'require_discount_amount',
             'require_payment_date', 'require_service_charge',
-            'require_browse_plan', 'require_fetch_plan', 'require_plan_selection'
+            'require_browse_plan', 'require_fetch_plan', 'require_plan_selection',
+            'require_water_board',
+            'require_broadband_name', 
+            'require_landline_number',
+            'require_card_number',
+            'require_corporation',
+            'require_flat_number',
+            'require_upi_id',
+            'require_confirm_account_number',
+            'require_ifsc',
+            'require_adhar_number',
+            'require_branch_number',
         ]
     
     def get_required_fields(self, obj):

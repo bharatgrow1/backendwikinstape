@@ -755,20 +755,7 @@ def fetch_bill_details_enhanced(request):
             'tax_amount': 150.00,
             'base_amount': 1100.00
         },
-        '9876543210': {
-            'service_type': 'electricity bill', 
-            'consumer_name': 'Priya Sharma',
-            'consumer_number': '9876543210',
-            'bill_amount': 1850.50,
-            'due_date': '2024-12-28',
-            'billing_period': 'Nov 2024',
-            'service_provider': 'Tata Power',
-            'outstanding_amount': 1850.50,
-            'late_fee': 50.00,
-            'tax_amount': 200.50,
-            'base_amount': 1600.00
-        },
-        
+       
         # Water Bills
         'WB123456': {
             'service_type': 'water',
@@ -798,7 +785,7 @@ def fetch_bill_details_enhanced(request):
             'base_plan_amount': 737.00
         },
         
-        # Loan EMI
+        # Loan EMI 
         'LN551237': {
             'service_type': 'loan_emi',
             'loan_account': 'LN551237',

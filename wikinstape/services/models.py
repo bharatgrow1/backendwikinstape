@@ -144,6 +144,18 @@ class ServiceFieldRequirements(models.Model):
     require_fetch_plan = models.BooleanField(default=False)
     require_plan_selection = models.BooleanField(default=False)
 
+    require_water_board = models.BooleanField(default=False)
+    require_broadband_name = models.BooleanField(default=False)
+    require_landline_number = models.BooleanField(default=False)
+    require_card_number = models.BooleanField(default=False)
+    require_corporation = models.BooleanField(default=False)
+    require_flat_number = models.BooleanField(default=False)
+    require_upi_id = models.BooleanField(default=False)
+    require_confirm_account_number = models.BooleanField(default=False)
+    require_ifsc = models.BooleanField(default=False)
+    require_adhar_number = models.BooleanField(default=False)
+    require_branch_number = models.BooleanField(default=False)
+
     class Meta:
         abstract = True
 
@@ -277,6 +289,19 @@ class ServiceFieldRequirements(models.Model):
             ('require_browse_plan', 'browse_plan', 'button', 'Browse Plans'),
             ('require_fetch_plan', 'fetch_plan', 'button', 'Fetch Plans'),
             ('require_plan_selection', 'plan_selection', 'select', 'Select Plan'),
+
+             # New Field Mappings
+            ('require_water_board', 'water_board', 'select', 'Water Board'),
+            ('require_broadband_name', 'broadband_name', 'select', 'Broadband Name'),
+            ('require_landline_number', 'landline_number', 'phone', 'Landline Number'),
+            ('require_card_number', 'card_number', 'text', 'Card Number'),
+            ('require_corporation', 'corporation', 'select', 'Corporation'),
+            ('require_flat_number', 'flat_number', 'text', 'Flat Number'),
+            ('require_upi_id', 'upi_id', 'text', 'UPI ID'),
+            ('require_confirm_account_number', 'confirm_account_number', 'text', 'Confirm Account Number'),
+            ('require_ifsc', 'ifsc', 'text', 'IFSC Code'),
+            ('require_adhar_number', 'adhar_number', 'text', 'Aadhar Number'),
+            ('require_branch_number', 'branch_number', 'text', 'Branch Number'),
         ]
 
     def get_required_fields(self):
@@ -568,6 +593,41 @@ class FormField(models.Model):
         'plan_validity': [
             '1 Day', '7 Days', '15 Days', '28 Days', '30 Days', '45 Days', 
             '56 Days', '60 Days', '84 Days', '90 Days', '180 Days', '365 Days'
+        ],
+
+        'water_board': [
+            'Delhi Jal Board',
+            'Mumbai Municipal Corporation Water Department', 
+            'Chennai Metro Water',
+            'Bangalore Water Supply',
+            'Hyderabad Metropolitan Water Supply',
+            'Kolkata Municipal Corporation Water',
+            'Pune Municipal Corporation Water',
+            'Other Water Board'
+        ],
+        
+        'broadband_name': [
+            'Airtel Xstream Fiber',
+            'JioFiber',
+            'ACT Fibernet',
+            'Hathway',
+            'Spectra',
+            'Excitel',
+            'Tikona',
+            'BSNL Fiber',
+            'Other Broadband Provider'
+        ],
+        
+        'corporation': [
+            'Municipal Corporation of Delhi (MCD)',
+            'Brihanmumbai Municipal Corporation (BMC)',
+            'Chennai Municipal Corporation',
+            'Kolkata Municipal Corporation',
+            'Bangalore Municipal Corporation',
+            'Hyderabad Municipal Corporation',
+            'Pune Municipal Corporation',
+            'Ahmedabad Municipal Corporation',
+            'Other Municipal Corporation'
         ],
     }
 
