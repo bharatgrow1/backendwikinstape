@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from services.models import (UploadImage, ServiceSubCategory, ServiceCategory, FormField, ServiceForm, 
-                             FormSubmissionFile, ServiceSubmission)
+                             FormSubmissionFile, ServiceSubmission, UserServicePermission, RoleServicePermission)
+from users.models import User
 
 
 class UploadImageSerializer(serializers.ModelSerializer):
@@ -328,3 +329,51 @@ class DirectServiceFormSerializer(serializers.ModelSerializer):
             'name', 'description', 'is_active', 'requires_approval',
             'max_submissions_per_user', 'created_at', 'updated_at'
         ]
+
+
+class RoleServicePermissionSerializer(serializers.ModelSerializer):
+    service_category_name = serializers.CharField(source='service_category.name', read_only=True)
+    service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
+    category_id = serializers.IntegerField(source='service_category.id', read_only=True)
+    subcategory_id = serializers.IntegerField(source='service_subcategory.id', read_only=True)
+    
+    class Meta:
+        model = RoleServicePermission
+        fields = [
+            'id', 'role', 'service_category', 'service_category_name', 
+            'service_subcategory', 'service_subcategory_name', 'category_id',
+            'subcategory_id', 'is_active', 'can_view', 'can_use',
+            'created_at', 'updated_at'
+        ]
+
+class UserServicePermissionSerializer(serializers.ModelSerializer):
+    service_category_name = serializers.CharField(source='service_category.name', read_only=True)
+    service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
+    category_id = serializers.IntegerField(source='service_category.id', read_only=True)
+    subcategory_id = serializers.IntegerField(source='service_subcategory.id', read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+    
+    class Meta:
+        model = UserServicePermission
+        fields = [
+            'id', 'user', 'username', 'service_category', 'service_category_name',
+            'service_subcategory', 'service_subcategory_name', 'category_id',
+            'subcategory_id', 'is_active', 'can_view', 'can_use',
+            'created_at', 'updated_at'
+        ]
+
+class BulkRolePermissionSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
+    permissions = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+class BulkUserPermissionSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField()
+    permissions = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+class AvailableServicesSerializer(serializers.Serializer):
+    categories = ServiceCategorySerializer(many=True)
+    subcategories = ServiceSubCategorySerializer(many=True)

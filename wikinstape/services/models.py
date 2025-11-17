@@ -2,6 +2,8 @@ from django.db import models
 from django.conf import settings
 import uuid
 from django.utils import timezone
+from users.models import User
+from services.managers import ServiceManager
 
 
 class UploadImage(models.Model):
@@ -330,6 +332,7 @@ class ServiceCategory(ServiceFieldRequirements):
     icon = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     allow_direct_service = models.BooleanField(default=False)
+    objects = ServiceManager()
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -383,6 +386,7 @@ class ServiceSubCategory(ServiceFieldRequirements):
     description = models.TextField(blank=True, null=True)
     image = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    objects = ServiceManager()
     
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -796,3 +800,58 @@ class FormSubmissionFile(models.Model):
 
     def __str__(self):
         return f"{self.submission.submission_id} - {self.field_name}"
+    
+
+class RoleServicePermission(models.Model):
+    """Role-wise service permissions"""
+    role = models.CharField(max_length=20, choices=User.ROLE_CHOICES)
+    service_category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, null=True, blank=True)
+    service_subcategory = models.ForeignKey(ServiceSubCategory, on_delete=models.CASCADE, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    can_view = models.BooleanField(default=True)
+    can_use = models.BooleanField(default=True)
+    
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = [
+            ['role', 'service_category'],
+            ['role', 'service_subcategory']
+        ]
+        verbose_name_plural = "Role Service Permissions"
+    
+    def __str__(self):
+        if self.service_category:
+            return f"{self.role} - {self.service_category.name}"
+        elif self.service_subcategory:
+            return f"{self.role} - {self.service_subcategory.name}"
+        return f"{self.role} - Permission"
+
+class UserServicePermission(models.Model):
+    """User-wise service permissions (overrides role permissions)"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    service_category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, null=True, blank=True)
+    service_subcategory = models.ForeignKey(ServiceSubCategory, on_delete=models.CASCADE, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    can_view = models.BooleanField(default=True)
+    can_use = models.BooleanField(default=True)
+    
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_user_permissions')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = [
+            ['user', 'service_category'],
+            ['user', 'service_subcategory']
+        ]
+        verbose_name_plural = "User Service Permissions"
+    
+    def __str__(self):
+        if self.service_category:
+            return f"{self.user.username} - {self.service_category.name}"
+        elif self.service_subcategory:
+            return f"{self.user.username} - {self.service_subcategory.name}"
+        return f"{self.user.username} - Permission"

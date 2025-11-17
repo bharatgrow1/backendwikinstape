@@ -9,6 +9,8 @@ from users.views import (PermissionViewSet, AuthViewSet, UserViewSet, WalletView
 from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, CommissionTransactionViewSet,
         UserCommissionPlanViewSet, CommissionPayoutViewSet, CommissionStatsViewSet, DealerRetailerCommissionViewSet, 
         CommissionDashboardViewSet)
+from services.views_permissions import ServicePermissionViewSet
+
 router = DefaultRouter()
 
 
@@ -22,6 +24,7 @@ router.register(r'user-hierarchy', UserHierarchyViewSet, basename='user-hierarch
 router.register(r'singup-request', SignUPRequestViewSet)
 router.register(r'onboardservices', OnBoardServiceViewSet, basename='services')
 router.register(r'permissions', PermissionViewSet, basename='permissions')
+router.register(r'service-permissions', ServicePermissionViewSet, basename='service-permissions')
 
 
 # Wallet and Transaction

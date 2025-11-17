@@ -8,6 +8,7 @@ import uuid
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.permissions import BasePermission
 
 from services.models import (UploadImage, ServiceCategory, ServiceSubCategory, 
                              ServiceForm, FormField, ServiceSubmission, FormSubmissionFile)
@@ -907,3 +908,36 @@ def fetch_bill_details_enhanced(request):
         'bill_details': bill_data,
         'service_type': service_type
     })
+
+
+class CanManageServicePermissions(BasePermission):
+    """Check if user can manage service permissions"""
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        
+        # Superadmin, admin, master can manage all permissions
+        if request.user.role in ['superadmin', 'admin', 'master']:
+            return True
+        
+        # Dealers can manage permissions for their retailers only
+        if request.user.role == 'dealer':
+            if view.action in ['user_permissions', 'update_user_permission', 'bulk_user_permissions']:
+                return True
+        
+        return False
+    
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        
+        if user.role in ['superadmin', 'admin', 'master']:
+            return True
+        
+        # Dealers can only manage their retailers
+        if user.role == 'dealer':
+            if hasattr(obj, 'user'):
+                return obj.user.created_by == user
+            elif hasattr(obj, 'created_by'):
+                return obj.created_by == user
+        
+        return False
