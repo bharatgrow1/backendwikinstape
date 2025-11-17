@@ -28,14 +28,33 @@ class ServiceManager(models.Manager):
         available_categories = []
         
         for category in all_categories:
-            if self.can_access_service(user, service_category=category):
+            # Check user-specific permissions first
+            user_perm = UserServicePermission.objects.filter(
+                user=user,
+                service_category=category,
+                is_active=True
+            ).first()
+            
+            if user_perm:
+                if user_perm.can_view and user_perm.can_use:
+                    available_categories.append(category)
+                continue
+            
+            # Check role permissions
+            role_perm = RoleServicePermission.objects.filter(
+                role=user.role,
+                service_category=category,
+                is_active=True
+            ).first()
+            
+            if role_perm and role_perm.can_view and role_perm.can_use:
                 available_categories.append(category)
         
         return available_categories
     
     def get_available_subcategories(self, user, category=None):
         """Get subcategories available for user"""
-        from .models import ServiceSubCategory
+        from .models import ServiceSubCategory, RoleServicePermission, UserServicePermission
         
         if category:
             subcategories = ServiceSubCategory.objects.filter(
@@ -48,7 +67,26 @@ class ServiceManager(models.Manager):
         available_subcategories = []
         
         for subcategory in subcategories:
-            if self.can_access_service(user, service_subcategory=subcategory):
+            # Check user-specific permissions first
+            user_perm = UserServicePermission.objects.filter(
+                user=user,
+                service_subcategory=subcategory,
+                is_active=True
+            ).first()
+            
+            if user_perm:
+                if user_perm.can_view and user_perm.can_use:
+                    available_subcategories.append(subcategory)
+                continue
+            
+            # Check role permissions
+            role_perm = RoleServicePermission.objects.filter(
+                role=user.role,
+                service_subcategory=subcategory,
+                is_active=True
+            ).first()
+            
+            if role_perm and role_perm.can_view and role_perm.can_use:
                 available_subcategories.append(subcategory)
         
         return available_subcategories
@@ -58,6 +96,7 @@ class ServiceManager(models.Manager):
         from .models import RoleServicePermission, UserServicePermission
         
         if service_category:
+            # Check user-specific permissions first
             user_perm = UserServicePermission.objects.filter(
                 user=user,
                 service_category=service_category,
@@ -67,6 +106,7 @@ class ServiceManager(models.Manager):
             if user_perm:
                 return user_perm.can_view and user_perm.can_use
             
+            # Check role permissions
             role_perm = RoleServicePermission.objects.filter(
                 role=user.role,
                 service_category=service_category,
@@ -77,6 +117,7 @@ class ServiceManager(models.Manager):
                 return role_perm.can_view and role_perm.can_use
                 
         elif service_subcategory:
+            # Check user-specific permissions first
             user_perm = UserServicePermission.objects.filter(
                 user=user,
                 service_subcategory=service_subcategory,
@@ -86,6 +127,7 @@ class ServiceManager(models.Manager):
             if user_perm:
                 return user_perm.can_view and user_perm.can_use
             
+            # Check role permissions
             role_perm = RoleServicePermission.objects.filter(
                 role=user.role,
                 service_subcategory=service_subcategory,
