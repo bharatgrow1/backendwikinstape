@@ -29,13 +29,16 @@ class ServicePermissionViewSet(viewsets.ViewSet):
         """Get all role permissions"""
         role = request.query_params.get('role')
         
-        if role:
-            permissions = RoleServicePermission.objects.filter(role=role)
-        else:
-            permissions = RoleServicePermission.objects.all()
+        if not role:
+            return Response(
+                {'error': 'role parameter is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
+        permissions = RoleServicePermission.objects.filter(role=role)
         serializer = RoleServicePermissionSerializer(permissions, many=True)
         return Response(serializer.data)
+    
     
     @action(detail=False, methods=['post'])
     def bulk_role_permissions(self, request):
@@ -125,7 +128,6 @@ class ServicePermissionViewSet(viewsets.ViewSet):
         try:
             user = User.objects.get(id=user_id)
             permissions = UserServicePermission.objects.filter(user=user)
-            
             serializer = UserServicePermissionSerializer(permissions, many=True)
             return Response(serializer.data)
             
