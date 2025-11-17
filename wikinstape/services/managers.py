@@ -5,13 +5,11 @@ class ServiceManager(models.Manager):
         """Get services available for specific user"""
         from .models import RoleServicePermission, UserServicePermission
         
-        # First get user-specific permissions
         user_permissions = UserServicePermission.objects.filter(
             user=user, 
             is_active=True
         ).select_related('service_category', 'service_subcategory')
         
-        # Then get role permissions
         role_permissions = RoleServicePermission.objects.filter(
             role=user.role,
             is_active=True
@@ -24,7 +22,7 @@ class ServiceManager(models.Manager):
     
     def get_available_categories(self, user):
         """Get categories available for user"""
-        from .models import ServiceCategory
+        from .models import ServiceCategory, RoleServicePermission, UserServicePermission
         
         all_categories = ServiceCategory.objects.filter(is_active=True)
         available_categories = []
@@ -59,7 +57,6 @@ class ServiceManager(models.Manager):
         """Check if user can access specific service"""
         from .models import RoleServicePermission, UserServicePermission
         
-        # Check user-specific permissions first
         if service_category:
             user_perm = UserServicePermission.objects.filter(
                 user=user,
@@ -67,11 +64,18 @@ class ServiceManager(models.Manager):
                 is_active=True
             ).first()
             
+            if user_perm:
+                return user_perm.can_view and user_perm.can_use
+            
             role_perm = RoleServicePermission.objects.filter(
                 role=user.role,
                 service_category=service_category,
                 is_active=True
             ).first()
+            
+            if role_perm:
+                return role_perm.can_view and role_perm.can_use
+                
         elif service_subcategory:
             user_perm = UserServicePermission.objects.filter(
                 user=user,
@@ -79,21 +83,16 @@ class ServiceManager(models.Manager):
                 is_active=True
             ).first()
             
+            if user_perm:
+                return user_perm.can_view and user_perm.can_use
+            
             role_perm = RoleServicePermission.objects.filter(
                 role=user.role,
                 service_subcategory=service_subcategory,
                 is_active=True
             ).first()
-        else:
-            return False
+            
+            if role_perm:
+                return role_perm.can_view and role_perm.can_use
         
-        # User permission overrides role permission
-        if user_perm:
-            return user_perm.can_view and user_perm.can_use
-        
-        # Fallback to role permission
-        if role_perm:
-            return role_perm.can_view and role_perm.can_use
-        
-        # Default: no access if no permission set
         return False

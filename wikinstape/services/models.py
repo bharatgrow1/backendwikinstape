@@ -127,7 +127,6 @@ class ServiceFieldRequirements(models.Model):
     require_challan_number = models.BooleanField(default=False)
     
     # Municipal Tax Fields
-    require_corporation = models.BooleanField(default=False)
     require_taxpayer_relation = models.BooleanField(default=False)
     require_upic_number = models.BooleanField(default=False)
     
@@ -149,7 +148,6 @@ class ServiceFieldRequirements(models.Model):
     require_water_board = models.BooleanField(default=False)
     require_broadband_name = models.BooleanField(default=False)
     require_landline_number = models.BooleanField(default=False)
-    require_card_number = models.BooleanField(default=False)
     require_corporation = models.BooleanField(default=False)
     require_flat_number = models.BooleanField(default=False)
     require_upi_id = models.BooleanField(default=False)
@@ -273,12 +271,12 @@ class ServiceFieldRequirements(models.Model):
             ('require_traffic_authority', 'traffic_authority', 'select', 'Traffic Authority'),
             ('require_challan_number', 'challan_number', 'text', 'Challan Number'),
             
-            # Municipal Tax Fields
+            # Municipal Tax Fields (REMOVED DUPLICATES)
             ('require_corporation', 'corporation', 'select', 'Municipal Corporation'),
             ('require_taxpayer_relation', 'taxpayer_relation', 'select', 'Taxpayer Relation'),
             ('require_upic_number', 'upic_number', 'text', 'UPIC Number'),
             
-            # Financial Fields
+            # Financial Fields (REMOVED DUPLICATES)
             ('require_financial_year', 'financial_year', 'select', 'Financial Year'),
             ('require_assessment_year', 'assessment_year', 'select', 'Assessment Year'),
             
@@ -292,11 +290,10 @@ class ServiceFieldRequirements(models.Model):
             ('require_fetch_plan', 'fetch_plan', 'button', 'Fetch Plans'),
             ('require_plan_selection', 'plan_selection', 'select', 'Select Plan'),
 
-             # New Field Mappings
+            # New Field Mappings (REMOVED DUPLICATES)
             ('require_water_board', 'water_board', 'select', 'Water Board'),
             ('require_broadband_name', 'broadband_name', 'select', 'Broadband Name'),
             ('require_landline_number', 'landline_number', 'phone', 'Landline Number'),
-            ('require_corporation', 'corporation', 'select', 'Corporation'),
             ('require_flat_number', 'flat_number', 'text', 'Flat Number'),
             ('require_upi_id', 'upi_id', 'text', 'UPI ID'),
             ('require_confirm_account_number', 'confirm_account_number', 'text', 'Confirm Account Number'),
@@ -306,16 +303,24 @@ class ServiceFieldRequirements(models.Model):
         ]
 
     def get_required_fields(self):
-        """Get all required fields"""
+        """Get all required fields with strong deduplication"""
         fields = []
+        seen_fields = set()
+        
         for bool_field, field_name, field_type, field_label in self.get_required_fields_mapping():
             if getattr(self, bool_field):
-                fields.append({
-                    'field_name': field_name,
-                    'field_label': field_label,
-                    'field_type': field_type,
-                    'required': True
-                })
+                # Create a unique identifier for the field
+                field_identifier = f"{field_name}_{field_type}_{field_label}"
+                
+                if field_identifier not in seen_fields:
+                    fields.append({
+                        'field_name': field_name,
+                        'field_label': field_label,
+                        'field_type': field_type,
+                        'required': True
+                    })
+                    seen_fields.add(field_identifier)
+        
         return fields
 
     def copy_boolean_fields_to(self, target_instance):
