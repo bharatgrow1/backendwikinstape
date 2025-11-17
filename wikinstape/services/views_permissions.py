@@ -66,17 +66,22 @@ class ServicePermissionViewSet(viewsets.ViewSet):
                 
                 try:
                     # Find existing permission
-                    existing_perm = RoleServicePermission.objects.filter(
-                        role=role,
-                        service_category_id=service_category_id,
-                        service_subcategory_id=service_subcategory_id
-                    ).first()
+                    if service_category_id:
+                        existing_perm = RoleServicePermission.objects.filter(
+                            role=role,
+                            service_category_id=service_category_id
+                        ).first()
+                    else:
+                        existing_perm = RoleServicePermission.objects.filter(
+                            role=role,
+                            service_subcategory_id=service_subcategory_id
+                        ).first()
                     
                     if existing_perm:
                         # Update existing permission
-                        for field in ['is_active', 'can_view', 'can_use']:
-                            if field in perm_data:
-                                setattr(existing_perm, field, bool(perm_data[field]))
+                        existing_perm.is_active = bool(perm_data.get('is_active', True))
+                        existing_perm.can_view = bool(perm_data.get('can_view', True))
+                        existing_perm.can_use = bool(perm_data.get('can_use', True))
                         existing_perm.save()
                         updated_count += 1
                     else:
