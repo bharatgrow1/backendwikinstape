@@ -85,12 +85,12 @@ WSGI_APPLICATION = 'wikinstape.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 # local db
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 
 #local aws server db
 DATABASES = {
