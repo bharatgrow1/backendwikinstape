@@ -151,21 +151,20 @@ class TransactionSerializer(serializers.ModelSerializer):
         if not ss:
             return None
 
-        form = ss.service_form  # May be None
+        form = getattr(ss, "service_form", None)
 
         return {
-            "application_id": ss.submission_id,
+            # Primary identifiers
+            "application_id": getattr(ss, "submission_id", None),
+            "service_id": getattr(form, "id", None),
+            "service_name": getattr(form, "name", None),
 
-            # Service details
-            "service_id": form.id if form else None,
-            "service_name": form.name if form else None,
-
-            # Consumer details
+            # Consumer info
             "consumer_name": getattr(ss, "consumer_name", None),
             "consumer_number": getattr(ss, "consumer_number", None),
             "consumer_mobile": getattr(ss, "consumer_mobile", None),
 
-            # Loan details
+            # Loan info
             "loan_amount": getattr(ss, "loan_amount", None),
             "loan_type": getattr(ss, "loan_type", None),
             "income_source": getattr(ss, "income_source", None),
@@ -174,14 +173,22 @@ class TransactionSerializer(serializers.ModelSerializer):
             "pan_card": getattr(ss, "pan_card_url", None),
             "aadhaar_card": getattr(ss, "aadhaar_card_url", None),
 
-            # Other info
+            # Other fields
             "remarks": getattr(ss, "remarks", None),
             "dependency": getattr(ss, "dependency", None),
-            "partner": ss.partner.username if getattr(ss, "partner", None) else None,
 
-            # Meta
-            "applied_date": ss.created_at,
-            "applied_by": ss.created_by.username if ss.created_by else None,
+            # Partner (if exists)
+            "partner": getattr(getattr(ss, "partner", None), "username", None),
+
+            # Date-related fields
+            "applied_date": getattr(ss, "created_at", None),
+
+            # created_by safe access
+            "applied_by": getattr(
+                getattr(ss, "created_by", None),
+                "username",
+                None
+            ),
         }
 
 
