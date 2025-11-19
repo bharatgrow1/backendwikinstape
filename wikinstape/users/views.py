@@ -1729,19 +1729,31 @@ class TransactionViewSet(DynamicModelViewSet):
 
     @action(detail=False, methods=['get'])
     def service_payments(self, request):
-        """Get all service payment transactions"""
+        """Get all service payment transactions with optional filters"""
         queryset = self.get_queryset().filter(transaction_category='service_payment')
-        
+
+        service_name = request.query_params.get('service_name')
+        service_id = request.query_params.get('service_id')
+
+        if service_name:
+            queryset = queryset.filter(
+                service_submission__service_form__name__icontains=service_name
+            )
+
+        if service_id:
+            queryset = queryset.filter(
+                service_submission__service_form_id=service_id
+            )
+
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
-        
+
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
         
-
-
 class ServiceChargeViewSet(DynamicModelViewSet):
     """Manage service charges"""
     permission_classes = [IsAuthenticated, IsAdminUser]
