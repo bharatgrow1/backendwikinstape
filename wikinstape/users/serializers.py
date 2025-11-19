@@ -147,9 +147,8 @@ class TransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
     def get_service_submission_details(self, obj):
-        """Service submission details ko properly get karo"""
+        """Service submission details - ONLY AVAILABLE FIELDS USE KARO"""
         if not obj.service_submission:
-            # Agar service submission nahi hai, toh basic info return karo
             return {
                 "service_name": obj.service_name,
                 "application_id": None,
@@ -159,55 +158,57 @@ class TransactionSerializer(serializers.ModelSerializer):
         try:
             ss = obj.service_submission
             
-            # Debugging ke liye
-            print(f"Service Submission: {ss}")
-            print(f"Service Submission ID: {ss.id}")
-            print(f"Service Form: {getattr(ss, 'service_form', None)}")
-            
-            # Service form get karo
-            service_form = getattr(ss, 'service_form', None)
-            
-            # Basic details
+            # Basic details - ONLY AVAILABLE FIELDS
             details = {
-                "application_id": getattr(ss, 'submission_id', f"SUB{ss.id}"),
-                "service_id": getattr(service_form, 'id', None) if service_form else None,
-                "service_name": getattr(service_form, 'name', None) if service_form else obj.service_name,
+                "application_id": ss.submission_id,
+                "service_id": ss.service_form.id if ss.service_form else None,
+                "service_name": ss.service_form.name if ss.service_form else obj.service_name,
                 "applied_date": ss.created_at.isoformat() if ss.created_at else None,
             }
             
-            # Additional fields jo available hon
-            additional_fields = [
-                'consumer_name', 'consumer_number', 'consumer_mobile',
-                'loan_amount', 'loan_type', 'income_source', 'remarks',
-                'dependency'
+            # ✅ AVAILABLE FIELDS ADD KARO
+            available_fields = [
+                'customer_name', 'customer_email', 'customer_phone',
+                'amount', 'transaction_id', 'notes', 'status', 'payment_status',
+                'service_reference_id', 'submitted_at', 'processed_at'
             ]
             
-            for field in additional_fields:
+            for field in available_fields:
                 value = getattr(ss, field, None)
-                if value:  # Only add if value exists
+                if value:  # Only add if value exists and is not empty
                     details[field] = value
             
-            # Documents
-            document_fields = ['pan_card_url', 'aadhaar_card_url']
-            for doc_field in document_fields:
-                value = getattr(ss, doc_field, None)
-                if value:
-                    # Field name ko simplify karo
-                    clean_name = doc_field.replace('_url', '')
-                    details[clean_name] = value
+            # Form data se additional fields (JSON field mein stored)
+            if ss.form_data and isinstance(ss.form_data, dict):
+                # Common form data fields extract karo
+                form_fields_to_extract = [
+                    'consumer_name', 'consumer_number', 'consumer_mobile',
+                    'loan_amount', 'loan_type', 'income_source', 'remarks',
+                    'dependency', 'mobile_number', 'account_number', 'bill_number'
+                ]
+                
+                for field in form_fields_to_extract:
+                    if field in ss.form_data and ss.form_data[field]:
+                        details[field] = ss.form_data[field]
             
-            # Relationships
-            if hasattr(ss, 'partner') and ss.partner:
-                details['partner'] = ss.partner.username
+            # Relationships - ONLY AVAILABLE ONES
+            if ss.submitted_by:
+                details['applied_by'] = ss.submitted_by.username
             
-            if hasattr(ss, 'created_by') and ss.created_by:
-                details['applied_by'] = ss.created_by.username
+            # Service form details
+            if ss.service_form:
+                details['service_form_name'] = ss.service_form.name
+                details['service_type'] = ss.service_form.service_type
+            
+            # Service subcategory details
+            if ss.service_subcategory:
+                details['service_category'] = ss.service_subcategory.category.name
+                details['service_subcategory'] = ss.service_subcategory.name
             
             return details
             
         except Exception as e:
             print(f"Error in service_submission_details: {str(e)}")
-            # Fallback - basic info return karo
             return {
                 "service_name": obj.service_name,
                 "application_id": f"SUB{obj.service_submission.id}" if obj.service_submission else None,

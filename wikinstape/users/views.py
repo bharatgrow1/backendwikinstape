@@ -1729,7 +1729,7 @@ class TransactionViewSet(DynamicModelViewSet):
 
     @action(detail=False, methods=['get'])
     def service_payments(self, request):
-        """Get all service payment transactions - data properly show karo"""
+        """Get all service payment transactions - ONLY AVAILABLE FIELDS USE KARO"""
         # Base queryset
         queryset = Transaction.objects.filter(transaction_category='service_payment')
         
@@ -1752,29 +1752,18 @@ class TransactionViewSet(DynamicModelViewSet):
                 Q(service_submission__service_form_id=service_id)
             )
 
-        # IMPORTANT: Properly prefetch related data
+        # ✅ CORRECT: ONLY AVAILABLE FIELDS USE KARO
         queryset = queryset.select_related(
             'wallet__user', 
             'created_by', 
             'recipient_user', 
-            'service_submission',
-            'service_submission__service_form',  # Ye line important hai
-            'service_submission__created_by',
-            'service_submission__partner'
+            'service_submission',                      # ✅ Available
+            'service_submission__service_form',        # ✅ Available  
+            'service_submission__service_subcategory', # ✅ Available
+            'service_submission__submitted_by',        # ✅ Available (yeh created_by ki jagah hai)
         ).prefetch_related(
-            'service_submission__service_form__category'
+            'service_submission__service_form__fields'  # ✅ Available
         ).order_by('-created_at')
-
-        # Debugging ke liye count check karo
-        print(f"Total service payments found: {queryset.count()}")
-        
-        # Data check karo
-        for transaction in queryset[:5]:  # First 5 check karo
-            print(f"Transaction: {transaction.id}")
-            print(f"Service Submission: {transaction.service_submission}")
-            if transaction.service_submission:
-                print(f"Service Form: {transaction.service_submission.service_form}")
-                print(f"Submission ID: {transaction.service_submission.submission_id}")
 
         # Pagination
         page = self.paginate_queryset(queryset)
