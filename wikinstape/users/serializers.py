@@ -151,38 +151,39 @@ class TransactionSerializer(serializers.ModelSerializer):
         if not ss:
             return None
 
-        form = ss.service_form
+        form = ss.service_form  # May be None
 
         return {
             "application_id": ss.submission_id,
+
+            # Service details
             "service_id": form.id if form else None,
             "service_name": form.name if form else None,
-            "service_type": form.category.name if form and form.category else None,
-            "sub_service": form.subcategory.name if form and form.subcategory else None,
 
-            # Consumer / Service user details
-            "consumer_name": ss.consumer_name,
-            "consumer_number": ss.consumer_number,
-            "consumer_mobile": ss.consumer_mobile,
+            # Consumer details
+            "consumer_name": getattr(ss, "consumer_name", None),
+            "consumer_number": getattr(ss, "consumer_number", None),
+            "consumer_mobile": getattr(ss, "consumer_mobile", None),
 
             # Loan details
-            "loan_amount": ss.loan_amount,
-            "loan_type": ss.loan_type,
-            "income_source": ss.income_source,
+            "loan_amount": getattr(ss, "loan_amount", None),
+            "loan_type": getattr(ss, "loan_type", None),
+            "income_source": getattr(ss, "income_source", None),
 
-            # User KYC Docs
-            "pan_card": ss.pan_card_url,
-            "aadhaar_card": ss.aadhaar_card_url,
+            # Documents
+            "pan_card": getattr(ss, "pan_card_url", None),
+            "aadhaar_card": getattr(ss, "aadhaar_card_url", None),
 
-            # Additional fields
-            "remarks": ss.remarks,
-            "dependency": ss.dependency,
-            "partner": ss.partner.username if ss.partner else None,
+            # Other info
+            "remarks": getattr(ss, "remarks", None),
+            "dependency": getattr(ss, "dependency", None),
+            "partner": ss.partner.username if getattr(ss, "partner", None) else None,
 
-            # Meta info
+            # Meta
             "applied_date": ss.created_at,
             "applied_by": ss.created_by.username if ss.created_by else None,
         }
+
 
 
 
