@@ -134,7 +134,7 @@ class TransactionSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     recipient_username = serializers.CharField(source='recipient_user.username', read_only=True)
     service_submission_details = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Transaction
         fields = [
@@ -147,13 +147,42 @@ class TransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
     def get_service_submission_details(self, obj):
-        if obj.service_submission:
-            return {
-                'id': obj.service_submission.id,
-                'submission_id': obj.service_submission.submission_id,
-                'service_name': obj.service_submission.service_form.name if obj.service_submission.service_form else 'Direct Service'
-            }
-        return None
+        ss = obj.service_submission
+        if not ss:
+            return None
+
+        form = ss.service_form
+
+        return {
+            "application_id": ss.submission_id,
+            "service_id": form.id if form else None,
+            "service_name": form.name if form else None,
+            "service_type": form.category.name if form and form.category else None,
+            "sub_service": form.subcategory.name if form and form.subcategory else None,
+
+            # Consumer / Service user details
+            "consumer_name": ss.consumer_name,
+            "consumer_number": ss.consumer_number,
+            "consumer_mobile": ss.consumer_mobile,
+
+            # Loan details
+            "loan_amount": ss.loan_amount,
+            "loan_type": ss.loan_type,
+            "income_source": ss.income_source,
+
+            # User KYC Docs
+            "pan_card": ss.pan_card_url,
+            "aadhaar_card": ss.aadhaar_card_url,
+
+            # Additional fields
+            "remarks": ss.remarks,
+            "dependency": ss.dependency,
+            "partner": ss.partner.username if ss.partner else None,
+
+            # Meta info
+            "applied_date": ss.created_at,
+            "applied_by": ss.created_by.username if ss.created_by else None,
+        }
 
 
 
