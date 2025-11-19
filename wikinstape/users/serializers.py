@@ -147,51 +147,72 @@ class TransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
     def get_service_submission_details(self, obj):
-        ss = obj.service_submission
-        if not ss:
-            return None
-
-        form = getattr(ss, "service_form", None)
-
-        return {
-            # Primary identifiers
-            "application_id": getattr(ss, "submission_id", None),
-            "service_id": getattr(form, "id", None),
-            "service_name": getattr(form, "name", None),
-
-            # Consumer info
-            "consumer_name": getattr(ss, "consumer_name", None),
-            "consumer_number": getattr(ss, "consumer_number", None),
-            "consumer_mobile": getattr(ss, "consumer_mobile", None),
-
-            # Loan info
-            "loan_amount": getattr(ss, "loan_amount", None),
-            "loan_type": getattr(ss, "loan_type", None),
-            "income_source": getattr(ss, "income_source", None),
-
+        """Service submission details ko properly get karo"""
+        if not obj.service_submission:
+            # Agar service submission nahi hai, toh basic info return karo
+            return {
+                "service_name": obj.service_name,
+                "application_id": None,
+                "service_id": None
+            }
+            
+        try:
+            ss = obj.service_submission
+            
+            # Debugging ke liye
+            print(f"Service Submission: {ss}")
+            print(f"Service Submission ID: {ss.id}")
+            print(f"Service Form: {getattr(ss, 'service_form', None)}")
+            
+            # Service form get karo
+            service_form = getattr(ss, 'service_form', None)
+            
+            # Basic details
+            details = {
+                "application_id": getattr(ss, 'submission_id', f"SUB{ss.id}"),
+                "service_id": getattr(service_form, 'id', None) if service_form else None,
+                "service_name": getattr(service_form, 'name', None) if service_form else obj.service_name,
+                "applied_date": ss.created_at.isoformat() if ss.created_at else None,
+            }
+            
+            # Additional fields jo available hon
+            additional_fields = [
+                'consumer_name', 'consumer_number', 'consumer_mobile',
+                'loan_amount', 'loan_type', 'income_source', 'remarks',
+                'dependency'
+            ]
+            
+            for field in additional_fields:
+                value = getattr(ss, field, None)
+                if value:  # Only add if value exists
+                    details[field] = value
+            
             # Documents
-            "pan_card": getattr(ss, "pan_card_url", None),
-            "aadhaar_card": getattr(ss, "aadhaar_card_url", None),
-
-            # Other fields
-            "remarks": getattr(ss, "remarks", None),
-            "dependency": getattr(ss, "dependency", None),
-
-            # Partner (if exists)
-            "partner": getattr(getattr(ss, "partner", None), "username", None),
-
-            # Date-related fields
-            "applied_date": getattr(ss, "created_at", None),
-
-            # created_by safe access
-            "applied_by": getattr(
-                getattr(ss, "created_by", None),
-                "username",
-                None
-            ),
-        }
-
-
+            document_fields = ['pan_card_url', 'aadhaar_card_url']
+            for doc_field in document_fields:
+                value = getattr(ss, doc_field, None)
+                if value:
+                    # Field name ko simplify karo
+                    clean_name = doc_field.replace('_url', '')
+                    details[clean_name] = value
+            
+            # Relationships
+            if hasattr(ss, 'partner') and ss.partner:
+                details['partner'] = ss.partner.username
+            
+            if hasattr(ss, 'created_by') and ss.created_by:
+                details['applied_by'] = ss.created_by.username
+            
+            return details
+            
+        except Exception as e:
+            print(f"Error in service_submission_details: {str(e)}")
+            # Fallback - basic info return karo
+            return {
+                "service_name": obj.service_name,
+                "application_id": f"SUB{obj.service_submission.id}" if obj.service_submission else None,
+                "error": "Could not load full details"
+            }
 
 
 class TransactionFilterSerializer(serializers.Serializer):
