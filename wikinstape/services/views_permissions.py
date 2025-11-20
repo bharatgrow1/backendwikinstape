@@ -258,3 +258,43 @@ class ServicePermissionViewSet(viewsets.ViewSet):
         }
         
         return Response(response_data)
+    
+
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def available_services_detailed(self, request):
+        """Get services available for specific user with detailed permission info"""
+        user_id = request.query_params.get('user_id')
+        
+        if user_id:
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {'error': 'User not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            user = request.user
+        
+        categories = ServiceCategory.objects.get_available_categories(user)
+        subcategories = ServiceCategory.objects.get_available_subcategories(user)
+        
+        user_permissions = UserServicePermission.objects.filter(user=user, is_active=True)
+        role_permissions = RoleServicePermission.objects.filter(role=user.role, is_active=True)
+        
+        response_data = {
+            'categories': ServiceCategorySerializer(categories, many=True).data,
+            'subcategories': ServiceSubCategorySerializer(subcategories, many=True).data,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role
+            },
+            'permissions': {
+                'user_permissions': UserServicePermissionSerializer(user_permissions, many=True).data,
+                'role_permissions': RoleServicePermissionSerializer(role_permissions, many=True).data
+            }
+        }
+        
+        return Response(response_data)
