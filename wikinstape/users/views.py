@@ -941,6 +941,36 @@ class UserViewSet(DynamicModelViewSet):
             return Response(serializer.data)
         except Exception as e:
             return Response({'error': f'Service fetch failed: {str(e)}'}, status=400)
+        
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def my_onboarder_banks(self, request):
+        """Get bank details of the user who created current user"""
+        user = request.user
+        onboarder = user.created_by
+        
+        if not onboarder:
+            return Response({
+                'message': 'No onboarder found',
+                'banks': []
+            })
+        
+        bank_data = {
+            'id': onboarder.id,
+            'bank_name': onboarder.bank_name,
+            'account_number': onboarder.account_number,
+            'ifsc_code': onboarder.ifsc_code,
+            'account_holder_name': onboarder.account_holder_name
+        }
+        
+        return Response({
+            'onboarder': {
+                'id': onboarder.id,
+                'username': onboarder.username,
+                'role': onboarder.role
+            },
+            'bank_details': bank_data
+        })
 
 class WalletViewSet(DynamicModelViewSet):
     serializer_class = WalletSerializer
