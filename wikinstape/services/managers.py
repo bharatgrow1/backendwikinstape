@@ -1,10 +1,8 @@
 from django.db import models
 
-
-# services/managers.py - Ye file update karen
 class ServiceManager(models.Manager):
     def get_available_categories(self, user):
-        """Get categories available for user - FIXED VERSION"""
+        """Get categories available for user - OPTIMIZED VERSION"""
         from .models import ServiceCategory, RoleServicePermission, UserServicePermission
         
         all_categories = ServiceCategory.objects.filter(is_active=True)
@@ -40,7 +38,7 @@ class ServiceManager(models.Manager):
         return available_categories
     
     def get_available_subcategories(self, user, category=None):
-        """Get subcategories available for user - FIXED VERSION"""
+        """Get subcategories available for user - OPTIMIZED VERSION"""
         from .models import ServiceSubCategory, RoleServicePermission, UserServicePermission
         
         if category:
@@ -90,7 +88,7 @@ class ServiceManager(models.Manager):
         return available_subcategories
     
     def can_access_service(self, user, service_category=None, service_subcategory=None):
-        """Check if user can access specific service - FIXED VERSION"""
+        """Check if user can access specific service - OPTIMIZED VERSION"""
         from .models import RoleServicePermission, UserServicePermission
         
         if service_category:
