@@ -1,15 +1,15 @@
 from django.db import models
 
+
 class ServiceManager(models.Manager):
     def get_available_categories(self, user):
-        """Get categories available for user - OPTIMIZED VERSION"""
+        """Get categories available for user"""
         from .models import ServiceCategory, RoleServicePermission, UserServicePermission
         
         all_categories = ServiceCategory.objects.filter(is_active=True)
         available_categories = []
         
         for category in all_categories:
-            # Check user-specific permissions first
             user_perm = UserServicePermission.objects.filter(
                 user=user,
                 service_category=category,
@@ -17,7 +17,7 @@ class ServiceManager(models.Manager):
             ).first()
             
             if user_perm:
-                if user_perm.can_view and user_perm.can_use:
+                if user_perm.can_view:
                     available_categories.append(category)
                 continue
             
@@ -28,17 +28,13 @@ class ServiceManager(models.Manager):
                 is_active=True
             ).first()
             
-            if role_perm:
-                if role_perm.can_view and role_perm.can_use:
-                    available_categories.append(category)
-            else:
-                # No explicit permission = allow by default
+            if role_perm and role_perm.can_view:
                 available_categories.append(category)
         
         return available_categories
     
     def get_available_subcategories(self, user, category=None):
-        """Get subcategories available for user - OPTIMIZED VERSION"""
+        """Get subcategories available for user"""
         from .models import ServiceSubCategory, RoleServicePermission, UserServicePermission
         
         if category:
@@ -52,14 +48,46 @@ class ServiceManager(models.Manager):
         available_subcategories = []
         
         for subcategory in subcategories:
-            # First check if parent category is accessible
-            parent_category = subcategory.category
-            parent_accessible = self.can_access_service(user, service_category=parent_category)
+            # Check user-specific permissions first
+            user_perm = UserServicePermission.objects.filter(
+                user=user,
+                service_subcategory=subcategory,
+                is_active=True
+            ).first()
             
-            if not parent_accessible:
-                continue  # Skip if parent category is not accessible
+            if user_perm:
+                if user_perm.can_view:
+                    available_subcategories.append(subcategory)
+                continue
             
-            # Check user-specific permissions for subcategory
+            # Check role permissions
+            role_perm = RoleServicePermission.objects.filter(
+                role=user.role,
+                service_subcategory=subcategory,
+                is_active=True
+            ).first()
+            
+            if role_perm and role_perm.can_view:
+                available_subcategories.append(subcategory)
+        
+        return available_subcategories
+    
+    def get_available_subcategories(self, user, category=None):
+        """Get subcategories available for user"""
+        from .models import ServiceSubCategory, RoleServicePermission, UserServicePermission
+        
+        if category:
+            subcategories = ServiceSubCategory.objects.filter(
+                category=category, 
+                is_active=True
+            )
+        else:
+            subcategories = ServiceSubCategory.objects.filter(is_active=True)
+        
+        available_subcategories = []
+        
+        for subcategory in subcategories:
+            # Check user-specific permissions first
             user_perm = UserServicePermission.objects.filter(
                 user=user,
                 service_subcategory=subcategory,
@@ -71,24 +99,20 @@ class ServiceManager(models.Manager):
                     available_subcategories.append(subcategory)
                 continue
             
-            # Check role permissions for subcategory
+            # Check role permissions
             role_perm = RoleServicePermission.objects.filter(
                 role=user.role,
                 service_subcategory=subcategory,
                 is_active=True
             ).first()
             
-            if role_perm:
-                if role_perm.can_view and role_perm.can_use:
-                    available_subcategories.append(subcategory)
-            else:
-                # No explicit permission = allow by default
+            if role_perm and role_perm.can_view and role_perm.can_use:
                 available_subcategories.append(subcategory)
         
         return available_subcategories
     
     def can_access_service(self, user, service_category=None, service_subcategory=None):
-        """Check if user can access specific service - OPTIMIZED VERSION"""
+        """Check if user can access specific service"""
         from .models import RoleServicePermission, UserServicePermission
         
         if service_category:
@@ -111,17 +135,9 @@ class ServiceManager(models.Manager):
             
             if role_perm:
                 return role_perm.can_view and role_perm.can_use
-            else:
-                # No explicit permission = allow by default
-                return True
                 
         elif service_subcategory:
-            # First check parent category access
-            parent_access = self.can_access_service(user, service_category=service_subcategory.category)
-            if not parent_access:
-                return False
-            
-            # Check user-specific permissions
+            # Check user-specific permissions first
             user_perm = UserServicePermission.objects.filter(
                 user=user,
                 service_subcategory=service_subcategory,
@@ -140,8 +156,5 @@ class ServiceManager(models.Manager):
             
             if role_perm:
                 return role_perm.can_view and role_perm.can_use
-            else:
-                # No explicit permission = allow by default
-                return True
         
         return False
