@@ -941,3 +941,45 @@ class CanManageServicePermissions(BasePermission):
                 return obj.created_by == user
         
         return False
+    
+
+
+
+# @api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+# def available_services_detailed(request):
+#     """Get available services with detailed permissions - FIXED VERSION"""
+#     user = request.user
+    
+#     try:
+#         # Get available categories and subcategories using ServiceManager
+#         available_categories = ServiceCategory.objects.get_available_categories(user)
+#         available_subcategories = ServiceCategory.objects.get_available_subcategories(user)
+        
+#         # Get user and role permissions
+#         user_permissions = UserServicePermission.objects.filter(user=user, is_active=True)
+#         role_permissions = RoleServicePermission.objects.filter(role=user.role, is_active=True)
+        
+#         # Serialize data
+#         category_serializer = ServiceCategorySerializer(available_categories, many=True)
+#         subcategory_serializer = ServiceSubCategorySerializer(available_subcategories, many=True)
+#         user_permission_serializer = UserServicePermissionSerializer(user_permissions, many=True)
+#         role_permission_serializer = RoleServicePermissionSerializer(role_permissions, many=True)
+        
+#         response_data = {
+#             'categories': category_serializer.data,
+#             'subcategories': subcategory_serializer.data,
+#             'permissions': {
+#                 'user_permissions': user_permission_serializer.data,
+#                 'role_permissions': role_permission_serializer.data
+#             }
+#         }
+        
+#         return Response(response_data)
+        
+#     except Exception as e:
+#         logger.error(f"Error in available_services_detailed: {str(e)}")
+#         return Response(
+#             {'error': 'Failed to fetch services'}, 
+#             status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#         )
