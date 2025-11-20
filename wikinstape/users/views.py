@@ -972,6 +972,29 @@ class UserViewSet(DynamicModelViewSet):
             'bank_details': bank_data
         })
 
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def my_bank_details(self, request):
+        """Get current user's bank details"""
+        user = request.user
+        
+        bank_data = {
+            'id': user.id,
+            'bank_name': user.bank_name,
+            'account_number': user.account_number,
+            'ifsc_code': user.ifsc_code,
+            'account_holder_name': user.account_holder_name
+        }
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role
+            },
+            'bank_details': bank_data
+        })
+
 class WalletViewSet(DynamicModelViewSet):
     serializer_class = WalletSerializer
     queryset = Wallet.objects.all()
