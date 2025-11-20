@@ -1,14 +1,19 @@
+# services/managers.py
 from django.db import models
 
 class ServiceManager(models.Manager):
     def get_available_categories(self, user):
-        """Get categories available for user - FIXED VERSION"""
+        """Get categories available for user - IMPROVED VERSION"""
         from .models import ServiceCategory, RoleServicePermission, UserServicePermission
         
         all_categories = ServiceCategory.objects.filter(is_active=True)
         available_categories = []
         
         for category in all_categories:
+            # Skip if category itself is inactive
+            if not category.is_active:
+                continue
+                
             # Check user-specific permissions first
             user_perm = UserServicePermission.objects.filter(
                 user=user,
@@ -38,22 +43,27 @@ class ServiceManager(models.Manager):
         return available_categories
     
     def get_available_subcategories(self, user, category=None):
-        """Get subcategories available for user - FIXED VERSION"""
+        """Get subcategories available for user - IMPROVED VERSION"""
         from .models import ServiceSubCategory, RoleServicePermission, UserServicePermission
         
+        # Base queryset - ONLY active subcategories
+        subcategories = ServiceSubCategory.objects.filter(is_active=True)
+        
         if category:
-            subcategories = ServiceSubCategory.objects.filter(
-                category=category, 
-                is_active=True
-            )
-        else:
-            subcategories = ServiceSubCategory.objects.filter(is_active=True)
+            subcategories = subcategories.filter(category=category)
         
         available_subcategories = []
         
         for subcategory in subcategories:
-            # First check if parent category is accessible
+            # Double check subcategory is active
+            if not subcategory.is_active:
+                continue
+                
+            # First check if parent category is accessible AND active
             parent_category = subcategory.category
+            if not parent_category.is_active:
+                continue
+                
             parent_accessible = self.can_access_service(user, service_category=parent_category)
             
             if not parent_accessible:
