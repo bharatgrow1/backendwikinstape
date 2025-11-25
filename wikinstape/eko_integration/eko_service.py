@@ -8,11 +8,12 @@ from django.conf import settings
 
 class EkoAPIService:
     def __init__(self):
-        self.base_url = "https://staging.eko.in"
+        self.base_url = "https://api.eko.in:25002/ekoicici/v2/user/onboard"
         self.developer_key = "753595f07a59eb5a52341538fad5a63d"
         self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
         self.initiator_id = "9212094999"
         self.EKO_USER_CODE = "38130001"
+        self.use_mock = True 
     
     def generate_signature(self):
         """Generate Eko API signature"""
@@ -38,6 +39,20 @@ class EkoAPIService:
     
     def onboard_user(self, user_data):
         """Onboard user to Eko platform"""
+        # Temporary mock response for testing
+        if self.use_mock:
+            return {
+                'status': 0,
+                'message': 'User onboarded successfully (Mock)',
+                'data': {
+                    'user_code': f'EKO{int(time.time())}',
+                    'mobile': user_data.get('phone_number', ''),
+                    'name': f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}",
+                    'initiator_id': self.initiator_id
+                }
+            }
+        
+        # Real API call (commented for now)
         url = f"{self.base_url}/ekoapi/v1/user/onboard"
         
         # Prepare address
@@ -70,6 +85,26 @@ class EkoAPIService:
     
     def get_services(self):
         """Get available Eko services"""
+        # Mock response for testing
+        if self.use_mock:
+            return {
+                'status': 0,
+                'message': 'Services fetched successfully (Mock)',
+                'data': [
+                    {
+                        'service_code': 'MONEY_TRANSFER',
+                        'service_name': 'Money Transfer',
+                        'category': 'Financial Services'
+                    },
+                    {
+                        'service_code': 'RECHARGE',
+                        'service_name': 'Mobile Recharge',
+                        'category': 'Telecom'
+                    }
+                ]
+            }
+        
+        # Real API call
         url = f"{self.base_url}/ekoapi/v1/user/services"
         params = {'initiator_id': self.initiator_id}
         
@@ -81,6 +116,19 @@ class EkoAPIService:
     
     def activate_service(self, user_code, service_code):
         """Activate service for user"""
+        # Mock response for testing
+        if self.use_mock:
+            return {
+                'status': 0,
+                'message': f'Service {service_code} activated successfully (Mock)',
+                'data': {
+                    'user_code': user_code,
+                    'service_code': service_code,
+                    'status': 'active'
+                }
+            }
+        
+        # Real API call
         url = f"{self.base_url}/ekoapi/v1/user/service/activate"
         
         data = {
