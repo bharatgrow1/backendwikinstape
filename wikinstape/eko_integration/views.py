@@ -380,8 +380,14 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
             })
 
     def process_commission(self, user, amount, service_type):
-        """Process commission for Eko services"""
+        """Process commission for Eko services - TEMPORARILY DISABLED FOR TESTING"""
         try:
+            print(f"DEBUG: Commission would process ₹{amount} for {service_type}")
+            # Temporary disable commission to avoid database errors
+            return
+            
+            # Original code (commented for now)
+            """
             from commission.views import CommissionManager
             from services.models import ServiceSubmission
             
@@ -407,6 +413,6 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 CommissionManager.process_service_commission(
                     service_submission, main_transaction
                 )
-                
+            """
         except Exception as e:
             print(f"Commission processing error: {e}")
