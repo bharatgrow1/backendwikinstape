@@ -119,32 +119,18 @@ class EkoRechargeService(EkoAPIService):
         return self.make_request('POST', full_endpoint, payload, concat_string)
 
 class EkoMoneyTransferService(EkoAPIService):
-    def validate_bank_account(self, account_number, ifsc_code):
-        """Validate bank account - V1 API"""
-        if self.use_mock:
-            return {
-                'status': 0,
-                'message': 'Account validated successfully',
-                'data': {
-                    'account_number': account_number,
-                    'ifsc_code': ifsc_code,
-                    'account_holder_name': 'Verified Account Holder',
-                    'bank_name': 'Sample Bank'
-                }
-            }
+    
+    def activate_money_transfer_service(self, user_code):
+        """Activate money transfer service (service_code=45) - IMPORTANT FOR PRODUCTION"""
+        endpoint = f"/user/service/activate"
         
-        # Eko documentation ke according validation endpoint check karein
-        # Temporary mock response
-        return {
-            'status': 0,
-            'message': 'Account validated successfully',
-            'data': {
-                'account_number': account_number,
-                'ifsc_code': ifsc_code,
-                'account_holder_name': 'Verified Account Holder',
-                'bank_name': 'Sample Bank'
-            }
+        data = {
+            'user_code': user_code,
+            'initiator_id': self.initiator_id,
+            'service_code': '45'  # Money transfer service code
         }
+        
+        return self.make_request_v1('PUT', endpoint, data)
     
     def transfer_money(self, user_code, recipient_details, amount, payment_mode='imps'):
         """Real money transfer - V1 API use karein"""
@@ -161,8 +147,8 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        # V1 API endpoint for money transfer (Documentation ke according)
-        endpoint = f"/ekoapi/v1/agent/user_code:{user_code}/settlement"
+        # V1 API endpoint for money transfer (Documentation ke exact format)
+        endpoint = f"/agent/user_code:{user_code}/settlement"
         
         # Payment mode mapping (Documentation ke according)
         payment_mode_map = {
@@ -188,11 +174,15 @@ class EkoMoneyTransferService(EkoAPIService):
             'beneficiary_account_type': '1'  # 1 for Savings, 2 for Current
         }
         
+        # Pehle service activate karein (Production ke liye important)
+        activation_result = self.activate_money_transfer_service(user_code)
+        print(f"Service Activation Result: {activation_result}")
+        
         return self.make_request_v1('POST', endpoint, form_data)
     
     def check_transaction_status(self, client_ref_id):
         """Check transaction status - V1 API"""
-        endpoint = f"/ekoapi/v1/transactions/client_ref_id:{client_ref_id}"
+        endpoint = f"/transactions/client_ref_id:{client_ref_id}"
         
         params = {
             'initiator_id': self.initiator_id
