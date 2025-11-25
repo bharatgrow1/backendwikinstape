@@ -8,11 +8,7 @@ from django.conf import settings
 
 class EkoAPIService:
     def __init__(self):
-        # V1 APIs ke liye alag base URL (Money Transfer)
-        self.v1_base_url = "https://api.eko.in:25002/ekoicici"
-        # V2 APIs ke liye alag base URL (Recharge)
-        self.v2_base_url = "https://api.eko.in:25002/ekoicici"
-        
+        self.base_url = "https://api.eko.in:25002/ekoicici"
         self.developer_key = "753595f07a59eb5a52341538fad5a63d"
         self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
         self.initiator_id = "9212094999"
@@ -85,9 +81,8 @@ class EkoAPIService:
         return headers
     
     def make_request_v1(self, method, endpoint, data=None):
-        """Request method for V1 APIs - MONEY TRANSFER"""
-        # V1 APIs ke liye alag base URL
-        url = f"https://api.eko.in:25002/ekoapi/v1{endpoint}"
+        """Request method for V1 APIs"""
+        url = f"{self.base_url}{endpoint}"
         headers = self.get_headers_v1()
         
         try:
@@ -121,9 +116,8 @@ class EkoAPIService:
             return {'status': 1, 'message': f'Request failed: {str(e)}'}
     
     def make_request_v2(self, method, endpoint, data=None, concat_string=None):
-        """Request method for V2 APIs - RECHARGE"""
-        # V2 APIs ke liye alag base URL
-        url = f"{self.v2_base_url}{endpoint}"
+        """Request method for V2 APIs"""
+        url = f"{self.base_url}{endpoint}"
         headers = self.get_headers_v2(concat_string)
         
         try:

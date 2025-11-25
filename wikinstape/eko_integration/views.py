@@ -297,6 +297,41 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
+    def validate_account(self, request):
+        """Validate bank account with better error handling"""
+        account_number = request.data.get('account_number')
+        ifsc_code = request.data.get('ifsc_code')
+        
+        if not account_number or not ifsc_code:
+            return Response({
+                'error': 'Account number and IFSC code are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.validate_bank_account(account_number, ifsc_code)
+            
+            # Better response handling
+            if result.get('status') == 0:
+                return Response({
+                    'status': 'success',
+                    'message': result.get('message', 'Account validated successfully'),
+                    'data': result.get('data', {})
+                })
+            else:
+                return Response({
+                    'status': 'error',
+                    'message': result.get('message', 'Account validation failed'),
+                    'details': result
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'Validation failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
     def transfer(self, request):
         """Transfer money with PROPER error handling"""
         serializer = MoneyTransferSerializer(data=request.data)
@@ -320,12 +355,6 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
         # Process transfer
         try:
             transfer_service = EkoMoneyTransferService()
-            
-            # Pehle service activation check karein
-            activation_result = transfer_service.activate_money_transfer_service(eko_user.eko_user_code)
-            print(f"Service Activation: {activation_result}")
-            
-            # Phir transfer karein
             result = transfer_service.transfer_money(
                 eko_user.eko_user_code,
                 {
@@ -345,10 +374,10 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 amount=serializer.validated_data['amount'],
                 status='success' if result.get('status') == 0 else 'failed',
                 eko_reference_id=result.get('data', {}).get('transaction_id'),
-                response_data=result
+                response_data=result  # ✅ Save response for debugging
             )
             
-            # Handle response
+            # Handle successful transfer
             if result.get('status') == 0:
                 # Create wallet transaction
                 Transaction.objects.create(
@@ -382,28 +411,43 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'message': f'Transfer failed: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=False, methods=['post'])
-    def activate_service(self, request):
-        """Activate money transfer service manually"""
-        try:
-            eko_user = EkoUser.objects.get(user=request.user)
-        except EkoUser.DoesNotExist:
-            return Response({
-                'error': 'User not onboarded with Eko'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+    @action(detail=False, methods=['get'])
+    def check_balance(self, request):
+        """Check Eko balance - for testing"""
         try:
             transfer_service = EkoMoneyTransferService()
-            result = transfer_service.activate_money_transfer_service(eko_user.eko_user_code)
-            
-            return Response({
-                'status': 'success' if result.get('status') == 0 else 'error',
-                'message': result.get('message', 'Service activation completed'),
-                'details': result
-            })
-                
+            result = transfer_service.check_balance()
+            return Response(result)
         except Exception as e:
             return Response({
-                'status': 'error',
-                'message': f'Service activation failed: {str(e)}'
+                'error': f'Balance check failed: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def process_commission(self, user, amount, service_type):
+        """Process commission for Eko services"""
+        try:
+            from commission.views import CommissionManager
+            from services.models import ServiceSubmission
+            
+            # Create a service submission for commission processing
+            service_submission = ServiceSubmission.objects.create(
+                submitted_by=user,
+                amount=amount,
+                status='success',
+                payment_status='paid',
+                service_reference_id=f"EKO_{int(time.time())}"
+            )
+            
+            # Get the main transaction
+            main_transaction = Transaction.objects.filter(
+                wallet=user.wallet,
+                amount=amount
+            ).order_by('-created_at').first()
+            
+            if main_transaction:
+                CommissionManager.process_service_commission(
+                    service_submission, main_transaction
+                )
+                
+        except Exception as e:
+            print(f"Commission processing error: {e}")
