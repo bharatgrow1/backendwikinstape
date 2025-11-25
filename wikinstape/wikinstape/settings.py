@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'users',
     'services',
     'commission',
+    'eko_integration',
 
 ]
 

@@ -11,6 +11,8 @@ from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, C
         CommissionDashboardViewSet)
 from services.views_permissions import ServicePermissionViewSet
 
+from eko_integration.views import EkoUserViewSet, EkoBBPSViewSet, EkoRechargeViewSet, EkoMoneyTransferViewSet
+
 router = DefaultRouter()
 
 
@@ -54,5 +56,8 @@ router.register(r'my-service-commissions', DealerRetailerCommissionViewSet, base
 router.register(r'commission-stats', CommissionStatsViewSet, basename='commission-stats')
 router.register(r'commission-dashboard', CommissionDashboardViewSet, basename='commission-dashboard')
 
-
-
+#eko intigration apis
+router.register(r'users', EkoUserViewSet, basename='eko-users')
+router.register(r'bbps', EkoBBPSViewSet, basename='eko-bbps')
+router.register(r'recharge', EkoRechargeViewSet, basename='eko-recharge')
+router.register(r'money-transfer', EkoMoneyTransferViewSet, basename='eko-money-transfer')
