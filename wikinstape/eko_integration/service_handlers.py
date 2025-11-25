@@ -160,7 +160,7 @@ class EkoMoneyTransferService(EkoAPIService):
             }
         
         # Use V2 API endpoint
-        endpoint = "/v2/transfers"
+        endpoint = "/v1/transfers"
         
         payment_mode_map = {
             'imps': '5',
