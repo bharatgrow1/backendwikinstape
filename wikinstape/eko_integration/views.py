@@ -391,7 +391,10 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 amount=amount,
                 status='success',
                 payment_status='paid',
-                service_reference_id=f"EKO_{int(time.time())}"
+                service_reference_id=f"EKO_{int(time.time())}",
+                form_data={},  # ✅ Add empty form_data
+                service_type=service_type,  # ✅ Add service_type
+                # Add other required fields if needed
             )
             
             # Get the main transaction
