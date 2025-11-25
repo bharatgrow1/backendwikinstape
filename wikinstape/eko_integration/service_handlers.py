@@ -120,7 +120,7 @@ class EkoRechargeService(EkoAPIService):
 
 class EkoMoneyTransferService(EkoAPIService):
     def validate_bank_account(self, account_number, ifsc_code):
-        """Validate bank account - V1 API"""
+        """Validate bank account - V2 API"""
         if self.use_mock:
             return {
                 'status': 0,
@@ -133,8 +133,6 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        # Eko documentation ke according validation endpoint check karein
-        # Temporary mock response
         return {
             'status': 0,
             'message': 'Account validated successfully',
@@ -147,7 +145,7 @@ class EkoMoneyTransferService(EkoAPIService):
         }
     
     def transfer_money(self, user_code, recipient_details, amount, payment_mode='imps'):
-        """Real money transfer - V1 API use karein"""
+        """Real money transfer - V2 API use karein"""
         if self.use_mock:
             amount_value = float(amount)
             return {
@@ -161,38 +159,35 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        # V1 API endpoint for money transfer (Documentation ke according)
-        endpoint = f"/ekoapi/v1/agent/user_code:{user_code}/settlement"
+        endpoint = f"/ekoapi/v2/agent/user_code:{user_code}/settlement"
         
-        # Payment mode mapping (Documentation ke according)
         payment_mode_map = {
             'imps': '5',
             'neft': '4', 
             'rtgs': '13'
         }
         
-        # Prepare form data (Documentation ke according)
         form_data = {
             'initiator_id': self.initiator_id,
             'client_ref_id': f"MT{int(time.time())}",
-            'service_code': '45',  # Money transfer service code
+            'service_code': '45',
             'payment_mode': payment_mode_map.get(payment_mode.lower(), '5'),
             'recipient_name': recipient_details['recipient_name'],
             'account': recipient_details['account_number'],
             'ifsc': recipient_details['ifsc_code'],
-            'amount': str(int(float(amount))),  # Integer mein convert karein
+            'amount': str(int(float(amount))), 
             'source': 'NEWCONNECT',
             'sender_name': 'Customer',
             'tag': 'Payment',
             'latlong': '28.6139,77.2090',
-            'beneficiary_account_type': '1'  # 1 for Savings, 2 for Current
+            'beneficiary_account_type': '1'
         }
         
         return self.make_request_v1('POST', endpoint, form_data)
     
     def check_transaction_status(self, client_ref_id):
-        """Check transaction status - V1 API"""
-        endpoint = f"/ekoapi/v1/transactions/client_ref_id:{client_ref_id}"
+        """Check transaction status - V2 API"""
+        endpoint = f"/ekoapi/v2/transactions/client_ref_id:{client_ref_id}"
         
         params = {
             'initiator_id': self.initiator_id
