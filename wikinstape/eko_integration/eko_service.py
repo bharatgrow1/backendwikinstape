@@ -13,6 +13,7 @@ class EkoAPIService:
         self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
         self.initiator_id = "9212094999"
         self.EKO_USER_CODE = "38130001"
+        self.use_mock = False
     
     def generate_signature(self):
         """Generate Eko API signature"""

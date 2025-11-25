@@ -96,29 +96,61 @@ class EkoRechargeService(EkoAPIService):
 
 class EkoMoneyTransferService(EkoAPIService):
     def validate_bank_account(self, account_number, ifsc_code):
-        """Validate bank account"""
-        return {
-            'status': 0,
-            'message': 'Account validated successfully',
-            'data': {
-                'account_number': account_number,
-                'ifsc_code': ifsc_code,
-                'account_holder_name': 'Verified Account Holder',
-                'bank_name': 'Sample Bank'
+        """Real bank account validation"""
+        if self.use_mock:
+            return {
+                'status': 0,
+                'message': 'Account validated successfully',
+                'data': {
+                    'account_number': account_number,
+                    'ifsc_code': ifsc_code,
+                    'account_holder_name': 'Verified Account Holder',
+                    'bank_name': 'Sample Bank'
+                }
             }
+        
+        url = f"{self.base_url}/ekoapi/v1/account/validate"
+        data = {
+            'initiator_id': self.initiator_id,
+            'account_number': account_number,
+            'ifsc_code': ifsc_code
         }
+        
+        try:
+            response = requests.post(url, data=data, headers=self.get_headers())
+            return response.json() 
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
     
     def transfer_money(self, user_code, recipient_details, amount, payment_mode='imps'):
-        """Transfer money"""
-        amount_value = float(amount) if hasattr(amount, 'as_tuple') else amount
-        
-        return {
-            'status': 0,
-            'message': 'Money transferred successfully',
-            'data': {
-                'transaction_id': f'MT{int(time.time())}',
-                'amount': amount_value, 
-                'recipient_name': recipient_details.get('recipient_name'),
-                'status': 'success'
+        """Real money transfer"""
+        if self.use_mock:
+            amount_value = float(amount) if hasattr(amount, 'as_tuple') else amount
+            return {
+                'status': 0,
+                'message': 'Money transferred successfully',
+                'data': {
+                    'transaction_id': f'MT{int(time.time())}',
+                    'amount': amount_value,
+                    'recipient_name': recipient_details.get('recipient_name'),
+                    'status': 'success'
+                }
             }
+        
+        url = f"{self.base_url}/ekoapi/v1/moneytransfer"
+        data = {
+            'initiator_id': self.initiator_id,
+            'user_code': user_code,
+            'account_number': recipient_details['account_number'],
+            'ifsc_code': recipient_details['ifsc_code'],
+            'recipient_name': recipient_details['recipient_name'],
+            'amount': float(amount),
+            'payment_mode': payment_mode,
+            'client_ref_id': f"MT{int(time.time())}"
         }
+        
+        try:
+            response = requests.post(url, data=data, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
