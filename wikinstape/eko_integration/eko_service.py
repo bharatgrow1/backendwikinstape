@@ -15,23 +15,8 @@ class EkoAPIService:
         self.EKO_USER_CODE = "38130001"
         self.use_mock = False
     
-    def generate_signature_v1(self):
-        """Generate signature for V1 APIs (Money Transfer)"""
-        timestamp = str(int(time.time() * 1000))
-        
-        # V1 APIs ke liye simple signature
-        encoded_key = base64.b64encode(self.secret_key.encode()).decode()
-        secret_key_hmac = hmac.new(
-            encoded_key.encode(), 
-            timestamp.encode(), 
-            hashlib.sha256
-        ).digest()
-        secret_key = base64.b64encode(secret_key_hmac).decode()
-        
-        return secret_key, timestamp
-    
-    def generate_signature_v2(self, concat_string=None):
-        """Generate signature for V2 APIs (Recharge)"""
+    def generate_signature(self, concat_string=None):
+        """Generate Eko API signature - EXACTLY like Ruby code"""
         timestamp = str(int(time.time() * 1000))
         
         encoded_key = base64.b64encode(self.secret_key.encode()).decode()
@@ -53,20 +38,9 @@ class EkoAPIService:
         
         return secret_key, timestamp, request_hash
     
-    def get_headers_v1(self):
-        """Headers for V1 APIs (Money Transfer)"""
-        secret_key, timestamp = self.generate_signature_v1()
-        
-        return {
-            'developer_key': self.developer_key,
-            'secret-key': secret_key,
-            'secret-key-timestamp': timestamp,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-    
     def get_headers_v2(self, concat_string=None):
-        """Headers for V2 APIs (Recharge)"""
-        secret_key, timestamp, request_hash = self.generate_signature_v2(concat_string)
+        """Get headers for V2 APIs - EXACTLY like Ruby"""
+        secret_key, timestamp, request_hash = self.generate_signature(concat_string)
         
         headers = {
             'developer_key': self.developer_key,
@@ -80,25 +54,25 @@ class EkoAPIService:
             
         return headers
     
-    def make_request_v1(self, method, endpoint, data=None):
-        """Request method for V1 APIs"""
+
+    def make_request(self, method, endpoint, data=None, concat_string=None):
+        """Generic request method with proper error handling"""
         url = f"{self.base_url}{endpoint}"
-        headers = self.get_headers_v1()
+        headers = self.get_headers_v2(concat_string)
         
         try:
-            print(f"V1 API Request: {method} {url}")
-            print(f"Headers: {headers}")
-            print(f"Form Data: {data}")
-            
-            if method.upper() == 'POST':
-                response = requests.post(url, data=data, headers=headers, timeout=30)
-            elif method.upper() == 'GET':
+            if method.upper() == 'GET':
                 response = requests.get(url, params=data, headers=headers, timeout=30)
+            elif method.upper() == 'POST':
+                response = requests.post(url, json=data, headers=headers, timeout=30)
             elif method.upper() == 'PUT':
-                response = requests.put(url, data=data, headers=headers, timeout=30)
+                response = requests.put(url, json=data, headers=headers, timeout=30)
             else:
                 return {'status': 1, 'message': f'Unsupported method: {method}'}
             
+            print(f"API Request: {method} {url}")
+            print(f"Headers: {headers}")
+            print(f"Payload: {data}")
             print(f"Response Status: {response.status_code}")
             print(f"Response Text: {response.text}")
             
@@ -115,37 +89,72 @@ class EkoAPIService:
             print(f"Request Error: {str(e)}")
             return {'status': 1, 'message': f'Request failed: {str(e)}'}
     
-    def make_request_v2(self, method, endpoint, data=None, concat_string=None):
-        """Request method for V2 APIs"""
-        url = f"{self.base_url}{endpoint}"
-        headers = self.get_headers_v2(concat_string)
+    def check_balance(self):
+        """Check balance - Ruby code ke according"""
+        endpoint = f"/v2/customers/mobile_number:{self.initiator_id}/balance"
+        params = {
+            'initiator_id': self.initiator_id,
+            'user_code': self.EKO_USER_CODE
+        }
+        
+        timestamp = str(int(time.time() * 1000))
+        concat_string = timestamp
+        
+        return self.make_request('GET', endpoint, params, concat_string)
+    
+    
+    def onboard_user(self, user_data):
+        """Onboard user to Eko platform - Fixed version"""
+        endpoint = "/v2/users/onboard"
+        
+        address_data = {
+            "line1": user_data.get('address', '')[:35],
+            "city": user_data.get('city', '')[:20],
+            "state": user_data.get('state', '')[:20],
+            "pincode": user_data.get('pincode', ''),
+            "country": "IND"
+        }
+        
+        data = {
+            'initiator_id': self.initiator_id,
+            'user_code': self.EKO_USER_CODE,
+            'mobile': user_data.get('phone_number', ''),
+            'first_name': user_data.get('first_name', '')[:20],
+            'last_name': user_data.get('last_name', '')[:20],
+            'email': user_data.get('email', ''),
+            'address': address_data,
+            'dob': user_data.get('date_of_birth', '').strftime('%d/%m/%Y') if user_data.get('date_of_birth') else '',
+            'business_name': user_data.get('business_name', f"{user_data.get('first_name', '')} Store")[:30]
+        }
+        
+        data = {k: v for k, v in data.items() if v}
+        
+        return self.make_request('PUT', endpoint, data)
+    
+
+    def get_services(self):
+        """Get available Eko services"""
+        url = f"{self.base_url}/ekoapi/v2/user/services"
+        params = {'initiator_id': self.initiator_id}
         
         try:
-            print(f"V2 API Request: {method} {url}")
-            print(f"Headers: {headers}")
-            print(f"Payload: {data}")
-            
-            if method.upper() == 'POST':
-                response = requests.post(url, json=data, headers=headers, timeout=30)
-            elif method.upper() == 'GET':
-                response = requests.get(url, params=data, headers=headers, timeout=30)
-            elif method.upper() == 'PUT':
-                response = requests.put(url, json=data, headers=headers, timeout=30)
-            else:
-                return {'status': 1, 'message': f'Unsupported method: {method}'}
-            
-            print(f"Response Status: {response.status_code}")
-            print(f"Response Text: {response.text}")
-            
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                return {
-                    'status': 1, 
-                    'message': f'Invalid JSON response: {response.text}',
-                    'raw_response': response.text
-                }
-                
-        except requests.exceptions.RequestException as e:
-            print(f"Request Error: {str(e)}")
-            return {'status': 1, 'message': f'Request failed: {str(e)}'}
+            response = requests.get(url, params=params, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
+    
+    def activate_service(self, user_code, service_code):
+        """Activate service for user"""
+        url = f"{self.base_url}/ekoapi/v2/user/service/activate"
+        
+        data = {
+            'user_code': user_code,
+            'initiator_id': self.initiator_id,
+            'service_code': service_code
+        }
+        
+        try:
+            response = requests.put(url, data=data, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
