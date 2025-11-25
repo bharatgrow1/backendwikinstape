@@ -380,16 +380,36 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
             })
 
     def process_commission(self, user, amount, service_type):
-        """Process commission for Eko services - TEMPORARILY DISABLED FOR TESTING"""
+        """Process commission for Eko services"""
         try:
-            print(f"DEBUG: Commission would process ₹{amount} for {service_type}")
-            # Temporary disable commission to avoid database errors
-            return
-            
-            # Original code (commented for now)
-            """
             from commission.views import CommissionManager
-            from services.models import ServiceSubmission
+            from services.models import ServiceSubmission, ServiceSubCategory
+            
+            # Find appropriate service subcategory based on service_type
+            subcategory_name_map = {
+                'money_transfer': 'Money Transfer',
+                'recharge': 'Mobile Recharge', 
+                'bbps_payment': 'Bill Payment'
+            }
+            
+            subcategory_name = subcategory_name_map.get(service_type, 'Money Transfer')
+            
+            try:
+                subcategory = ServiceSubCategory.objects.get(name__icontains=subcategory_name)
+            except ServiceSubCategory.DoesNotExist:
+                # Use first available subcategory as fallback
+                subcategory = ServiceSubCategory.objects.first()
+                if not subcategory:
+                    print(f"No ServiceSubCategory found, skipping commission")
+                    return
+            
+            # Prepare form data based on service type
+            form_data = {
+                'service_type': service_type,
+                'amount': str(amount),
+                'processed_via': 'eko_integration',
+                'timestamp': datetime.now().isoformat()
+            }
             
             # Create a service submission for commission processing
             service_submission = ServiceSubmission.objects.create(
@@ -398,9 +418,9 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 status='success',
                 payment_status='paid',
                 service_reference_id=f"EKO_{int(time.time())}",
-                form_data={},  # ✅ Add empty form_data
-                service_type=service_type,  # ✅ Add service_type
-                # Add other required fields if needed
+                form_data=form_data,
+                subcategory=subcategory,  # This is the required field
+                service_type=service_type,
             )
             
             # Get the main transaction
@@ -409,10 +429,14 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 amount=amount
             ).order_by('-created_at').first()
             
-            if main_transaction:
+            if main_transaction and hasattr(CommissionManager, 'process_service_commission'):
                 CommissionManager.process_service_commission(
                     service_submission, main_transaction
                 )
-            """
+                print(f"Commission processed for {service_type}: ₹{amount}")
+            else:
+                print(f"Commission manager not available, but ServiceSubmission created")
+                    
         except Exception as e:
             print(f"Commission processing error: {e}")
+            # Don't raise exception to avoid breaking the main transaction
