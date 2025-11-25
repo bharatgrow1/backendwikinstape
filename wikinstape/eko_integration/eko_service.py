@@ -39,7 +39,7 @@ class EkoAPIService:
     
     def onboard_user(self, user_data):
         """Onboard user to Eko platform"""
-        url = f"{self.base_url}/ekoapi/v1/user/onboard"
+        url = f"{self.base_url}/ekoapi/v2/user/onboard"
         
         # Prepare address
         address_data = {
@@ -71,7 +71,7 @@ class EkoAPIService:
     
     def get_services(self):
         """Get available Eko services"""
-        url = f"{self.base_url}/ekoapi/v1/user/services"
+        url = f"{self.base_url}/ekoapi/v2/user/services"
         params = {'initiator_id': self.initiator_id}
         
         try:
@@ -82,7 +82,7 @@ class EkoAPIService:
     
     def activate_service(self, user_code, service_code):
         """Activate service for user"""
-        url = f"{self.base_url}/ekoapi/v1/user/service/activate"
+        url = f"{self.base_url}/ekoapi/v2/user/service/activate"
         
         data = {
             'user_code': user_code,

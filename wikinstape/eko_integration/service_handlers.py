@@ -34,7 +34,7 @@ class EkoBBPSService(EkoAPIService):
     
     def pay_bill(self, user_code, consumer_number, service_provider, amount, bill_number=None):
         """Pay bill through Eko"""
-        url = f"{self.base_url}/ekoapi/v1/bills/pay" 
+        url = f"{self.base_url}/ekoapi/v2/bills/pay" 
         
         data = {
             'initiator_id': self.initiator_id,
@@ -109,7 +109,7 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        url = f"{self.base_url}/ekoapi/v1/account/validate"
+        url = f"{self.base_url}/ekoapi/v2/account/validate"
         data = {
             'initiator_id': self.initiator_id,
             'account_number': account_number,
@@ -137,7 +137,7 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        url = f"{self.base_url}/ekoapi/v1/moneytransfer"
+        url = f"{self.base_url}/ekoapi/v2/moneytransfer"
         data = {
             'initiator_id': self.initiator_id,
             'user_code': user_code,
