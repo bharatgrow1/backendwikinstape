@@ -440,7 +440,7 @@ class Transaction(models.Model):
         ('cashback', 'Cashback'),
         ('refund', 'Refund'),
         ('commission', 'Commission'),
-        ('service_payment', 'Service Payment'),  # New category for service payments
+        ('service_payment', 'Service Payment'),
         ('other', 'Other'),
     )
     
