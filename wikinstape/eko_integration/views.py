@@ -300,7 +300,7 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def transfer(self, request):
-        """Transfer money"""
+        """Transfer money - Simple version without commission"""
         serializer = MoneyTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -311,14 +311,6 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'error': 'User not onboarded with Eko'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        recipient_details = {
-            'account_number': serializer.validated_data['account_number'],
-            'ifsc_code': serializer.validated_data['ifsc_code'],
-            'recipient_name': serializer.validated_data['recipient_name']
-        }
-        amount = serializer.validated_data['amount']
-        payment_mode = serializer.validated_data['payment_mode']
-        
         # Get Eko service
         try:
             eko_service = EkoService.objects.get(eko_service_code='MONEY_TRANSFER')
@@ -327,58 +319,46 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'error': 'Money transfer service not configured'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        with transaction.atomic():
-            # Create transaction record
-            eko_transaction = EkoTransaction.objects.create(
-                user=request.user,
-                eko_service=eko_service,
-                client_ref_id=f"MT{int(time.time())}",
-                amount=amount,
-                status='processing'
-            )
-            
-            # Process transfer
-            transfer_service = EkoMoneyTransferService()
-            result = transfer_service.transfer_money(
-                eko_user.eko_user_code,
-                recipient_details,
-                amount,
-                payment_mode
-            )
-            
-            # Update transaction
-            eko_transaction.response_data = result
-            if result.get('status') == 0:
-                eko_transaction.status = 'success'
-                eko_transaction.eko_reference_id = result['data'].get('transaction_id')
-                
-                # Create wallet transaction
-                from users.models import Transaction
-                Transaction.objects.create(
-                    wallet=request.user.wallet,
-                    amount=amount,
-                    transaction_type='debit',
-                    transaction_category='money_transfer',
-                    description=f"Money Transfer to {recipient_details['recipient_name']}",
-                    created_by=request.user,
-                    status='success'
-                )
-                
-                # Process commission
-                self.process_commission(request.user, amount, 'money_transfer')
-                
-            else:
-                eko_transaction.status = 'failed'
-            
-            eko_transaction.save()
-            
-            return Response({
-                'transaction_id': eko_transaction.transaction_id,
-                'status': eko_transaction.status,
-                'eko_reference': eko_transaction.eko_reference_id,
-                'message': result.get('message')
-            })
-
+        # Simple processing without transaction.atomic()
+        eko_transaction = EkoTransaction.objects.create(
+            user=request.user,
+            eko_service=eko_service,
+            client_ref_id=f"MT{int(time.time())}",
+            amount=serializer.validated_data['amount'],
+            status='processing'
+        )
+        
+        # Process transfer
+        transfer_service = EkoMoneyTransferService()
+        result = transfer_service.transfer_money(
+            eko_user.eko_user_code,
+            {
+                'account_number': serializer.validated_data['account_number'],
+                'ifsc_code': serializer.validated_data['ifsc_code'],
+                'recipient_name': serializer.validated_data['recipient_name']
+            },
+            serializer.validated_data['amount'],
+            serializer.validated_data['payment_mode']
+        )
+        
+        # Update transaction
+        eko_transaction.response_data = result
+        if result.get('status') == 0:
+            eko_transaction.status = 'success'
+            eko_transaction.eko_reference_id = result['data'].get('transaction_id')
+        else:
+            eko_transaction.status = 'failed'
+        
+        eko_transaction.save()
+        
+        return Response({
+            'transaction_id': eko_transaction.transaction_id,
+            'status': eko_transaction.status,
+            'eko_reference': eko_transaction.eko_reference_id,
+            'message': result.get('message')
+        })
+    
+    
     def process_commission(self, user, amount, service_type):
         """Process commission for Eko services - Working version"""
         try:
