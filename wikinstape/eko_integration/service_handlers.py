@@ -82,21 +82,45 @@ class EkoRechargeService(EkoAPIService):
         }
     
     def recharge(self, user_code, mobile_number, operator_id, amount, circle='DELHI'):
-        """Perform recharge"""
-        return {
-            'status': 0,
-            'message': 'Recharge successful',
-            'data': {
-                'transaction_id': f'RECH{int(time.time())}',
-                'mobile_number': mobile_number,
-                'amount': amount,
-                'status': 'success'
+        """Perform recharge - EXACT Ruby implementation"""
+        if self.use_mock:
+            return {
+                'status': 0,
+                'message': 'Recharge successful',
+                'data': {
+                    'transaction_id': f'RECH{int(time.time())}',
+                    'mobile_number': mobile_number,
+                    'amount': amount,
+                    'status': 'success'
+                }
             }
+        
+        endpoint = "/v2/billpayments/paybill"
+        
+        payload = {
+            "source_ip": "121.121.1.1",
+            "user_code": user_code,
+            "amount": float(amount),
+            "client_ref_id": f"RECH{int(time.time())}",
+            "utility_acc_no": mobile_number,
+            "confirmation_mobile_no": mobile_number,
+            "sender_name": "Customer",
+            "operator_id": operator_id,
+            "latlong": "28.6139,77.2090",
+            "hc_channel": 1
         }
+        
+        timestamp = str(int(time.time() * 1000))
+        amount_str = str(float(amount))
+        concat_string = f"{timestamp}{mobile_number}{amount_str}{user_code}"
+        
+        full_endpoint = f"{endpoint}?initiator_id={self.initiator_id}"
+        
+        return self.make_request('POST', full_endpoint, payload, concat_string)
 
 class EkoMoneyTransferService(EkoAPIService):
     def validate_bank_account(self, account_number, ifsc_code):
-        """Real bank account validation"""
+        """Validate bank account - PROPER IMPLEMENTATION"""
         if self.use_mock:
             return {
                 'status': 0,
@@ -109,23 +133,24 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        url = f"{self.base_url}/ekoapi/v2/account/validate"
+        endpoint = "/v2/accounts/validate"
+        
         data = {
             'initiator_id': self.initiator_id,
+            'user_code': self.EKO_USER_CODE,
             'account_number': account_number,
             'ifsc_code': ifsc_code
         }
         
-        try:
-            response = requests.post(url, data=data, headers=self.get_headers())
-            return response.json() 
-        except Exception as e:
-            return {'status': 1, 'message': str(e)}
+        timestamp = str(int(time.time() * 1000))
+        concat_string = f"{timestamp}{account_number}{self.EKO_USER_CODE}"
+        
+        return self.make_request('POST', endpoint, data, concat_string)
     
     def transfer_money(self, user_code, recipient_details, amount, payment_mode='imps'):
-        """Real money transfer"""
+        """Real money transfer - Ruby recharge pattern pe"""
         if self.use_mock:
-            amount_value = float(amount) if hasattr(amount, 'as_tuple') else amount
+            amount_value = float(amount)
             return {
                 'status': 0,
                 'message': 'Money transferred successfully',
@@ -137,20 +162,27 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        url = f"{self.base_url}/ekoapi/v2/moneytransfer"
-        data = {
-            'initiator_id': self.initiator_id,
-            'user_code': user_code,
-            'account_number': recipient_details['account_number'],
-            'ifsc_code': recipient_details['ifsc_code'],
-            'recipient_name': recipient_details['recipient_name'],
-            'amount': float(amount),
-            'payment_mode': payment_mode,
-            'client_ref_id': f"MT{int(time.time())}"
+        endpoint = "/v2/transfers"
+        
+        payload = {
+            "source_ip": "121.121.1.1",
+            "user_code": user_code,
+            "amount": float(amount),
+            "client_ref_id": f"MT{int(time.time())}",
+            "account_number": recipient_details['account_number'],
+            "ifsc_code": recipient_details['ifsc_code'],
+            "recipient_name": recipient_details['recipient_name'],
+            "payment_mode": payment_mode,
+            "sender_name": "Customer",
+            "latlong": "28.6139,77.2090",
+            "hc_channel": 1
         }
         
-        try:
-            response = requests.post(url, data=data, headers=self.get_headers())
-            return response.json()
-        except Exception as e:
-            return {'status': 1, 'message': str(e)}
+        timestamp = str(int(time.time() * 1000))
+        account_number = recipient_details['account_number']
+        amount_str = str(float(amount))
+        concat_string = f"{timestamp}{account_number}{amount_str}{user_code}"
+        
+        full_endpoint = f"{endpoint}?initiator_id={self.initiator_id}"
+        
+        return self.make_request('POST', full_endpoint, payload, concat_string)

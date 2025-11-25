@@ -13,13 +13,12 @@ class EkoAPIService:
         self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
         self.initiator_id = "9212094999"
         self.EKO_USER_CODE = "38130001"
-        self.use_mock = True
+        self.use_mock = False
     
-    def generate_signature(self, request_data=None):
-        """Generate Eko API signature - Fixed to match Ruby implementation"""
+    def generate_signature(self, concat_string=None):
+        """Generate Eko API signature - EXACTLY like Ruby code"""
         timestamp = str(int(time.time() * 1000))
         
-        # Step 1: Generate SECRET-KEY (same as Ruby)
         encoded_key = base64.b64encode(self.secret_key.encode()).decode()
         secret_key_hmac = hmac.new(
             encoded_key.encode(), 
@@ -28,20 +27,8 @@ class EkoAPIService:
         ).digest()
         secret_key = base64.b64encode(secret_key_hmac).decode()
         
-        # Step 2: Generate REQUEST-HASH if request_data is provided
         request_hash = None
-        if request_data:
-            # Create concatenated string based on API requirements
-            if 'utility_acc_no' in request_data and 'amount' in request_data:
-                # For bill payments/recharge
-                concat_string = f"{timestamp}{request_data['utility_acc_no']}{request_data['amount']}{self.EKO_USER_CODE}"
-            elif 'account_number' in request_data and 'amount' in request_data:
-                # For money transfer
-                concat_string = f"{timestamp}{request_data['account_number']}{request_data['amount']}{self.EKO_USER_CODE}"
-            else:
-                # Default concatenation
-                concat_string = timestamp
-            
+        if concat_string:
             request_hash_hmac = hmac.new(
                 encoded_key.encode(), 
                 concat_string.encode(), 
@@ -51,9 +38,9 @@ class EkoAPIService:
         
         return secret_key, timestamp, request_hash
     
-    def get_headers(self, request_data=None):
-        """Get headers with proper signature"""
-        secret_key, timestamp, request_hash = self.generate_signature(request_data)
+    def get_headers_v2(self, concat_string=None):
+        """Get headers for V2 APIs - EXACTLY like Ruby"""
+        secret_key, timestamp, request_hash = self.generate_signature(concat_string)
         
         headers = {
             'developer_key': self.developer_key,
@@ -67,13 +54,61 @@ class EkoAPIService:
             
         return headers
     
+
+    def make_request(self, method, endpoint, data=None, concat_string=None):
+        """Generic request method with proper error handling"""
+        url = f"{self.base_url}{endpoint}"
+        headers = self.get_headers_v2(concat_string)
+        
+        try:
+            if method.upper() == 'GET':
+                response = requests.get(url, params=data, headers=headers, timeout=30)
+            elif method.upper() == 'POST':
+                response = requests.post(url, json=data, headers=headers, timeout=30)
+            elif method.upper() == 'PUT':
+                response = requests.put(url, json=data, headers=headers, timeout=30)
+            else:
+                return {'status': 1, 'message': f'Unsupported method: {method}'}
+            
+            print(f"API Request: {method} {url}")
+            print(f"Headers: {headers}")
+            print(f"Payload: {data}")
+            print(f"Response Status: {response.status_code}")
+            print(f"Response Text: {response.text}")
+            
+            try:
+                return response.json()
+            except json.JSONDecodeError:
+                return {
+                    'status': 1, 
+                    'message': f'Invalid JSON response: {response.text}',
+                    'raw_response': response.text
+                }
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Request Error: {str(e)}")
+            return {'status': 1, 'message': f'Request failed: {str(e)}'}
+    
+    def check_balance(self):
+        """Check balance - Ruby code ke according"""
+        endpoint = f"/v2/customers/mobile_number:{self.initiator_id}/balance"
+        params = {
+            'initiator_id': self.initiator_id,
+            'user_code': self.EKO_USER_CODE
+        }
+        
+        timestamp = str(int(time.time() * 1000))
+        concat_string = timestamp 
+        
+        return self.make_request('GET', endpoint, params, concat_string)
+    
+    
     def onboard_user(self, user_data):
         """Onboard user to Eko platform - Fixed version"""
         endpoint = "/v2/users/onboard"
         
-        # Prepare address
         address_data = {
-            "line1": user_data.get('address', '')[:35],  # Eko has length limits
+            "line1": user_data.get('address', '')[:35],
             "city": user_data.get('city', '')[:20],
             "state": user_data.get('state', '')[:20],
             "pincode": user_data.get('pincode', ''),
