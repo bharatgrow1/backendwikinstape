@@ -1,6 +1,7 @@
 from .eko_service import EkoAPIService
 import requests
-from datetime import time
+import time 
+from datetime import datetime 
 
 class EkoBBPSService(EkoAPIService):
     def fetch_bill(self, consumer_number, service_type, operator_id=None):
