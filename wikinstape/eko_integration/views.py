@@ -4,7 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-
+import decimal
+import json
 from .models import EkoUser, EkoService, EkoTransaction
 from .serializers import *
 from .service_handlers import EkoBBPSService, EkoRechargeService, EkoMoneyTransferService
@@ -12,6 +13,19 @@ from .eko_service import EkoAPIService
 from users.models import User, Transaction
 import time 
 from datetime import datetime 
+
+
+def make_json_serializable(data):
+    """Convert Decimal objects to float for JSON serialization"""
+    if isinstance(data, dict):
+        return {k: make_json_serializable(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [make_json_serializable(item) for item in data]
+    elif isinstance(data, decimal.Decimal):
+        return float(data)
+    else:
+        return data
+    
 
 class EkoUserViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -298,9 +312,10 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
         
         return Response(result)
     
+    
     @action(detail=False, methods=['post'])
     def transfer(self, request):
-        """Transfer money - Simple version without commission"""
+        """Transfer money"""
         serializer = MoneyTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -311,6 +326,14 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'error': 'User not onboarded with Eko'
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        recipient_details = {
+            'account_number': serializer.validated_data['account_number'],
+            'ifsc_code': serializer.validated_data['ifsc_code'],
+            'recipient_name': serializer.validated_data['recipient_name']
+        }
+        amount = serializer.validated_data['amount']
+        payment_mode = serializer.validated_data['payment_mode']
+        
         # Get Eko service
         try:
             eko_service = EkoService.objects.get(eko_service_code='MONEY_TRANSFER')
@@ -319,94 +342,86 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'error': 'Money transfer service not configured'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Simple processing without transaction.atomic()
-        eko_transaction = EkoTransaction.objects.create(
-            user=request.user,
-            eko_service=eko_service,
-            client_ref_id=f"MT{int(time.time())}",
-            amount=serializer.validated_data['amount'],
-            status='processing'
-        )
-        
-        # Process transfer
-        transfer_service = EkoMoneyTransferService()
-        result = transfer_service.transfer_money(
-            eko_user.eko_user_code,
-            {
-                'account_number': serializer.validated_data['account_number'],
-                'ifsc_code': serializer.validated_data['ifsc_code'],
-                'recipient_name': serializer.validated_data['recipient_name']
-            },
-            serializer.validated_data['amount'],
-            serializer.validated_data['payment_mode']
-        )
-        
-        # Update transaction
-        eko_transaction.response_data = result
-        if result.get('status') == 0:
-            eko_transaction.status = 'success'
-            eko_transaction.eko_reference_id = result['data'].get('transaction_id')
-        else:
-            eko_transaction.status = 'failed'
-        
-        eko_transaction.save()
-        
-        return Response({
-            'transaction_id': eko_transaction.transaction_id,
-            'status': eko_transaction.status,
-            'eko_reference': eko_transaction.eko_reference_id,
-            'message': result.get('message')
-        })
-    
-    
+        with transaction.atomic():
+            # Create transaction record
+            eko_transaction = EkoTransaction.objects.create(
+                user=request.user,
+                eko_service=eko_service,
+                client_ref_id=f"MT{int(time.time())}",
+                amount=amount,
+                status='processing'
+            )
+            
+            # Process transfer
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.transfer_money(
+                eko_user.eko_user_code,
+                recipient_details,
+                amount,
+                payment_mode
+            )
+            
+            # ✅ FIX: Make result JSON serializable
+            serializable_result = make_json_serializable(result)
+            
+            # Update transaction
+            eko_transaction.response_data = serializable_result
+            if result.get('status') == 0:
+                eko_transaction.status = 'success'
+                eko_transaction.eko_reference_id = result['data'].get('transaction_id')
+                
+                # Create wallet transaction
+                from users.models import Transaction
+                Transaction.objects.create(
+                    wallet=request.user.wallet,
+                    amount=amount,
+                    transaction_type='debit',
+                    transaction_category='money_transfer',
+                    description=f"Money Transfer to {recipient_details['recipient_name']}",
+                    created_by=request.user,
+                    status='success'
+                )
+                
+                # Process commission
+                self.process_commission(request.user, amount, 'money_transfer')
+                
+            else:
+                eko_transaction.status = 'failed'
+            
+            eko_transaction.save()
+            
+            return Response({
+                'transaction_id': str(eko_transaction.transaction_id),
+                'status': eko_transaction.status,
+                'eko_reference': eko_transaction.eko_reference_id,
+                'message': result.get('message')
+            })
+
     def process_commission(self, user, amount, service_type):
-        """Process commission for Eko services - Working version"""
+        """Process commission for Eko services"""
         try:
-            from services.models import ServiceSubmission, ServiceSubCategory
+            from commission.views import CommissionManager
+            from services.models import ServiceSubmission
             
-            # Get first available subcategory
-            subcategory = ServiceSubCategory.objects.filter(is_active=True).first()
-            if not subcategory:
-                print("No active subcategory found, skipping commission")
-                return
-            
-            # Create service submission
+            # Create a service submission for commission processing
             service_submission = ServiceSubmission.objects.create(
                 submitted_by=user,
                 amount=amount,
                 status='success',
-                payment_status='paid', 
-                service_reference_id=f"EKO_{int(time.time())}",
-                form_data={
-                    'service_type': service_type,
-                    'amount': str(amount),
-                    'provider': 'eko',
-                    'timestamp': datetime.now().isoformat()
-                },
-                subcategory=subcategory,
-                service_type=service_type,
+                payment_status='paid',
+                service_reference_id=f"EKO_{int(time.time())}"
             )
             
-            print(f"Commission submission created: {service_submission.id}")
+            # Get the main transaction
+            main_transaction = Transaction.objects.filter(
+                wallet=user.wallet,
+                amount=amount
+            ).order_by('-created_at').first()
             
-            # Try to process commission if manager exists
-            try:
-                from commission.views import CommissionManager
-                from users.models import Transaction
+            if main_transaction:
+                CommissionManager.process_service_commission(
+                    service_submission, main_transaction
+                )
                 
-                main_transaction = Transaction.objects.filter(
-                    wallet=user.wallet,
-                    amount=amount
-                ).order_by('-created_at').first()
-                
-                if main_transaction and hasattr(CommissionManager, 'process_service_commission'):
-                    CommissionManager.process_service_commission(service_submission, main_transaction)
-                    print(f"Commission processed successfully")
-                    
-            except ImportError:
-                print("CommissionManager not available, but submission created")
-            except Exception as e:
-                print(f"Commission processing failed but submission created: {e}")
-                    
         except Exception as e:
             print(f"Commission processing error: {e}")

@@ -110,12 +110,14 @@ class EkoMoneyTransferService(EkoAPIService):
     
     def transfer_money(self, user_code, recipient_details, amount, payment_mode='imps'):
         """Transfer money"""
+        amount_value = float(amount) if hasattr(amount, 'as_tuple') else amount
+        
         return {
             'status': 0,
             'message': 'Money transferred successfully',
             'data': {
                 'transaction_id': f'MT{int(time.time())}',
-                'amount': amount,
+                'amount': amount_value, 
                 'recipient_name': recipient_details.get('recipient_name'),
                 'status': 'success'
             }
