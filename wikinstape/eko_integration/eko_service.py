@@ -8,7 +8,7 @@ from django.conf import settings
 
 class EkoAPIService:
     def __init__(self):
-        self.base_url = "https://api.eko.in:25002/ekoicici/v2/user/onboard"
+        self.base_url = "https://api.eko.in:25002/ekoicici/"
         self.developer_key = "753595f07a59eb5a52341538fad5a63d"
         self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
         self.initiator_id = "9212094999"
