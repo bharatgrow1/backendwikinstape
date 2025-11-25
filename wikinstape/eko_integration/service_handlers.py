@@ -159,7 +159,8 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        endpoint = f"/ekoapi/v2/agent/user_code:{user_code}/settlement"
+        # Use V2 API endpoint
+        endpoint = "/v2/transfers"
         
         payment_mode_map = {
             'imps': '5',
@@ -167,23 +168,26 @@ class EkoMoneyTransferService(EkoAPIService):
             'rtgs': '13'
         }
         
-        form_data = {
+        payload = {
             'initiator_id': self.initiator_id,
+            'user_code': user_code,
             'client_ref_id': f"MT{int(time.time())}",
             'service_code': '45',
             'payment_mode': payment_mode_map.get(payment_mode.lower(), '5'),
             'recipient_name': recipient_details['recipient_name'],
-            'account': recipient_details['account_number'],
-            'ifsc': recipient_details['ifsc_code'],
-            'amount': str(int(float(amount))), 
-            'source': 'NEWCONNECT',
+            'account_number': recipient_details['account_number'],
+            'ifsc_code': recipient_details['ifsc_code'],
+            'amount': str(float(amount)),
             'sender_name': 'Customer',
-            'tag': 'Payment',
-            'latlong': '28.6139,77.2090',
-            'beneficiary_account_type': '1'
+            'remarks': 'Money Transfer'
         }
         
-        return self.make_request_v1('POST', endpoint, form_data)
+        # Generate signature
+        timestamp = str(int(time.time() * 1000))
+        amount_str = str(float(amount))
+        concat_string = f"{timestamp}{recipient_details['account_number']}{amount_str}{user_code}"
+        
+        return self.make_request('POST', endpoint, payload, concat_string)
     
     def check_transaction_status(self, client_ref_id):
         """Check transaction status - V2 API"""
