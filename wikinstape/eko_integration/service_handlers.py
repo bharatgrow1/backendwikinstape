@@ -133,7 +133,7 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        endpoint = "/v2/accounts/validate"
+        endpoint = "/v1/accounts/validate"
         
         data = {
             'initiator_id': self.initiator_id,
@@ -162,7 +162,7 @@ class EkoMoneyTransferService(EkoAPIService):
                 }
             }
         
-        endpoint = "/v2/transfers"
+        endpoint = "/v1/transfers"
         
         payload = {
             "source_ip": "121.121.1.1",
