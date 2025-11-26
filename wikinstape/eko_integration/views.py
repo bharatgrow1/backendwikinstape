@@ -297,51 +297,31 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
-    def validate_account(self, request):
-        """Validate bank account with better error handling"""
-        account_number = request.data.get('account_number')
-        ifsc_code = request.data.get('ifsc_code')
+    def dmt_transfer(self, request):
+        """
+        Complete DMT Money Transfer as per Eko documentation
+        Required data:
+        - customer_mobile: Sender's mobile number (10 digit)
+        - account_number: Recipient's account number
+        - ifsc_code: Recipient's IFSC code
+        - recipient_name: Recipient's name
+        - amount: Transfer amount (integer)
+        """
+        required_fields = ['customer_mobile', 'account_number', 'ifsc_code', 'recipient_name', 'amount']
         
-        if not account_number or not ifsc_code:
-            return Response({
-                'error': 'Account number and IFSC code are required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            transfer_service = EkoMoneyTransferService()
-            result = transfer_service.validate_bank_account(account_number, ifsc_code)
-            
-            # Better response handling
-            if result.get('status') == 0:
+        for field in required_fields:
+            if field not in request.data:
                 return Response({
-                    'status': 'success',
-                    'message': result.get('message', 'Account validated successfully'),
-                    'data': result.get('data', {})
-                })
-            else:
-                return Response({
-                    'status': 'error',
-                    'message': result.get('message', 'Account validation failed'),
-                    'details': result
+                    'error': f'Missing required field: {field}',
+                    'step': 'validation'
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
-        except Exception as e:
-            return Response({
-                'status': 'error',
-                'message': f'Validation failed: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @action(detail=False, methods=['post'])
-    def transfer(self, request):
-        """Transfer money with PROPER error handling"""
-        serializer = MoneyTransferSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
         
         try:
             eko_user = EkoUser.objects.get(user=request.user)
         except EkoUser.DoesNotExist:
             return Response({
-                'error': 'User not onboarded with Eko. Please onboard first.'
+                'error': 'User not onboarded with Eko. Please onboard first.',
+                'step': 'merchant_onboarding'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Get Eko service
@@ -349,105 +329,150 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
             eko_service = EkoService.objects.get(eko_service_code='MONEY_TRANSFER')
         except EkoService.DoesNotExist:
             return Response({
-                'error': 'Money transfer service not configured'
+                'error': 'Money transfer service not configured',
+                'step': 'service_configuration'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Process transfer
+        # Process DMT transfer
         try:
             transfer_service = EkoMoneyTransferService()
-            result = transfer_service.transfer_money(
-                eko_user.eko_user_code,
-                {
-                    'account_number': serializer.validated_data['account_number'],
-                    'ifsc_code': serializer.validated_data['ifsc_code'],
-                    'recipient_name': serializer.validated_data['recipient_name']
-                },
-                serializer.validated_data['amount'],
-                serializer.validated_data['payment_mode']
-            )
             
-            # Create transaction record
+            transfer_data = {
+                'customer_mobile': request.data['customer_mobile'],
+                'recipient_data': {
+                    'account_number': request.data['account_number'],
+                    'ifsc_code': request.data['ifsc_code'],
+                    'recipient_name': request.data['recipient_name'],
+                    'sender_first_name': request.user.first_name or 'Customer',
+                    'sender_last_name': request.user.last_name or '',
+                    'sender_email': request.user.email or 'test@example.com'
+                },
+                'amount': int(request.data['amount'])
+            }
+            
+            # Create transaction record first
             eko_transaction = EkoTransaction.objects.create(
                 user=request.user,
                 eko_service=eko_service,
-                client_ref_id=f"MT{int(time.time())}",
-                amount=serializer.validated_data['amount'],
-                status='success' if result.get('status') == 0 else 'failed',
-                eko_reference_id=result.get('data', {}).get('transaction_id'),
-                response_data=result  # ✅ Save response for debugging
+                client_ref_id=f"DMT{int(time.time())}",
+                amount=request.data['amount'],
+                status='processing',
+                response_data={'request_data': transfer_data}
             )
             
-            # Handle successful transfer
+            # Execute complete DMT flow
+            result = transfer_service.complete_dmt_flow(transfer_data)
+            
+            # Update transaction with response
+            eko_transaction.response_data = result
+            eko_transaction.eko_reference_id = result.get('data', {}).get('tid')
+            
+            # Handle transaction status
             if result.get('status') == 0:
-                # Create wallet transaction
-                Transaction.objects.create(
-                    wallet=request.user.wallet,
-                    amount=serializer.validated_data['amount'],
-                    transaction_type='debit',
-                    transaction_category='money_transfer',
-                    description=f"Money Transfer to {serializer.validated_data['recipient_name']}",
-                    created_by=request.user,
-                    status='success'
-                )
-                
-                return Response({
-                    'status': 'success',
-                    'transaction_id': str(eko_transaction.transaction_id),
-                    'eko_reference': eko_transaction.eko_reference_id,
-                    'message': result.get('message', 'Money transferred successfully'),
-                    'data': result.get('data', {})
-                })
+                tx_status = result.get('data', {}).get('tx_status')
+                if tx_status == '0':  # Success
+                    eko_transaction.status = 'success'
+                    
+                    # Create wallet transaction
+                    Transaction.objects.create(
+                        wallet=request.user.wallet,
+                        amount=request.data['amount'],
+                        transaction_type='debit',
+                        transaction_category='money_transfer',
+                        description=f"DMT to {request.data['recipient_name']}",
+                        created_by=request.user,
+                        status='success'
+                    )
+                    
+                    message = 'Money transferred successfully'
+                else:
+                    eko_transaction.status = 'failed'
+                    message = f'Transaction failed with status: {tx_status}'
             else:
-                return Response({
-                    'status': 'error',
-                    'transaction_id': str(eko_transaction.transaction_id),
-                    'message': result.get('message', 'Money transfer failed'),
-                    'details': result
-                }, status=status.HTTP_400_BAD_REQUEST)
+                eko_transaction.status = 'failed'
+                message = result.get('message', 'Transaction failed')
+            
+            eko_transaction.save()
+            
+            return Response({
+                'transaction_id': str(eko_transaction.transaction_id),
+                'status': eko_transaction.status,
+                'eko_reference': eko_transaction.eko_reference_id,
+                'message': message,
+                'data': result.get('data', {}),
+                'step': 'transaction_complete'
+            })
                 
         except Exception as e:
             return Response({
                 'status': 'error',
-                'message': f'Transfer failed: {str(e)}'
+                'message': f'Transfer failed: {str(e)}',
+                'step': 'exception'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=False, methods=['get'])
-    def check_balance(self, request):
-        """Check Eko balance - for testing"""
+    @action(detail=False, methods=['post'])
+    def resend_otp(self, request):
+        """Resend OTP for customer verification"""
+        customer_mobile = request.data.get('customer_mobile')
+        
+        if not customer_mobile:
+            return Response({
+                'error': 'Customer mobile number is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         try:
             transfer_service = EkoMoneyTransferService()
-            result = transfer_service.check_balance()
+            result = transfer_service.resend_otp(customer_mobile)
+            
             return Response(result)
-        except Exception as e:
-            return Response({
-                'error': f'Balance check failed: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def process_commission(self, user, amount, service_type):
-        """Process commission for Eko services"""
-        try:
-            from commission.views import CommissionManager
-            from services.models import ServiceSubmission
-            
-            # Create a service submission for commission processing
-            service_submission = ServiceSubmission.objects.create(
-                submitted_by=user,
-                amount=amount,
-                status='success',
-                payment_status='paid',
-                service_reference_id=f"EKO_{int(time.time())}"
-            )
-            
-            # Get the main transaction
-            main_transaction = Transaction.objects.filter(
-                wallet=user.wallet,
-                amount=amount
-            ).order_by('-created_at').first()
-            
-            if main_transaction:
-                CommissionManager.process_service_commission(
-                    service_submission, main_transaction
-                )
                 
         except Exception as e:
-            print(f"Commission processing error: {e}")
+            return Response({
+                'status': 'error',
+                'message': f'OTP resend failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def check_txn_status(self, request):
+        """Check transaction status"""
+        client_ref_id = request.data.get('client_ref_id')
+        
+        if not client_ref_id:
+            return Response({
+                'error': 'Client reference ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.check_transaction_status(client_ref_id)
+            
+            return Response(result)
+                
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'Status check failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def process_refund(self, request):
+        """Process refund for a transaction"""
+        transaction_id = request.data.get('transaction_id')
+        otp = request.data.get('otp')
+        
+        if not transaction_id or not otp:
+            return Response({
+                'error': 'Transaction ID and OTP are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.process_refund(transaction_id, otp)
+            
+            return Response(result)
+                
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'Refund failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
