@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 
 class EkoDMTService:
     def __init__(self):
-        self.base_url = getattr(settings, 'EKO_BASE_URL', 'https://api.eko.in:25002/ekoicici')
-        self.developer_key = getattr(settings, 'EKO_DEVELOPER_KEY', '753595f07a59eb5a52341538fad5a63d')
-        self.secret_key = getattr(settings, 'EKO_SECRET_KEY', '854313b5-a37a-445a-8bc5-a27f4f0fe56a')
-        self.initiator_id = getattr(settings, 'EKO_INITIATOR_ID', '9212094999')
-        self.user_code = getattr(settings, 'EKO_USER_CODE', '38130001')
+        self.base_url = "https://api.eko.in:25002/ekoicici"
+        self.developer_key = "753595f07a59eb5a52341538fad5a63d"
+        self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
+        self.initiator_id = "9212094999"
+        self.EKO_USER_CODE = "38130001"
+        self.use_mock = False
     
     def generate_secret_key_hash(self, timestamp):
         """Generate secret key hash for EKO authentication"""

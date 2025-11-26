@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'services',
     'commission',
     'dmt',
+
 ]
 
 
@@ -245,34 +246,3 @@ ALLOWED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
 TWILIO_ACCOUNT_SID = 'AC079c36a7c26c213aef5c2d0b7d73e465'
 TWILIO_AUTH_TOKEN = '6a95298a7fafbf797ef4fe48a1c539a4'
 TWILIO_VERIFY_SERVICE_SID = 'VA3c418db7da1f4e1149ba4f0655359952'
-
-
-
-
-
-# EKO DMT Configuration
-EKO_BASE_URL = 'https://api.eko.in:25002/ekoicici'
-EKO_DEVELOPER_KEY = '753595f07a59eb5a52341538fad5a63d'
-EKO_SECRET_KEY = '854313b5-a37a-445a-8bc5-a27f4f0fe56a'
-EKO_INITIATOR_ID = '9212094999'
-EKO_USER_CODE = '38130001'
-
-# DMT Service Charge Configuration (example)
-DMT_SERVICE_CHARGES = [
-    {
-        'amount_from': 1,
-        'amount_to': 1000,
-        'charge_type': 'fixed',
-        'charge_value': 5,
-        'min_charge': 5,
-        'max_charge': 5
-    },
-    {
-        'amount_from': 1001,
-        'amount_to': 10000,
-        'charge_type': 'percentage',
-        'charge_value': 0.5,
-        'min_charge': 10,
-        'max_charge': 50
-    }
-]
