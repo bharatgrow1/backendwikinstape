@@ -6,16 +6,17 @@ import time
 import json
 from django.conf import settings
 
-class EkoPrepaidRechargeService:
+class EkoAPIService:
     def __init__(self):
         self.base_url = "https://api.eko.in:25002/ekoicici"
         self.developer_key = "753595f07a59eb5a52341538fad5a63d"
         self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
         self.initiator_id = "9212094999"
         self.EKO_USER_CODE = "38130001"
+        self.use_mock = False
     
     def generate_signature(self, concat_string=None):
-        """Generate Eko API signature"""
+        """Generate Eko API signature - EXACTLY like Ruby code"""
         timestamp = str(int(time.time() * 1000))
         
         encoded_key = base64.b64encode(self.secret_key.encode()).decode()
@@ -37,8 +38,8 @@ class EkoPrepaidRechargeService:
         
         return secret_key, timestamp, request_hash
     
-    def get_headers(self, concat_string=None):
-        """Get headers for APIs"""
+    def get_headers_v2(self, concat_string=None):
+        """Get headers for V2 APIs - EXACTLY like Ruby"""
         secret_key, timestamp, request_hash = self.generate_signature(concat_string)
         
         headers = {
@@ -53,16 +54,13 @@ class EkoPrepaidRechargeService:
             
         return headers
     
+
     def make_request(self, method, endpoint, data=None, concat_string=None):
-        """Generic request method"""
+        """Generic request method with proper error handling"""
         url = f"{self.base_url}{endpoint}"
-        headers = self.get_headers(concat_string)
+        headers = self.get_headers_v2(concat_string)
         
         try:
-            print(f"🔵 API Request: {method} {url}")
-            print(f"🔵 Headers: {headers}")
-            print(f"🔵 Payload: {data}")
-            
             if method.upper() == 'GET':
                 response = requests.get(url, params=data, headers=headers, timeout=30)
             elif method.upper() == 'POST':
@@ -72,8 +70,11 @@ class EkoPrepaidRechargeService:
             else:
                 return {'status': 1, 'message': f'Unsupported method: {method}'}
             
-            print(f"🟢 Response Status: {response.status_code}")
-            print(f"🟢 Response Text: {response.text}")
+            print(f"API Request: {method} {url}")
+            print(f"Headers: {headers}")
+            print(f"Payload: {data}")
+            print(f"Response Status: {response.status_code}")
+            print(f"Response Text: {response.text}")
             
             try:
                 return response.json()
@@ -85,43 +86,75 @@ class EkoPrepaidRechargeService:
                 }
                 
         except requests.exceptions.RequestException as e:
+            print(f"Request Error: {str(e)}")
             return {'status': 1, 'message': f'Request failed: {str(e)}'}
-
-    def prepaid_recharge(self, mobile, amount, operator_id, circle='DELHI'):
-        """PREPAID RECHARGE - Correct endpoint and parameters"""
-        
-        # Generate unique reference
-        client_ref_id = f"PR{int(time.time())}"
-        
-        # For prepaid recharge, we need different endpoint and parameters
-        timestamp = str(int(time.time() * 1000))
-        amount_str = str(float(amount))
-        concat_string = f"{timestamp}{mobile}{amount_str}{self.EKO_USER_CODE}"
-        
-        # CORRECT ENDPOINT FOR PREPAID RECHARGE
-        endpoint = "/v2/billpayments/recharge"
-        
-        # CORRECT PAYLOAD FOR PREPAID RECHARGE
-        payload = {
-            "initiator_id": self.initiator_id,
-            "user_code": self.EKO_USER_CODE,
-            "amount": float(amount),
-            "client_ref_id": client_ref_id,
-            "mobile_no": mobile,
-            "operator_id": operator_id,
-            "circle": circle,
-            "latlong": "28.6139,77.2090"
-        }
-        
-        return self.make_request('POST', endpoint, payload, concat_string)
     
-    def check_prepaid_operators(self):
-        """Get prepaid operators list"""
-        endpoint = "/v2/billpayments/operators"
+    def check_balance(self):
+        """Check balance - Ruby code ke according"""
+        endpoint = f"/v2/customers/mobile_number:{self.initiator_id}/balance"
         params = {
             'initiator_id': self.initiator_id,
-            'user_code': self.EKO_USER_CODE,
-            'service_type': 'prepaid'
+            'user_code': self.EKO_USER_CODE
         }
         
-        return self.make_request('GET', endpoint, params)
+        timestamp = str(int(time.time() * 1000))
+        concat_string = timestamp
+        
+        return self.make_request('GET', endpoint, params, concat_string)
+    
+    
+    def onboard_user(self, user_data):
+        """Onboard user to Eko platform - Fixed version"""
+        endpoint = "/v2/users/onboard"
+        
+        address_data = {
+            "line1": user_data.get('address', '')[:35],
+            "city": user_data.get('city', '')[:20],
+            "state": user_data.get('state', '')[:20],
+            "pincode": user_data.get('pincode', ''),
+            "country": "IND"
+        }
+        
+        data = {
+            'initiator_id': self.initiator_id,
+            'user_code': self.EKO_USER_CODE,
+            'mobile': user_data.get('phone_number', ''),
+            'first_name': user_data.get('first_name', '')[:20],
+            'last_name': user_data.get('last_name', '')[:20],
+            'email': user_data.get('email', ''),
+            'address': address_data,
+            'dob': user_data.get('date_of_birth', '').strftime('%d/%m/%Y') if user_data.get('date_of_birth') else '',
+            'business_name': user_data.get('business_name', f"{user_data.get('first_name', '')} Store")[:30]
+        }
+        
+        data = {k: v for k, v in data.items() if v}
+        
+        return self.make_request('PUT', endpoint, data)
+    
+
+    def get_services(self):
+        """Get available Eko services"""
+        url = f"{self.base_url}/ekoapi/v2/user/services"
+        params = {'initiator_id': self.initiator_id}
+        
+        try:
+            response = requests.get(url, params=params, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
+    
+    def activate_service(self, user_code, service_code):
+        """Activate service for user"""
+        url = f"{self.base_url}/ekoapi/v2/user/service/activate"
+        
+        data = {
+            'user_code': user_code,
+            'initiator_id': self.initiator_id,
+            'service_code': service_code
+        }
+        
+        try:
+            response = requests.put(url, data=data, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
