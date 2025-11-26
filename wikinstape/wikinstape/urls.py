@@ -9,7 +9,7 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls')),
     path('api/services/', include('services.urls')),
     path('apis/', include(router.urls)),
-    path('apis/eko/', include('eko_integration.urls')),
+    path('apis/dmt/', include('dmt.urls')),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
