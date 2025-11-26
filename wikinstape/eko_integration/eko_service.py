@@ -1,31 +1,22 @@
+import requests
 import base64
 import hmac
 import hashlib
 import time
 import json
-import requests
 from django.conf import settings
-import logging
-
-logger = logging.getLogger(__name__)
 
 class EkoAPIService:
-    def __init__(self, production=True):
-        if production:
-            self.base_url = settings.EKO_PRODUCTION_CONFIG['BASE_URL']
-            self.developer_key = settings.EKO_PRODUCTION_CONFIG['DEVELOPER_KEY']
-            self.secret_key = settings.EKO_PRODUCTION_CONFIG['SECRET_KEY']
-            self.initiator_id = settings.EKO_PRODUCTION_CONFIG['INITIATOR_ID']
-            self.EKO_USER_CODE = settings.EKO_PRODUCTION_CONFIG['USER_CODE']
-        else:
-            self.base_url = "https://staging.eko.in:25004"
-            self.developer_key = "becbbce45f79c6f5109f848acd540567"
-            self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
-            self.initiator_id = "9962981729"
-            self.EKO_USER_CODE = "20810200"
+    def __init__(self):
+        self.base_url = "https://api.eko.in:25002/ekoicici"
+        self.developer_key = "753595f07a59eb5a52341538fad5a63d"
+        self.secret_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
+        self.initiator_id = "9212094999"
+        self.EKO_USER_CODE = "38130001"
+        self.use_mock = False
     
     def generate_signature(self, concat_string=None):
-        """Generate Eko API signature for production"""
+        """Generate Eko API signature - EXACTLY like Ruby code"""
         timestamp = str(int(time.time() * 1000))
         
         encoded_key = base64.b64encode(self.secret_key.encode()).decode()
@@ -48,7 +39,7 @@ class EkoAPIService:
         return secret_key, timestamp, request_hash
     
     def get_headers_v2(self, concat_string=None):
-        """Get headers for V2 APIs - Production"""
+        """Get headers for V2 APIs - EXACTLY like Ruby"""
         secret_key, timestamp, request_hash = self.generate_signature(concat_string)
         
         headers = {
@@ -63,14 +54,13 @@ class EkoAPIService:
             
         return headers
     
+
     def make_request(self, method, endpoint, data=None, concat_string=None):
-        """Generic request method for production"""
+        """Generic request method with proper error handling"""
         url = f"{self.base_url}{endpoint}"
         headers = self.get_headers_v2(concat_string)
         
         try:
-            logger.info(f"Eko API Request: {method} {endpoint}")
-            
             if method.upper() == 'GET':
                 response = requests.get(url, params=data, headers=headers, timeout=30)
             elif method.upper() == 'POST':
@@ -80,39 +70,28 @@ class EkoAPIService:
             else:
                 return {'status': 1, 'message': f'Unsupported method: {method}'}
             
-            logger.info(f"Eko API Response Status: {response.status_code}")
+            print(f"API Request: {method} {url}")
+            print(f"Headers: {headers}")
+            print(f"Payload: {data}")
+            print(f"Response Status: {response.status_code}")
+            print(f"Response Text: {response.text}")
             
             try:
-                response_data = response.json()
-                
-                if response_data.get('status') == 0:
-                    logger.info(f"Eko API Success: {endpoint}")
-                else:
-                    logger.error(f"Eko API Error: {response_data.get('message')}")
-                
-                return response_data
+                return response.json()
             except json.JSONDecodeError:
-                logger.error(f"Eko API JSON Decode Error: {response.text}")
                 return {
                     'status': 1, 
-                    'message': 'Invalid JSON response from Eko API',
+                    'message': f'Invalid JSON response: {response.text}',
                     'raw_response': response.text
                 }
                 
-        except requests.exceptions.Timeout:
-            logger.error(f"Eko API Timeout: {endpoint}")
-            return {'status': 1, 'message': 'Request timeout'}
-        except requests.exceptions.ConnectionError:
-            logger.error(f"Eko API Connection Error: {endpoint}")
-            return {'status': 1, 'message': 'Connection error'}
         except requests.exceptions.RequestException as e:
-            logger.error(f"Eko API Request Error: {str(e)}")
+            print(f"Request Error: {str(e)}")
             return {'status': 1, 'message': f'Request failed: {str(e)}'}
     
     def check_balance(self):
-        """Check balance in production"""
-        endpoint = f"/ekoapi/v2/customers/mobile_number:{self.initiator_id}/balance"
-        
+        """Check balance - Ruby code ke according"""
+        endpoint = f"/v2/customers/mobile_number:{self.initiator_id}/balance"
         params = {
             'initiator_id': self.initiator_id,
             'user_code': self.EKO_USER_CODE
@@ -122,3 +101,60 @@ class EkoAPIService:
         concat_string = timestamp
         
         return self.make_request('GET', endpoint, params, concat_string)
+    
+    
+    def onboard_user(self, user_data):
+        """Onboard user to Eko platform - Fixed version"""
+        endpoint = "/v2/users/onboard"
+        
+        address_data = {
+            "line1": user_data.get('address', '')[:35],
+            "city": user_data.get('city', '')[:20],
+            "state": user_data.get('state', '')[:20],
+            "pincode": user_data.get('pincode', ''),
+            "country": "IND"
+        }
+        
+        data = {
+            'initiator_id': self.initiator_id,
+            'user_code': self.EKO_USER_CODE,
+            'mobile': user_data.get('phone_number', ''),
+            'first_name': user_data.get('first_name', '')[:20],
+            'last_name': user_data.get('last_name', '')[:20],
+            'email': user_data.get('email', ''),
+            'address': address_data,
+            'dob': user_data.get('date_of_birth', '').strftime('%d/%m/%Y') if user_data.get('date_of_birth') else '',
+            'business_name': user_data.get('business_name', f"{user_data.get('first_name', '')} Store")[:30]
+        }
+        
+        data = {k: v for k, v in data.items() if v}
+        
+        return self.make_request('PUT', endpoint, data)
+    
+
+    def get_services(self):
+        """Get available Eko services"""
+        url = f"{self.base_url}/ekoapi/v2/user/services"
+        params = {'initiator_id': self.initiator_id}
+        
+        try:
+            response = requests.get(url, params=params, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}
+    
+    def activate_service(self, user_code, service_code):
+        """Activate service for user"""
+        url = f"{self.base_url}/ekoapi/v2/user/service/activate"
+        
+        data = {
+            'user_code': user_code,
+            'initiator_id': self.initiator_id,
+            'service_code': service_code
+        }
+        
+        try:
+            response = requests.put(url, data=data, headers=self.get_headers())
+            return response.json()
+        except Exception as e:
+            return {'status': 1, 'message': str(e)}

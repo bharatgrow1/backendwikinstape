@@ -105,6 +105,20 @@ DATABASES = {
     }
 }
 
+# for local machine to access server db
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'wikinstape_db',
+#         'USER': 'postgres',
+#         'PASSWORD': 'password',
+#         'HOST': '13.202.23.122',
+#         'PORT': '5432',
+#     }
+# }
+
+
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -232,14 +246,3 @@ ALLOWED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
 TWILIO_ACCOUNT_SID = 'AC079c36a7c26c213aef5c2d0b7d73e465'
 TWILIO_AUTH_TOKEN = '6a95298a7fafbf797ef4fe48a1c539a4'
 TWILIO_VERIFY_SERVICE_SID = 'VA3c418db7da1f4e1149ba4f0655359952'
-
-
-
-
-EKO_PRODUCTION_CONFIG = {
-    'BASE_URL': 'https://api.eko.in:25002/ekoicici',
-    'DEVELOPER_KEY': '753595f07a59eb5a52341538fad5a63d',
-    'SECRET_KEY': '854313b5-a37a-445a-8bc5-a27f4f0fe56a',
-    'INITIATOR_ID': '9212094999',
-    'USER_CODE': '38130001',
-}

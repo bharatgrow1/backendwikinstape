@@ -6,69 +6,88 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 import decimal
 import json
-from .models import EkoUser, EkoService, EkoTransaction, EkoRecipient
+from .models import EkoUser, EkoService, EkoTransaction
 from .serializers import *
-from .service_handlers import EkoBBPSService, EkoRechargeService, EkoDMTService
+from .service_handlers import EkoBBPSService, EkoRechargeService, EkoMoneyTransferService
 from .eko_service import EkoAPIService
 from users.models import User, Transaction
-import time
-import uuid
-import logging
+import time 
+from datetime import datetime 
 
-logger = logging.getLogger(__name__)
+
+def make_json_serializable(data):
+    """Convert Decimal objects to float for JSON serialization"""
+    if isinstance(data, dict):
+        return {k: make_json_serializable(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [make_json_serializable(item) for item in data]
+    elif isinstance(data, decimal.Decimal):
+        return float(data)
+    else:
+        return data
+    
 
 class EkoUserViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
     def onboard(self, request):
-        """Onboard user to Eko platform - Production"""
+        """Onboard user to Eko platform"""
         serializer = EkoOnboardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        user = request.user
+        user_id = serializer.validated_data['user_id']
+        user = get_object_or_404(User, id=user_id)
         
         # Check if already onboarded
         if hasattr(user, 'eko_user') and user.eko_user.is_verified:
             return Response({
-                'status': 'success',
                 'message': 'User already onboarded with Eko',
                 'eko_user_code': user.eko_user.eko_user_code
             })
         
-        # For production, create mock Eko user (replace with actual API call)
-        mock_eko_user_code = f"EKO{user.id:06d}"
+        # Prepare user data for Eko onboarding
+        user_data = {
+            'pan_number': user.pan_number or '',
+            'phone_number': user.phone_number or '',
+            'first_name': user.first_name or '',
+            'last_name': user.last_name or '',
+            'email': user.email or '',
+            'address': user.address or '',
+            'city': user.city or '',
+            'state': user.state or '',
+            'pincode': user.pincode or '',
+            'landmark': user.landmark or '',
+            'date_of_birth': user.date_of_birth,
+            'business_name': user.business_name or ''
+        }
         
-        # Save Eko user details
-        eko_user, created = EkoUser.objects.get_or_create(
-            user=user,
-            defaults={
-                'eko_user_code': mock_eko_user_code,
-                'is_verified': True
-            }
-        )
+        eko_service = EkoAPIService()
+        result = eko_service.onboard_user(user_data)
         
-        if not created:
-            eko_user.eko_user_code = mock_eko_user_code
-            eko_user.is_verified = True
-            eko_user.save()
-        
-        # Create transaction record
-        EkoTransaction.objects.create(
-            user=user,
-            transaction_type='onboard',
-            client_ref_id=f"ONBRD{int(time.time())}",
-            status='success',
-            response_data={'eko_user_code': mock_eko_user_code}
-        )
-        
-        logger.info(f"User onboarded successfully: {user.username}")
-        
-        return Response({
-            'status': 'success',
-            'message': 'User onboarded successfully with Eko',
-            'eko_user_code': eko_user.eko_user_code
-        })
+        if result.get('status') == 0:
+            # Save Eko user details
+            eko_user, created = EkoUser.objects.get_or_create(
+                user=user,
+                defaults={
+                    'eko_user_code': result['data']['user_code'],
+                    'is_verified': True
+                }
+            )
+            
+            if not created:
+                eko_user.eko_user_code = result['data']['user_code']
+                eko_user.is_verified = True
+                eko_user.save()
+            
+            return Response({
+                'message': 'User onboarded successfully',
+                'eko_user_code': eko_user.eko_user_code
+            })
+        else:
+            return Response({
+                'error': result.get('message', 'Onboarding failed')
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
     def my_eko_info(self, request):
@@ -76,202 +95,111 @@ class EkoUserViewSet(viewsets.ViewSet):
         try:
             eko_user = EkoUser.objects.get(user=request.user)
             serializer = EkoUserSerializer(eko_user)
-            return Response({
-                'status': 'success',
-                'data': serializer.data
-            })
+            return Response(serializer.data)
         except EkoUser.DoesNotExist:
             return Response({
-                'status': 'error',
                 'message': 'User not onboarded with Eko',
                 'onboarded': False
             })
 
-class EkoDMTViewSet(viewsets.ViewSet):
+class EkoBBPSViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
-    def validate_account(self, request):
-        """Validate bank account - Production"""
-        serializer = DMTValidateAccountSerializer(data=request.data)
+    def fetch_bill(self, request):
+        """Fetch bill details"""
+        serializer = BBPSFetchBillSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        account_number = serializer.validated_data['account_number']
-        ifsc_code = serializer.validated_data['ifsc_code']
+        consumer_number = serializer.validated_data['consumer_number']
+        service_type = serializer.validated_data['service_type']
         
-        dmt_service = EkoDMTService(production=True)
-        result = dmt_service.validate_bank_account(account_number, ifsc_code)
+        bbps_service = EkoBBPSService()
+        result = bbps_service.fetch_bill(consumer_number, service_type)
         
         return Response(result)
     
     @action(detail=False, methods=['post'])
-    def add_recipient(self, request):
-        """Add recipient for money transfer - Production"""
-        serializer = DMTAddRecipientSerializer(data=request.data)
+    def pay_bill(self, request):
+        """Pay bill through Eko"""
+        serializer = BBPSPayBillSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
+        # Get user's Eko details
         try:
             eko_user = EkoUser.objects.get(user=request.user)
         except EkoUser.DoesNotExist:
             return Response({
-                'status': 'error',
-                'message': 'User not onboarded with Eko. Please onboard first.'
+                'error': 'User not onboarded with Eko. Please onboard first.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        customer_mobile = request.user.phone_number
+        consumer_number = serializer.validated_data['consumer_number']
+        service_provider = serializer.validated_data['service_provider']
+        amount = serializer.validated_data['amount']
+        bill_number = serializer.validated_data.get('bill_number')
         
-        if not customer_mobile:
-            return Response({
-                'status': 'error',
-                'message': 'User mobile number is required for DMT services'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        dmt_service = EkoDMTService(production=True)
-        result = dmt_service.add_recipient(
-            customer_mobile=customer_mobile,
-            account_number=serializer.validated_data['account_number'],
-            ifsc_code=serializer.validated_data['ifsc_code'],
-            recipient_name=serializer.validated_data['recipient_name'],
-            recipient_mobile=serializer.validated_data['recipient_mobile'],
-            bank_id=serializer.validated_data['bank_id']
-        )
-        
-        # Save recipient information if successful
-        if result.get('status') == 0:
-            recipient_data = result.get('data', {})
-            EkoRecipient.objects.create(
-                user=request.user,
-                recipient_id=recipient_data.get('recipient_id'),
-                recipient_name=serializer.validated_data['recipient_name'],
-                account_number=serializer.validated_data['account_number'],
-                ifsc_code=serializer.validated_data['ifsc_code'],
-                recipient_mobile=serializer.validated_data['recipient_mobile'],
-                bank_name=dmt_service.get_bank_name_from_ifsc(serializer.validated_data['ifsc_code']),
-                is_verified=True
+        # Get Eko service mapping
+        try:
+            eko_service = EkoService.objects.get(
+                service_subcategory__name__icontains=service_provider.lower()
             )
-            logger.info(f"Recipient added successfully: {serializer.validated_data['recipient_name']}")
-            
-        return Response(result)
-    
-    @action(detail=False, methods=['get'])
-    def get_recipients(self, request):
-        """Get user's recipients"""
-        try:
-            recipients = EkoRecipient.objects.filter(user=request.user, is_verified=True)
-            serializer = EkoRecipientSerializer(recipients, many=True)
+        except EkoService.DoesNotExist:
             return Response({
-                'status': 'success',
-                'data': serializer.data
-            })
-        except Exception as e:
-            return Response({
-                'status': 'error',
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=False, methods=['post'])
-    def transfer_money(self, request):
-        """Transfer money to recipient - Production"""
-        serializer = DMTTransferMoneySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        try:
-            eko_user = EkoUser.objects.get(user=request.user)
-        except EkoUser.DoesNotExist:
-            return Response({
-                'status': 'error',
-                'message': 'User not onboarded with Eko. Please onboard first.'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        customer_mobile = request.user.phone_number
-        
-        if not customer_mobile:
-            return Response({
-                'status': 'error',
-                'message': 'User mobile number is required for money transfer'
+                'error': 'Service not configured for Eko'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         with transaction.atomic():
             # Create transaction record
-            client_ref_id = f"DMT{int(time.time())}"
             eko_transaction = EkoTransaction.objects.create(
                 user=request.user,
-                transaction_type='dmt',
-                client_ref_id=client_ref_id,
-                amount=serializer.validated_data['amount'],
+                eko_service=eko_service,
+                client_ref_id=f"BBPS{int(time.time())}",
+                amount=amount,
                 status='processing'
             )
             
-            # Process money transfer
-            dmt_service = EkoDMTService(production=True)
-            result = dmt_service.initiate_transaction(
-                customer_mobile=customer_mobile,
-                recipient_id=serializer.validated_data['recipient_id'],
-                amount=serializer.validated_data['amount'],
-                channel=serializer.validated_data['channel'],
-                client_ref_id=client_ref_id
+            # Process payment
+            bbps_service = EkoBBPSService()
+            result = bbps_service.pay_bill(
+                eko_user.eko_user_code,
+                consumer_number,
+                service_provider,
+                amount,
+                bill_number
             )
             
             # Update transaction
             eko_transaction.response_data = result
-            
             if result.get('status') == 0:
                 eko_transaction.status = 'success'
-                eko_transaction.eko_reference_id = result.get('data', {}).get('tid')
+                eko_transaction.eko_reference_id = result['data'].get('transaction_id')
                 
                 # Create wallet transaction
+                from users.models import Transaction
                 Transaction.objects.create(
                     wallet=request.user.wallet,
-                    amount=serializer.validated_data['amount'],
+                    amount=amount,
                     transaction_type='debit',
-                    transaction_category='money_transfer',
-                    description=f"DMT Transfer - Recipient ID: {serializer.validated_data['recipient_id']}",
+                    transaction_category='bill_payment',
+                    description=f"BBPS Payment - {service_provider}",
                     created_by=request.user,
                     status='success'
                 )
                 
-                logger.info(f"Money transfer successful: {client_ref_id}")
+                # Process commission
+                self.process_commission(request.user, amount, 'bbps_payment')
                 
             else:
                 eko_transaction.status = 'failed'
-                logger.error(f"Money transfer failed: {result.get('message')}")
             
             eko_transaction.save()
             
             return Response({
-                'status': 'success' if eko_transaction.status == 'success' else 'error',
-                'transaction_id': str(eko_transaction.transaction_id),
-                'client_ref_id': client_ref_id,
+                'transaction_id': eko_transaction.transaction_id,
                 'status': eko_transaction.status,
                 'eko_reference': eko_transaction.eko_reference_id,
-                'message': result.get('message', 'Transaction processed'),
-                'data': result.get('data', {})
+                'message': result.get('message')
             })
-    
-    @action(detail=False, methods=['get'])
-    def transaction_status(self, request):
-        """Check transaction status"""
-        transaction_id = request.query_params.get('transaction_id')
-        inquiry_type = request.query_params.get('inquiry_type', 'client_ref')
-        
-        if not transaction_id:
-            return Response({
-                'status': 'error',
-                'message': 'Transaction ID is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        dmt_service = EkoDMTService(production=True)
-        result = dmt_service.transaction_inquiry(transaction_id, inquiry_type)
-        
-        return Response(result)
-    
-    @action(detail=False, methods=['get'])
-    def check_balance(self, request):
-        """Check Eko balance"""
-        eko_service = EkoAPIService(production=True)
-        result = eko_service.check_balance()
-        
-        return Response(result)
 
 class EkoRechargeViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -281,7 +209,7 @@ class EkoRechargeViewSet(viewsets.ViewSet):
         """Get available operators"""
         service_type = request.query_params.get('service_type', 'mobile')
         
-        recharge_service = EkoRechargeService(production=True)
+        recharge_service = EkoRechargeService()
         result = recharge_service.get_operators(service_type)
         
         return Response(result)
@@ -296,47 +224,62 @@ class EkoRechargeViewSet(viewsets.ViewSet):
             eko_user = EkoUser.objects.get(user=request.user)
         except EkoUser.DoesNotExist:
             return Response({
-                'status': 'error',
-                'message': 'User not onboarded with Eko'
+                'error': 'User not onboarded with Eko'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        mobile_number = serializer.validated_data['mobile_number']
+        operator_id = serializer.validated_data['operator_id']
+        amount = serializer.validated_data['amount']
+        circle = serializer.validated_data['circle']
+        
+        # Get Eko service
+        try:
+            eko_service = EkoService.objects.get(eko_service_code='RECHARGE')
+        except EkoService.DoesNotExist:
+            return Response({
+                'error': 'Recharge service not configured'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         with transaction.atomic():
             # Create transaction record
-            client_ref_id = f"RECH{int(time.time())}"
             eko_transaction = EkoTransaction.objects.create(
                 user=request.user,
-                transaction_type='recharge',
-                client_ref_id=client_ref_id,
-                amount=serializer.validated_data['amount'],
+                eko_service=eko_service,
+                client_ref_id=f"RECH{int(time.time())}",
+                amount=amount,
                 status='processing'
             )
             
             # Process recharge
-            recharge_service = EkoRechargeService(production=True)
+            recharge_service = EkoRechargeService()
             result = recharge_service.recharge(
-                mobile_number=serializer.validated_data['mobile_number'],
-                operator_id=serializer.validated_data['operator_id'],
-                amount=serializer.validated_data['amount'],
-                circle=serializer.validated_data['circle']
+                eko_user.eko_user_code,
+                mobile_number,
+                operator_id,
+                amount,
+                circle
             )
             
             # Update transaction
             eko_transaction.response_data = result
-            
             if result.get('status') == 0:
                 eko_transaction.status = 'success'
-                eko_transaction.eko_reference_id = result.get('data', {}).get('transaction_id')
+                eko_transaction.eko_reference_id = result['data'].get('transaction_id')
                 
                 # Create wallet transaction
+                from users.models import Transaction
                 Transaction.objects.create(
                     wallet=request.user.wallet,
-                    amount=serializer.validated_data['amount'],
+                    amount=amount,
                     transaction_type='debit',
                     transaction_category='recharge',
-                    description=f"Mobile Recharge - {serializer.validated_data['mobile_number']}",
+                    description=f"Mobile Recharge - {mobile_number}",
                     created_by=request.user,
                     status='success'
                 )
+                
+                # Process commission
+                self.process_commission(request.user, amount, 'recharge')
                 
             else:
                 eko_transaction.status = 'failed'
@@ -344,95 +287,167 @@ class EkoRechargeViewSet(viewsets.ViewSet):
             eko_transaction.save()
             
             return Response({
-                'status': 'success' if eko_transaction.status == 'success' else 'error',
-                'transaction_id': str(eko_transaction.transaction_id),
-                'client_ref_id': client_ref_id,
+                'transaction_id': eko_transaction.transaction_id,
                 'status': eko_transaction.status,
                 'eko_reference': eko_transaction.eko_reference_id,
-                'message': result.get('message', 'Recharge processed'),
-                'data': result.get('data', {})
+                'message': result.get('message')
             })
 
-class EkoBBPSViewSet(viewsets.ViewSet):
+class EkoMoneyTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
-    def fetch_bill(self, request):
-        """Fetch bill details"""
-        serializer = BBPSFetchBillSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def validate_account(self, request):
+        """Validate bank account with better error handling"""
+        account_number = request.data.get('account_number')
+        ifsc_code = request.data.get('ifsc_code')
         
-        bbps_service = EkoBBPSService(production=True)
-        result = bbps_service.fetch_bill(
-            consumer_number=serializer.validated_data['consumer_number'],
-            service_type=serializer.validated_data['service_type']
-        )
+        if not account_number or not ifsc_code:
+            return Response({
+                'error': 'Account number and IFSC code are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        return Response(result)
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.validate_bank_account(account_number, ifsc_code)
+            
+            # Better response handling
+            if result.get('status') == 0:
+                return Response({
+                    'status': 'success',
+                    'message': result.get('message', 'Account validated successfully'),
+                    'data': result.get('data', {})
+                })
+            else:
+                return Response({
+                    'status': 'error',
+                    'message': result.get('message', 'Account validation failed'),
+                    'details': result
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'Validation failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'])
-    def pay_bill(self, request):
-        """Pay bill through Eko"""
-        serializer = BBPSPayBillSerializer(data=request.data)
+    def transfer(self, request):
+        """Transfer money with PROPER error handling"""
+        serializer = MoneyTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         try:
             eko_user = EkoUser.objects.get(user=request.user)
         except EkoUser.DoesNotExist:
             return Response({
-                'status': 'error',
-                'message': 'User not onboarded with Eko'
+                'error': 'User not onboarded with Eko. Please onboard first.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        with transaction.atomic():
+        # Get Eko service
+        try:
+            eko_service = EkoService.objects.get(eko_service_code='MONEY_TRANSFER')
+        except EkoService.DoesNotExist:
+            return Response({
+                'error': 'Money transfer service not configured'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Process transfer
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.transfer_money(
+                eko_user.eko_user_code,
+                {
+                    'account_number': serializer.validated_data['account_number'],
+                    'ifsc_code': serializer.validated_data['ifsc_code'],
+                    'recipient_name': serializer.validated_data['recipient_name']
+                },
+                serializer.validated_data['amount'],
+                serializer.validated_data['payment_mode']
+            )
+            
             # Create transaction record
-            client_ref_id = f"BBPS{int(time.time())}"
             eko_transaction = EkoTransaction.objects.create(
                 user=request.user,
-                transaction_type='bbps',
-                client_ref_id=client_ref_id,
+                eko_service=eko_service,
+                client_ref_id=f"MT{int(time.time())}",
                 amount=serializer.validated_data['amount'],
-                status='processing'
+                status='success' if result.get('status') == 0 else 'failed',
+                eko_reference_id=result.get('data', {}).get('transaction_id'),
+                response_data=result  # ✅ Save response for debugging
             )
             
-            # Process bill payment
-            bbps_service = EkoBBPSService(production=True)
-            result = bbps_service.pay_bill(
-                consumer_number=serializer.validated_data['consumer_number'],
-                service_provider=serializer.validated_data['service_provider'],
-                amount=serializer.validated_data['amount'],
-                bill_number=serializer.validated_data.get('bill_number')
-            )
-            
-            # Update transaction
-            eko_transaction.response_data = result
-            
+            # Handle successful transfer
             if result.get('status') == 0:
-                eko_transaction.status = 'success'
-                eko_transaction.eko_reference_id = result.get('data', {}).get('transaction_id')
-                
                 # Create wallet transaction
                 Transaction.objects.create(
                     wallet=request.user.wallet,
                     amount=serializer.validated_data['amount'],
                     transaction_type='debit',
-                    transaction_category='bill_payment',
-                    description=f"BBPS Payment - {serializer.validated_data['service_provider']}",
+                    transaction_category='money_transfer',
+                    description=f"Money Transfer to {serializer.validated_data['recipient_name']}",
                     created_by=request.user,
                     status='success'
                 )
                 
+                return Response({
+                    'status': 'success',
+                    'transaction_id': str(eko_transaction.transaction_id),
+                    'eko_reference': eko_transaction.eko_reference_id,
+                    'message': result.get('message', 'Money transferred successfully'),
+                    'data': result.get('data', {})
+                })
             else:
-                eko_transaction.status = 'failed'
-            
-            eko_transaction.save()
-            
+                return Response({
+                    'status': 'error',
+                    'transaction_id': str(eko_transaction.transaction_id),
+                    'message': result.get('message', 'Money transfer failed'),
+                    'details': result
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
             return Response({
-                'status': 'success' if eko_transaction.status == 'success' else 'error',
-                'transaction_id': str(eko_transaction.transaction_id),
-                'client_ref_id': client_ref_id,
-                'status': eko_transaction.status,
-                'eko_reference': eko_transaction.eko_reference_id,
-                'message': result.get('message', 'Bill payment processed'),
-                'data': result.get('data', {})
-            })
+                'status': 'error',
+                'message': f'Transfer failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def check_balance(self, request):
+        """Check Eko balance - for testing"""
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.check_balance()
+            return Response(result)
+        except Exception as e:
+            return Response({
+                'error': f'Balance check failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def process_commission(self, user, amount, service_type):
+        """Process commission for Eko services"""
+        try:
+            from commission.views import CommissionManager
+            from services.models import ServiceSubmission
+            
+            # Create a service submission for commission processing
+            service_submission = ServiceSubmission.objects.create(
+                submitted_by=user,
+                amount=amount,
+                status='success',
+                payment_status='paid',
+                service_reference_id=f"EKO_{int(time.time())}"
+            )
+            
+            # Get the main transaction
+            main_transaction = Transaction.objects.filter(
+                wallet=user.wallet,
+                amount=amount
+            ).order_by('-created_at').first()
+            
+            if main_transaction:
+                CommissionManager.process_service_commission(
+                    service_submission, main_transaction
+                )
+                
+        except Exception as e:
+            print(f"Commission processing error: {e}")
