@@ -206,23 +206,39 @@ class EkoRechargeViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['get'])
     def operators(self, request):
-        """Get available operators"""
-        service_type = request.query_params.get('service_type', 'mobile')
+        """Get available PREPAID operators"""
+        service_type = request.query_params.get('service_type', 'prepaid')  # Default to prepaid
         
-        recharge_service = EkoRechargeService()
-        result = recharge_service.get_operators(service_type)
+        recharge_service = EkoPrepaidRechargeService()
+        
+        if service_type == 'prepaid':
+            result = recharge_service.check_prepaid_operators()
+        else:
+            # Fallback to static list
+            operators = {
+                'prepaid': [
+                    {'id': '1', 'name': 'Airtel Prepaid'},
+                    {'id': '2', 'name': 'Jio Prepaid'},
+                    {'id': '3', 'name': 'Vi Prepaid'},
+                    {'id': '4', 'name': 'BSNL Prepaid'}
+                ]
+            }
+            result = {
+                'status': 0,
+                'data': operators.get(service_type, [])
+            }
         
         return Response(result)
     
     @action(detail=False, methods=['post'])
-    def recharge(self, request):
-        """Perform mobile recharge - EXACTLY like Ruby paybill"""
-        # Direct parameters like Ruby
+    def prepaid_recharge(self, request):
+        """PREPAID RECHARGE - Correct endpoint"""
         mobile = request.data.get('mobile')
         amount = request.data.get('amount') 
         operator_id = request.data.get('operator_id')
+        circle = request.data.get('circle', 'DELHI')
         
-        # Validate exactly like Ruby
+        # Validate parameters
         if not mobile or not amount or not operator_id:
             return Response({
                 'status': False, 
@@ -230,24 +246,20 @@ class EkoRechargeViewSet(viewsets.ViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Check if user is onboarded with Eko
             eko_user = EkoUser.objects.get(user=request.user)
         except EkoUser.DoesNotExist:
             return Response({
                 'status': False,
-                'message': 'User not onboarded with Eko. Please onboard first.'
+                'message': 'User not onboarded with Eko'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Generate client_ref_id like Ruby
-        import random
-        client_ref_id = f"TXN{random.randint(100000, 999999)}"
-        
-        # Process recharge
-        recharge_service = EkoRechargeService()
-        result = recharge_service.recharge(
-            mobile_number=mobile,
+        # Process PREPAID recharge
+        recharge_service = EkoPrepaidRechargeService()
+        result = recharge_service.prepaid_recharge(
+            mobile=mobile,
+            amount=amount,
             operator_id=operator_id,
-            amount=amount
+            circle=circle
         )
         
         # Create transaction record
@@ -259,7 +271,7 @@ class EkoRechargeViewSet(viewsets.ViewSet):
         eko_transaction = EkoTransaction.objects.create(
             user=request.user,
             eko_service=eko_service,
-            client_ref_id=client_ref_id,
+            client_ref_id=result.get('data', {}).get('client_ref_id', f"PR{int(time.time())}"),
             amount=amount,
             status='success' if result.get('status') == 0 else 'failed',
             eko_reference_id=result.get('data', {}).get('transaction_id'),
@@ -274,7 +286,7 @@ class EkoRechargeViewSet(viewsets.ViewSet):
                 amount=amount,
                 transaction_type='debit',
                 transaction_category='recharge',
-                description=f"Mobile Recharge - {mobile}",
+                description=f"Prepaid Recharge - {mobile}",
                 created_by=request.user,
                 status='success'
             )
@@ -282,18 +294,10 @@ class EkoRechargeViewSet(viewsets.ViewSet):
         return Response({
             'status': 'success' if result.get('status') == 0 else 'error',
             'transaction_id': str(eko_transaction.transaction_id),
-            'client_ref_id': client_ref_id,
             'eko_reference': eko_transaction.eko_reference_id,
             'message': result.get('message', ''),
             'data': result
         })
-    
-    @action(detail=False, methods=['get']) 
-    def check_balance(self, request):
-        """Check Eko balance"""
-        recharge_service = EkoRechargeService()
-        result = recharge_service.check_balance()
-        return Response(result)
 
 class EkoMoneyTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
