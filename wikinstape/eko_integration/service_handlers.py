@@ -59,6 +59,7 @@ class EkoBBPSService(EkoAPIService):
             return {'status': 1, 'message': str(e)}
 
 class EkoRechargeService(EkoAPIService):
+    
     def get_operators(self, service_type='mobile'):
         """Get available operators"""
         operators = {
@@ -81,42 +82,10 @@ class EkoRechargeService(EkoAPIService):
             'data': operators.get(service_type, [])
         }
     
-    def recharge(self, user_code, mobile_number, operator_id, amount, circle='DELHI'):
+    def recharge(self, mobile_number, operator_id, amount, circle='DELHI'):
         """Perform recharge - EXACT Ruby implementation"""
-        if self.use_mock:
-            return {
-                'status': 0,
-                'message': 'Recharge successful',
-                'data': {
-                    'transaction_id': f'RECH{int(time.time())}',
-                    'mobile_number': mobile_number,
-                    'amount': amount,
-                    'status': 'success'
-                }
-            }
-        
-        endpoint = "/v2/billpayments/paybill"
-        
-        payload = {
-            "source_ip": "121.121.1.1",
-            "user_code": user_code,
-            "amount": float(amount),
-            "client_ref_id": f"RECH{int(time.time())}",
-            "utility_acc_no": mobile_number,
-            "confirmation_mobile_no": mobile_number,
-            "sender_name": "Customer",
-            "operator_id": operator_id,
-            "latlong": "28.6139,77.2090",
-            "hc_channel": 1
-        }
-        
-        timestamp = str(int(time.time() * 1000))
-        amount_str = str(float(amount))
-        concat_string = f"{timestamp}{mobile_number}{amount_str}{user_code}"
-        
-        full_endpoint = f"{endpoint}?initiator_id={self.initiator_id}"
-        
-        return self.make_request('POST', full_endpoint, payload, concat_string)
+        # Use the main mobile_recharge method
+        return self.mobile_recharge(mobile_number, amount, operator_id)
 
 class EkoMoneyTransferService(EkoAPIService):
     def validate_bank_account(self, account_number, ifsc_code):

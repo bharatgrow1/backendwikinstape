@@ -216,82 +216,84 @@ class EkoRechargeViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def recharge(self, request):
-        """Perform recharge"""
-        serializer = RechargeSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        """Perform mobile recharge - EXACTLY like Ruby paybill"""
+        # Direct parameters like Ruby
+        mobile = request.data.get('mobile')
+        amount = request.data.get('amount') 
+        operator_id = request.data.get('operator_id')
+        
+        # Validate exactly like Ruby
+        if not mobile or not amount or not operator_id:
+            return Response({
+                'status': False, 
+                'message': "mobile, amount & operator_id required"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
+            # Check if user is onboarded with Eko
             eko_user = EkoUser.objects.get(user=request.user)
         except EkoUser.DoesNotExist:
             return Response({
-                'error': 'User not onboarded with Eko'
+                'status': False,
+                'message': 'User not onboarded with Eko. Please onboard first.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        mobile_number = serializer.validated_data['mobile_number']
-        operator_id = serializer.validated_data['operator_id']
-        amount = serializer.validated_data['amount']
-        circle = serializer.validated_data['circle']
+        # Generate client_ref_id like Ruby
+        import random
+        client_ref_id = f"TXN{random.randint(100000, 999999)}"
         
-        # Get Eko service
+        # Process recharge
+        recharge_service = EkoRechargeService()
+        result = recharge_service.recharge(
+            mobile_number=mobile,
+            operator_id=operator_id,
+            amount=amount
+        )
+        
+        # Create transaction record
         try:
             eko_service = EkoService.objects.get(eko_service_code='RECHARGE')
         except EkoService.DoesNotExist:
-            return Response({
-                'error': 'Recharge service not configured'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            eko_service = None
         
-        with transaction.atomic():
-            # Create transaction record
-            eko_transaction = EkoTransaction.objects.create(
-                user=request.user,
-                eko_service=eko_service,
-                client_ref_id=f"RECH{int(time.time())}",
+        eko_transaction = EkoTransaction.objects.create(
+            user=request.user,
+            eko_service=eko_service,
+            client_ref_id=client_ref_id,
+            amount=amount,
+            status='success' if result.get('status') == 0 else 'failed',
+            eko_reference_id=result.get('data', {}).get('transaction_id'),
+            response_data=result
+        )
+        
+        # Handle wallet transaction if successful
+        if result.get('status') == 0:
+            from users.models import Transaction
+            Transaction.objects.create(
+                wallet=request.user.wallet,
                 amount=amount,
-                status='processing'
+                transaction_type='debit',
+                transaction_category='recharge',
+                description=f"Mobile Recharge - {mobile}",
+                created_by=request.user,
+                status='success'
             )
-            
-            # Process recharge
-            recharge_service = EkoRechargeService()
-            result = recharge_service.recharge(
-                eko_user.eko_user_code,
-                mobile_number,
-                operator_id,
-                amount,
-                circle
-            )
-            
-            # Update transaction
-            eko_transaction.response_data = result
-            if result.get('status') == 0:
-                eko_transaction.status = 'success'
-                eko_transaction.eko_reference_id = result['data'].get('transaction_id')
-                
-                # Create wallet transaction
-                from users.models import Transaction
-                Transaction.objects.create(
-                    wallet=request.user.wallet,
-                    amount=amount,
-                    transaction_type='debit',
-                    transaction_category='recharge',
-                    description=f"Mobile Recharge - {mobile_number}",
-                    created_by=request.user,
-                    status='success'
-                )
-                
-                # Process commission
-                self.process_commission(request.user, amount, 'recharge')
-                
-            else:
-                eko_transaction.status = 'failed'
-            
-            eko_transaction.save()
-            
-            return Response({
-                'transaction_id': eko_transaction.transaction_id,
-                'status': eko_transaction.status,
-                'eko_reference': eko_transaction.eko_reference_id,
-                'message': result.get('message')
-            })
+        
+        return Response({
+            'status': 'success' if result.get('status') == 0 else 'error',
+            'transaction_id': str(eko_transaction.transaction_id),
+            'client_ref_id': client_ref_id,
+            'eko_reference': eko_transaction.eko_reference_id,
+            'message': result.get('message', ''),
+            'data': result
+        })
+    
+    @action(detail=False, methods=['get']) 
+    def check_balance(self, request):
+        """Check Eko balance"""
+        recharge_service = EkoRechargeService()
+        result = recharge_service.check_balance()
+        return Response(result)
 
 class EkoMoneyTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
