@@ -297,8 +297,43 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
+    def validate_account(self, request):
+        """Validate bank account with better error handling"""
+        account_number = request.data.get('account_number')
+        ifsc_code = request.data.get('ifsc_code')
+        
+        if not account_number or not ifsc_code:
+            return Response({
+                'error': 'Account number and IFSC code are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.validate_bank_account(account_number, ifsc_code)
+            
+            # Better response handling
+            if result.get('status') == 0:
+                return Response({
+                    'status': 'success',
+                    'message': result.get('message', 'Account validated successfully'),
+                    'data': result.get('data', {})
+                })
+            else:
+                return Response({
+                    'status': 'error',
+                    'message': result.get('message', 'Account validation failed'),
+                    'details': result
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'Validation failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
     def transfer(self, request):
-        """FIXED: Transfer money with proper Eko API"""
+        """Transfer money with PROPER error handling"""
         serializer = MoneyTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -309,6 +344,7 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'error': 'User not onboarded with Eko. Please onboard first.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        # Get Eko service
         try:
             eko_service = EkoService.objects.get(eko_service_code='MONEY_TRANSFER')
         except EkoService.DoesNotExist:
@@ -319,9 +355,7 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
         # Process transfer
         try:
             transfer_service = EkoMoneyTransferService()
-            
-            # ✅ Use direct transfer method (recommended)
-            result = transfer_service.direct_transfer(
+            result = transfer_service.transfer_money(
                 eko_user.eko_user_code,
                 {
                     'account_number': serializer.validated_data['account_number'],
@@ -333,22 +367,18 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
             )
             
             # Create transaction record
-            client_ref_id = f"MT{int(time.time())}"
             eko_transaction = EkoTransaction.objects.create(
                 user=request.user,
                 eko_service=eko_service,
-                client_ref_id=client_ref_id,
+                client_ref_id=f"MT{int(time.time())}",
                 amount=serializer.validated_data['amount'],
-                status='processing',
-                response_data=result
+                status='success' if result.get('status') == 0 else 'failed',
+                eko_reference_id=result.get('data', {}).get('transaction_id'),
+                response_data=result  # ✅ Save response for debugging
             )
             
-            # Handle response
-            if result.get('response_status_id') == 0 or result.get('status') == 0:
-                eko_transaction.status = 'success'
-                eko_transaction.eko_reference_id = result.get('data', {}).get('utrnumber') or result.get('data', {}).get('transaction_id')
-                eko_transaction.save()
-                
+            # Handle successful transfer
+            if result.get('status') == 0:
                 # Create wallet transaction
                 Transaction.objects.create(
                     wallet=request.user.wallet,
@@ -364,14 +394,10 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                     'status': 'success',
                     'transaction_id': str(eko_transaction.transaction_id),
                     'eko_reference': eko_transaction.eko_reference_id,
-                    'client_ref_id': client_ref_id,
-                    'message': 'Money transferred successfully',
+                    'message': result.get('message', 'Money transferred successfully'),
                     'data': result.get('data', {})
                 })
             else:
-                eko_transaction.status = 'failed'
-                eko_transaction.save()
-                
                 return Response({
                     'status': 'error',
                     'transaction_id': str(eko_transaction.transaction_id),
@@ -384,3 +410,44 @@ class EkoMoneyTransferViewSet(viewsets.ViewSet):
                 'status': 'error',
                 'message': f'Transfer failed: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def check_balance(self, request):
+        """Check Eko balance - for testing"""
+        try:
+            transfer_service = EkoMoneyTransferService()
+            result = transfer_service.check_balance()
+            return Response(result)
+        except Exception as e:
+            return Response({
+                'error': f'Balance check failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def process_commission(self, user, amount, service_type):
+        """Process commission for Eko services"""
+        try:
+            from commission.views import CommissionManager
+            from services.models import ServiceSubmission
+            
+            # Create a service submission for commission processing
+            service_submission = ServiceSubmission.objects.create(
+                submitted_by=user,
+                amount=amount,
+                status='success',
+                payment_status='paid',
+                service_reference_id=f"EKO_{int(time.time())}"
+            )
+            
+            # Get the main transaction
+            main_transaction = Transaction.objects.filter(
+                wallet=user.wallet,
+                amount=amount
+            ).order_by('-created_at').first()
+            
+            if main_transaction:
+                CommissionManager.process_service_commission(
+                    service_submission, main_transaction
+                )
+                
+        except Exception as e:
+            print(f"Commission processing error: {e}")
