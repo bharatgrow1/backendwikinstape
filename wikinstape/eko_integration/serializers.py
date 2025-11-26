@@ -61,14 +61,3 @@ class MoneyTransferSerializer(serializers.Serializer):
         choices=[('imps', 'IMPS'), ('neft', 'NEFT'), ('rtgs', 'RTGS')],
         default='imps'
     )
-
-
-class ResendOTPSerializer(serializers.Serializer):
-    customer_mobile = serializers.CharField(max_length=10, min_length=10)
-
-class CheckStatusSerializer(serializers.Serializer):
-    client_ref_id = serializers.CharField(max_length=100)
-
-class RefundSerializer(serializers.Serializer):
-    transaction_id = serializers.CharField(max_length=100)
-    otp = serializers.CharField(max_length=6, min_length=6)
