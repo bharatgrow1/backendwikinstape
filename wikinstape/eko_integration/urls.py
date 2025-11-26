@@ -1,13 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from eko_integration.views import EkoUserViewSet, EkoBBPSViewSet, EkoRechargeViewSet, EkoMoneyTransferViewSet
+from . import views
 
 router = DefaultRouter()
-router.register(r'users', EkoUserViewSet, basename='eko-users')
-router.register(r'bbps', EkoBBPSViewSet, basename='eko-bbps')
-router.register(r'recharge', EkoRechargeViewSet, basename='eko-recharge')
-router.register(r'money-transfer', EkoMoneyTransferViewSet, basename='eko-money-transfer')
+router.register('user', views.EkoUserViewSet, basename='eko-user')
+router.register('bbps', views.EkoBBPSViewSet, basename='eko-bbps')
+router.register('recharge', views.EkoRechargeViewSet, basename='eko-recharge')
+router.register('dmt', views.EkoDMTViewSet, basename='eko-dmt')
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('eko/', include(router.urls)),
 ]
