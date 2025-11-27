@@ -30,10 +30,10 @@ class DMTManager:
         """Add recipient"""
         return self.eko_service.add_recipient(
             customer_id=customer_id,
-            recipient_name=recipient_data['name'],
-            recipient_mobile=recipient_data.get('mobile', ''),
-            account=recipient_data['account_number'],
-            ifsc=recipient_data['ifsc_code'],
+            recipient_name=recipient_data['recipient_name'],
+            recipient_mobile=recipient_data.get('recipient_mobile', ''),
+            account=recipient_data['account'],
+            ifsc=recipient_data['ifsc'],
             bank_id=recipient_data.get('bank_id', 11),
             recipient_type=recipient_data.get('recipient_type', 3),
             account_type=recipient_data.get('account_type', 1)
