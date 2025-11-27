@@ -46,8 +46,7 @@ INSTALLED_APPS = [
     'users',
     'services',
     'commission',
-    'eko_integration',
-
+    'dmt',
 ]
 
 
@@ -86,24 +85,24 @@ WSGI_APPLICATION = 'wikinstape.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 # local db
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
-#local aws server db
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'wikinstape_db',
-        'USER': 'postgres',
-        'PASSWORD': 'password',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+#local aws server db
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'wikinstape_db',
+#         'USER': 'postgres',
+#         'PASSWORD': 'password',
+#         'HOST': 'localhost',
+#         'PORT': '5432',
+#     }
+# }
 
 # for local machine to access server db
 # DATABASES = {
@@ -246,3 +245,14 @@ ALLOWED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
 TWILIO_ACCOUNT_SID = 'AC079c36a7c26c213aef5c2d0b7d73e465'
 TWILIO_AUTH_TOKEN = '6a95298a7fafbf797ef4fe48a1c539a4'
 TWILIO_VERIFY_SERVICE_SID = 'VA3c418db7da1f4e1149ba4f0655359952'
+
+
+
+EKO_DEVELOPER_KEY = "753595f07a59eb5a52341538fad5a63d"
+EKO_ACCESS_KEY = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
+EKO_INITIATOR_ID = "9212094999"
+EKO_USER_CODE = "38130001"
+
+DMT_DAILY_LIMIT = 50000.00
+DMT_MONTHLY_LIMIT = 200000.00
+DMT_PER_TRANSACTION_LIMIT = 25000.00

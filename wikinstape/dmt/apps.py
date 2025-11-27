@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class EkoIntegrationConfig(AppConfig):
+class DmtConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'eko_integration'
+    name = 'dmt'
