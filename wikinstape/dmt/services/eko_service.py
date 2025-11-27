@@ -5,7 +5,6 @@ import base64
 import hmac
 import hashlib
 from django.conf import settings
-from django.utils import timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,12 +13,10 @@ class EkoAPIService:
     def __init__(self):
         self.base_url = "https://api.eko.in:25002/ekoicici"
         
-        self.developer_key = getattr(settings, 'EKO_DEVELOPER_KEY', '753595f07a59eb5a52341538fad5a63d')
-        self.access_key = getattr(settings, 'EKO_ACCESS_KEY', '854313b5-a37a-445a-8bc5-a27f4f0fe56a')
-        
-        self.initiator_id = getattr(settings, 'EKO_INITIATOR_ID', '9212094999')
-        self.eko_user_code = getattr(settings, 'EKO_USER_CODE', '38130001')
-        
+        self.developer_key = "753595f07a59eb5a52341538fad5a63d"
+        self.access_key = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
+        self.initiator_id = "9212094999"
+        self.EKO_USER_CODE = "38130001"
         self.timeout = 30
 
     def generate_signature(self, concat_string=None):
@@ -57,8 +54,8 @@ class EkoAPIService:
         headers = self.get_headers(concat_string)
 
         logger.info(f"EKO API Request: {method} {url}")
-        logger.debug(f"Headers: {headers}")
-        logger.debug(f"Payload: {data}")
+        logger.info(f"Headers: {headers}")
+        logger.info(f"Payload: {data}")
 
         try:
             if method.upper() == "PUT":
@@ -71,7 +68,7 @@ class EkoAPIService:
                 return {"status": 1, "message": "Invalid method"}
 
             logger.info(f"EKO API Response Status: {response.status_code}")
-            logger.debug(f"Response: {response.text}")
+            logger.info(f"Response: {response.text}")
 
             try:
                 return response.json()
@@ -88,26 +85,45 @@ class EkoAPIService:
             logger.error(f"EKO API request error: {str(e)}")
             return {"status": 1, "message": str(e)}
 
-    # Sender Profile Methods
+    def onboard_user(self, user_data):
+        """User Onboarding - PUT /v1/user/onboard"""
+        endpoint = "/v1/user/onboard"
+
+        residence_address_json = json.dumps(user_data["residence_address"])
+
+        payload = {
+            "initiator_id": self.initiator_id,
+            "user_code": self.EKO_USER_CODE,
+            "pan_number": user_data["pan_number"],
+            "mobile": user_data["mobile"],
+            "first_name": user_data["first_name"],
+            "last_name": user_data["last_name"],
+            "email": user_data["email"],
+            "residence_address": residence_address_json,
+            "dob": user_data["dob"],
+            "shop_name": user_data["shop_name"]
+        }
+
+        return self.make_request("PUT", endpoint, payload)
+
     def get_sender_profile(self, customer_mobile):
-        """GET SENDER PROFILE - FINO DMT"""
+        """GET SENDER PROFILE - GET /v3/customer/profile/{customer_mobile}/dmt-fino"""
         endpoint = f"/v3/customer/profile/{customer_mobile}/dmt-fino"
         
         params = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code
+            "user_code": self.EKO_USER_CODE
         }
 
         return self.make_request("GET", endpoint, data=params)
 
-    # KYC Methods
     def customer_ekyc_biometric(self, customer_id, aadhar, piddata):
-        """DMT FINO BIOMETRIC KYC"""
+        """DMT FINO BIOMETRIC KYC - POST /v3/customer/account/{customer_id}/dmt-fino/ekyc"""
         endpoint = f"/v3/customer/account/{customer_id}/dmt-fino/ekyc"
 
         payload = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code,
+            "user_code": self.EKO_USER_CODE,
             "aadhar": aadhar,
             "piddata": piddata
         }
@@ -115,12 +131,12 @@ class EkoAPIService:
         return self.make_request("POST", endpoint, data=payload)
 
     def verify_ekyc_otp(self, customer_id, otp, otp_ref_id, kyc_request_id):
-        """Validate Customer eKYC OTP"""
+        """Validate Customer eKYC OTP - POST /v3/customer/account/{customer_id}/dmt-fino/otp/verify"""
         endpoint = f"/v3/customer/account/{customer_id}/dmt-fino/otp/verify"
 
         payload = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code,
+            "user_code": self.EKO_USER_CODE,
             "otp": otp,
             "otp_ref_id": otp_ref_id,
             "kyc_request_id": kyc_request_id
@@ -128,14 +144,13 @@ class EkoAPIService:
 
         return self.make_request("POST", endpoint, data=payload)
 
-    # Recipient Methods
     def add_recipient(self, customer_id, recipient_name, recipient_mobile, account, ifsc, bank_id, recipient_type=3, account_type=1):
-        """Add Recipient"""
+        """Add Recipient - POST /v3/customer/payment/dmt-fino/sender/{customer_id}/recipient1"""
         endpoint = f"/v3/customer/payment/dmt-fino/sender/{customer_id}/recipient1"
 
         payload = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code,
+            "user_code": self.EKO_USER_CODE,
             "recipient_name": recipient_name,
             "recipient_mobile": recipient_mobile,
             "recipient_type": recipient_type,
@@ -148,24 +163,23 @@ class EkoAPIService:
         return self.make_request("POST", endpoint, data=payload)
 
     def get_recipient_list(self, customer_id):
-        """Get Recipient List"""
+        """Get Recipient List - GET /v3/customer/payment/dmt-fino/sender/{customer_id}/recipients"""
         endpoint = f"/v3/customer/payment/dmt-fino/sender/{customer_id}/recipients"
 
         params = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code,
+            "user_code": self.EKO_USER_CODE,
         }
 
         return self.make_request("GET", endpoint, data=params)
 
-    # Transaction Methods
     def send_transaction_otp(self, customer_id, recipient_id, amount):
-        """Send Transaction OTP"""
+        """Send Transaction OTP - POST /v3/customer/payment/dmt-fino/otp"""
         endpoint = f"/v3/customer/payment/dmt-fino/otp"
 
         payload = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code,
+            "user_code": self.EKO_USER_CODE,
             "recipient_id": recipient_id,
             "amount": amount,
             "customer_id": customer_id
@@ -174,7 +188,7 @@ class EkoAPIService:
         return self.make_request("POST", endpoint, data=payload)
 
     def initiate_transaction(self, customer_id, recipient_id, amount, otp, otp_ref_id, latlong="26.8467,80.9462", recipient_id_type="1", currency="INR", state="1"):
-        """Initiate Transaction"""
+        """Initiate Transaction - POST /v3/customer/payment/dmt-fino"""
         endpoint = f"/v3/customer/payment/dmt-fino"
 
         from datetime import datetime
@@ -182,7 +196,7 @@ class EkoAPIService:
 
         payload = {
             "initiator_id": self.initiator_id,
-            "user_code": self.eko_user_code,
+            "user_code": self.EKO_USER_CODE,
             "recipient_id": recipient_id,
             "recipient_id_type": recipient_id_type,
             "amount": amount,
@@ -198,14 +212,5 @@ class EkoAPIService:
         }
 
         return self.make_request("POST", endpoint, data=payload)
-
-    def check_api_status(self):
-        """Check if EKO API is accessible"""
-        try:
-            response = self.get_sender_profile("9170475552")
-            return response.get('status', 1) == 0
-        except Exception as e:
-            logger.error(f"EKO API status check failed: {str(e)}")
-            return False
 
 eko_service = EkoAPIService()

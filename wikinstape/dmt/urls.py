@@ -1,15 +1,14 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from dmt.views import (DMTViewSet, DMTKYCViewSet, DMTRecipientViewSet, 
-                   DMTTransactionViewSet, DMTLimitViewSet, DMTAdminViewSet)
+from .views import (DMTOnboardViewSet, DMTProfileViewSet, DMTKYCViewSet, 
+                   DMTRecipientViewSet, DMTTransactionViewSet)
 
 router = DefaultRouter()
-router.register(r'dashboard', DMTViewSet, basename='dmt-dashboard')
+router.register(r'onboard', DMTOnboardViewSet, basename='dmt-onboard')
+router.register(r'profile', DMTProfileViewSet, basename='dmt-profile')
 router.register(r'kyc', DMTKYCViewSet, basename='dmt-kyc')
-router.register(r'recipients', DMTRecipientViewSet, basename='dmt-recipients')
-router.register(r'transactions', DMTTransactionViewSet, basename='dmt-transactions')
-router.register(r'limits', DMTLimitViewSet, basename='dmt-limits')
-router.register(r'admin', DMTAdminViewSet, basename='dmt-admin')
+router.register(r'recipient', DMTRecipientViewSet, basename='dmt-recipient')
+router.register(r'transaction', DMTTransactionViewSet, basename='dmt-transaction')
 
 urlpatterns = [
     path('', include(router.urls)),
