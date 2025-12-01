@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'services',
     'commission',
     'dmt',
+    'recharge',
 ]
 
 
@@ -92,20 +93,6 @@ DATABASES = {
         'PORT': '5432',
     }
 }
-
-# for local machine to access server db
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'wikinstape_db',
-#         'USER': 'postgres',
-#         'PASSWORD': 'password',
-#         'HOST': '13.202.23.122',
-#         'PORT': '5432',
-#     }
-# }
-
-
 
 
 # Password validation
@@ -245,3 +232,9 @@ EKO_USER_CODE = "38130001"
 DMT_DAILY_LIMIT = 50000.00
 DMT_MONTHLY_LIMIT = 200000.00
 DMT_PER_TRANSACTION_LIMIT = 25000.00
+
+
+EKO_DEV_KEY = "753595f07a59eb5a52341538fad5a63d"
+EKO_SECRET_KEY = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
+EKO_USER_CODE = "38130001"
+EKO_INITIATOR_ID = "9212094999"
