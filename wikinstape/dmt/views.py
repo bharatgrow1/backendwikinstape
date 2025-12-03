@@ -9,7 +9,8 @@ from .services.dmt_manager import dmt_manager
 from .serializers import (
     DMTOnboardSerializer, DMTGetProfileSerializer, DMTBiometricKycSerializer,
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
-    DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer
+    DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
+    DMTVerifyCustomerSerializer, DMTResendOTPSerializer
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,59 @@ class DMTOnboardViewSet(viewsets.ViewSet):
         
         response = dmt_manager.onboard_user(serializer.validated_data)
         return Response(response)
+    
+
+
+class DMTCustomerVerificationViewSet(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+    
+    @action(detail=False, methods=['post'])
+    def verify_customer(self, request):
+        """
+        Verify Customer with OTP
+        POST /api/dmt/verification/verify_customer/
+        """
+        try:
+            serializer = DMTVerifyCustomerSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            response = dmt_manager.verify_customer_identity(
+                serializer.validated_data['customer_mobile'],
+                serializer.validated_data['otp'],
+                serializer.validated_data['otp_ref_id']
+            )
+            
+            return Response(response)
+            
+        except Exception as e:
+            logger.error(f"Verify customer error: {str(e)}")
+            return Response({
+                "status": 1,
+                "message": f"Failed to verify customer: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def resend_otp(self, request):
+        """
+        Resend OTP for verification
+        POST /api/dmt/verification/resend_otp/
+        """
+        try:
+            serializer = DMTResendOTPSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            response = dmt_manager.resend_otp(
+                serializer.validated_data['customer_mobile']
+            )
+            
+            return Response(response)
+            
+        except Exception as e:
+            logger.error(f"Resend OTP error: {str(e)}")
+            return Response({
+                "status": 1,
+                "message": f"Failed to resend OTP: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 

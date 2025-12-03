@@ -15,6 +15,16 @@ class DMTManager:
         return self.eko_service.onboard_user(user_data)
     
 
+    def verify_customer_identity(self, customer_mobile, otp, otp_ref_id):
+        """Verify customer identity with OTP"""
+        return self.eko_service.verify_customer_identity(customer_mobile, otp, otp_ref_id)
+
+
+    def resend_otp(self, customer_mobile):
+        """Resend OTP for customer verification"""
+        return self.eko_service.resend_otp(customer_mobile)
+    
+
     def create_customer(self, customer_data):
         """Create new customer for DMT"""
         return self.eko_service.create_customer(customer_data)

@@ -11,6 +11,15 @@ class DMTOnboardSerializer(serializers.Serializer):
     shop_name = serializers.CharField(max_length=255, required=True)
 
 
+class DMTVerifyCustomerSerializer(serializers.Serializer):
+    customer_mobile = serializers.CharField(max_length=10, required=True)
+    otp = serializers.CharField(max_length=6, required=True)
+    otp_ref_id = serializers.CharField(required=True)
+
+class DMTResendOTPSerializer(serializers.Serializer):
+    customer_mobile = serializers.CharField(max_length=10, required=True)
+
+
 class DMTCreateCustomerSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=10, required=True)
     name = serializers.CharField(max_length=200, required=True)
