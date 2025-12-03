@@ -123,7 +123,7 @@ class EkoAPIService:
 
     def resend_otp(self, customer_mobile):
         """Resend OTP - CORRECT ENDPOINT"""
-        endpoint = f"/v3/customers/mobile_number:{customer_mobile}/otp"
+        endpoint = f"/v2/customers/mobile_number:{customer_mobile}/otp"
         
         payload = {
             "initiator_id": self.initiator_id,
