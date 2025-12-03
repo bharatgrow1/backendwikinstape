@@ -243,43 +243,42 @@ class EkoAPIService:
         return self.make_request("GET", endpoint, data=params)
 
     def send_transaction_otp(self, customer_id, recipient_id, amount):
-        """Send Transaction OTP - POST /v3/customer/payment/dmt-fino/otp"""
-        endpoint = f"/v3/customer/payment/dmt-fino/otp"
-
+        """Send Transaction OTP - CORRECT ENDPOINT"""
+        endpoint = "/v3/customer/payment/dmt-fino/otp"
+        
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
+            "customer_id": customer_id,
             "recipient_id": recipient_id,
-            "amount": amount,
-            "customer_id": customer_id
+            "amount": str(amount)
         }
+        
+        return self.make_request("POST", endpoint, payload)
 
-        return self.make_request("POST", endpoint, data=payload)
-
-    def initiate_transaction(self, customer_id, recipient_id, amount, otp, otp_ref_id, latlong="26.8467,80.9462", recipient_id_type="1", currency="INR", state="1"):
-        """Initiate Transaction - POST /v3/customer/payment/dmt-fino"""
-        endpoint = f"/v3/customer/payment/dmt-fino"
-
+    def initiate_transaction(self, customer_id, recipient_id, amount, otp, otp_ref_id):
+        """Initiate Transaction - CORRECT EKO DMT ENDPOINT"""
+        endpoint = "/v2/transactions"
+        
         from datetime import datetime
         client_ref_id = f"TXN{int(time.time())}"
-
+        
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
-            "recipient_id": recipient_id,
-            "recipient_id_type": recipient_id_type,
-            "amount": amount,
-            "currency": currency,
-            "timestamp": datetime.now().isoformat(),
             "customer_id": customer_id,
-            "channel": 2,
-            "latlong": latlong,
-            "state": state,
+            "recipient_id": recipient_id,
+            "amount": str(amount),
+            "currency": "INR",
+            "timestamp": datetime.now().isoformat(),
             "client_ref_id": client_ref_id,
+            "channel": 2,
+            "state": 1,
+            "latlong": "28.6139,77.2090",
             "otp": otp,
             "otp_ref_id": otp_ref_id
         }
-
-        return self.make_request("POST", endpoint, data=payload)
+        
+        return self.make_request("POST", endpoint, payload)
 
 eko_service = EkoAPIService()
