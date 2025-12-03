@@ -142,7 +142,7 @@ class EkoAPIService:
     def create_customer(self, customer_data):
         """
         Create Customer for DMT
-        POST /v3/customer/account/{customer_id}/dmt-fino
+        POST /v3/customer/account/{customer_id}/dmt
         """
         customer_id = customer_data.get("mobile")
         
