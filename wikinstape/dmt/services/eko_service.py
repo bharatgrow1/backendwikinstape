@@ -142,14 +142,14 @@ class EkoAPIService:
     def create_customer(self, customer_data):
         """
         Create Customer for DMT
-        POST /v3/customer/account/{customer_id}/dmt
+        POST /v3/customer/account/{customer_id}/dmt-fino
         """
         customer_id = customer_data.get("mobile")
         
         if not customer_id:
             return {"status": 1, "message": "Customer mobile number is required"}
         
-        endpoint = f"/v3/customer/account/{customer_id}/dmt"
+        endpoint = f"/v3/customer/account/{customer_id}/dmt-fino"
         
         residence_address = {
             "line": customer_data.get("address_line", "India"),
