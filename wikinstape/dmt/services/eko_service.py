@@ -149,7 +149,7 @@ class EkoAPIService:
         if not customer_id:
             return {"status": 1, "message": "Customer mobile number is required"}
         
-        endpoint = f"/v3/customer/account/{customer_id}/dmt-fino"
+        endpoint = f"/v3/customer/account/{customer_id}/dmt"
         
         residence_address = {
             "line": customer_data.get("address_line", "India"),
@@ -179,7 +179,7 @@ class EkoAPIService:
 
     def get_sender_profile(self, customer_mobile):
         """GET SENDER PROFILE - GET /v3/customer/profile/{customer_mobile}/dmt-fino"""
-        endpoint = f"/v3/customer/profile/{customer_mobile}/dmt-fino"
+        endpoint = f"/v3/customer/profile/{customer_mobile}"
         
         params = {
             "initiator_id": self.initiator_id,
