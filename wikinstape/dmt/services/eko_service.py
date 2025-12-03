@@ -216,32 +216,30 @@ class EkoAPIService:
         return self.make_request("POST", endpoint, data=payload)
 
     def add_recipient(self, customer_id, recipient_name, recipient_mobile, account, ifsc, bank_id, recipient_type=3, account_type=1):
-        """Add Recipient - POST /v3/customer/payment/dmt-fino/sender/{customer_id}/recipient1"""
-        endpoint = f"/v3/customer/payment/dmt-fino/sender/{customer_id}/recipient1"
-
+        """Add Recipient - CORRECT EKO DMT ENDPOINT"""
+        
+        endpoint = f"/v2/customers/mobile_number:{customer_id}/recipients/acc_ifsc:{account}_{ifsc}"
+        
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
             "recipient_name": recipient_name,
             "recipient_mobile": recipient_mobile,
-            "recipient_type": recipient_type,
-            "account": account,
-            "ifsc": ifsc,
-            "bank_id": bank_id,
-            "account_type": account_type
+            "recipient_type": str(recipient_type),
+            "bank_id": str(bank_id) 
         }
-
-        return self.make_request("POST", endpoint, data=payload)
+        
+        return self.make_request("PUT", endpoint, payload)
 
     def get_recipient_list(self, customer_id):
-        """Get Recipient List - GET /v3/customer/payment/dmt-fino/sender/{customer_id}/recipients"""
-        endpoint = f"/v3/customer/payment/dmt-fino/sender/{customer_id}/recipients"
-
+        """Get Recipient List - CORRECT ENDPOINT"""
+        endpoint = f"/v2/customers/mobile_number:{customer_id}/recipients"
+        
         params = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
         }
-
+        
         return self.make_request("GET", endpoint, data=params)
 
     def send_transaction_otp(self, customer_id, recipient_id, amount):
