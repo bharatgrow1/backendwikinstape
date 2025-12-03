@@ -10,6 +10,42 @@ class DMTOnboardSerializer(serializers.Serializer):
     dob = serializers.CharField(max_length=10, required=True)
     shop_name = serializers.CharField(max_length=255, required=True)
 
+
+class DMTCreateCustomerSerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=10, required=True)
+    name = serializers.CharField(max_length=200, required=True)
+    dob = serializers.CharField(max_length=10, required=True)
+    address_line = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    city = serializers.CharField(max_length=100, required=True)
+    state = serializers.CharField(max_length=100, required=True)
+    pincode = serializers.CharField(max_length=6, required=True)
+    district = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    area = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    skip_verification = serializers.BooleanField(default=False, required=False)
+    
+    def validate_mobile(self, value):
+        if len(value) != 10:
+            raise serializers.ValidationError("Mobile number must be 10 digits")
+        if not value.isdigit():
+            raise serializers.ValidationError("Mobile number must contain only digits")
+        return value
+    
+    def validate_dob(self, value):
+        try:
+            from datetime import datetime
+            datetime.strptime(value, '%Y-%m-%d')
+        except ValueError:
+            raise serializers.ValidationError("DOB must be in YYYY-MM-DD format")
+        return value
+    
+    def validate_pincode(self, value):
+        if len(value) != 6:
+            raise serializers.ValidationError("Pincode must be 6 digits")
+        if not value.isdigit():
+            raise serializers.ValidationError("Pincode must contain only digits")
+        return value
+    
+
 class DMTGetProfileSerializer(serializers.Serializer):
     customer_mobile = serializers.CharField(max_length=15, required=True)
 

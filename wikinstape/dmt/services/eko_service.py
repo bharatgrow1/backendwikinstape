@@ -106,6 +106,46 @@ class EkoAPIService:
 
         return self.make_request("PUT", endpoint, payload)
 
+
+
+    def create_customer(self, customer_data):
+        """
+        Create Customer for DMT
+        POST /v3/customer/account/{customer_id}/dmt-fino
+        """
+        customer_id = customer_data.get("mobile")
+        
+        if not customer_id:
+            return {"status": 1, "message": "Customer mobile number is required"}
+        
+        endpoint = f"/v3/customer/account/{customer_id}/dmt-fino"
+        
+        residence_address = {
+            "line": customer_data.get("address_line", "India"),
+            "city": customer_data.get("city", ""),
+            "state": customer_data.get("state", ""),
+            "pincode": customer_data.get("pincode", ""),
+            "district": customer_data.get("district", ""),
+            "area": customer_data.get("area", "")
+        }
+        
+        residence_address_json = json.dumps(residence_address)
+        
+        payload = {
+            "initiator_id": self.initiator_id,
+            "name": customer_data.get("name", ""),
+            "user_code": self.EKO_USER_CODE,
+            "dob": customer_data.get("dob", ""),
+            "residence_address": residence_address_json
+        }
+        
+        if customer_data.get("skip_verification"):
+            payload["skip_verification"] = "true" 
+        
+        return self.make_request("POST", endpoint, payload)
+    
+    
+
     def get_sender_profile(self, customer_mobile):
         """GET SENDER PROFILE - GET /v3/customer/profile/{customer_mobile}/dmt-fino"""
         endpoint = f"/v3/customer/profile/{customer_mobile}/dmt-fino"

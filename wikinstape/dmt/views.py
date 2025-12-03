@@ -3,12 +3,13 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 import logging
+import json
 
 from .services.dmt_manager import dmt_manager
 from .serializers import (
     DMTOnboardSerializer, DMTGetProfileSerializer, DMTBiometricKycSerializer,
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
-    DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer
+    DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,35 @@ class DMTOnboardViewSet(viewsets.ViewSet):
         
         response = dmt_manager.onboard_user(serializer.validated_data)
         return Response(response)
+    
+
+
+class DMTCustomerViewSet(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+    
+    @action(detail=False, methods=['post'])
+    def create_customer(self, request):
+        """
+        Create Customer for DMT
+        POST /api/dmt/customer/create_customer/
+        
+        Call this when Get Sender Profile returns "Customer Not Enrolled"
+        """
+        try:
+            serializer = DMTCreateCustomerSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            response = dmt_manager.create_customer(serializer.validated_data)
+            
+            return Response(response)
+            
+        except Exception as e:
+            logger.error(f"Create customer error: {str(e)}")
+            return Response({
+                "status": 1,
+                "message": f"Failed to create customer: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 
 class DMTProfileViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]

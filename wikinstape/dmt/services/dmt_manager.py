@@ -13,6 +13,12 @@ class DMTManager:
     def onboard_user(self, user_data):
         """Onboard user to EKO system"""
         return self.eko_service.onboard_user(user_data)
+    
+
+    def create_customer(self, customer_data):
+        """Create new customer for DMT"""
+        return self.eko_service.create_customer(customer_data)
+    
 
     def get_sender_profile(self, customer_mobile):
         """Get sender profile"""
