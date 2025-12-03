@@ -108,15 +108,16 @@ class EkoAPIService:
 
 
     def verify_customer_identity(self, customer_mobile, otp, otp_ref_id):
-        """Verify Customer OTP - CORRECT ENDPOINT"""
+        """Verify Customer OTP - CORRECT PAYLOAD FORMAT"""
         endpoint = "/v3/customer/account/otp/verify"
         
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
             "customer_id": customer_mobile,
-            "otp": otp,
-            "otp_ref_id": otp_ref_id
+            "otp": str(otp),
+            "otp_ref_id": otp_ref_id,
+            "service_code": "80"
         }
         
         return self.make_request("POST", endpoint, payload)
