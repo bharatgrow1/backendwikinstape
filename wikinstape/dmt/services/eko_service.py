@@ -108,15 +108,13 @@ class EkoAPIService:
 
 
     def verify_customer_identity(self, customer_mobile, otp, otp_ref_id):
-        """
-        Verify Customer Identity with OTP
-        POST /v3/customer/{customer_mobile}/verify
-        """
-        endpoint = f"/v3/customer/{customer_mobile}/verify"
+        """Verify Customer OTP - CORRECT ENDPOINT"""
+        endpoint = "/v3/customer/account/otp/verify"
         
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
+            "customer_id": customer_mobile,
             "otp": otp,
             "otp_ref_id": otp_ref_id
         }
@@ -124,11 +122,8 @@ class EkoAPIService:
         return self.make_request("POST", endpoint, payload)
 
     def resend_otp(self, customer_mobile):
-        """
-        Resend OTP for verification
-        POST /v3/customer/{customer_mobile}/resend-otp
-        """
-        endpoint = f"/v3/customer/{customer_mobile}/resend-otp"
+        """Resend OTP - CORRECT ENDPOINT"""
+        endpoint = f"/v2/customers/mobile_number:{customer_mobile}/otp"
         
         payload = {
             "initiator_id": self.initiator_id,
