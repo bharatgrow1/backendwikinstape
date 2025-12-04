@@ -240,3 +240,5 @@ class DMTTransactionViewSet(viewsets.ViewSet):
 class BankViewSet(viewsets.ModelViewSet):
     queryset = EkoBank.objects.all().order_by("bank_name")
     serializer_class = EkoBankSerializer
+    lookup_field = "bank_id"
+
