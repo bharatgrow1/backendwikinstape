@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -241,4 +241,7 @@ class BankViewSet(viewsets.ModelViewSet):
     queryset = EkoBank.objects.all().order_by("bank_name")
     serializer_class = EkoBankSerializer
     lookup_field = "bank_id"
+
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['bank_name', 'bank_code']
 
