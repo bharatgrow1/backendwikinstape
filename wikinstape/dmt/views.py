@@ -10,8 +10,10 @@ from .serializers import (
     DMTOnboardSerializer, DMTGetProfileSerializer, DMTBiometricKycSerializer,
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
-    DMTVerifyCustomerSerializer, DMTResendOTPSerializer
+    DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer
 )
+
+from .models import EkoBank
 
 logger = logging.getLogger(__name__)
 
@@ -233,3 +235,8 @@ class DMTTransactionViewSet(viewsets.ViewSet):
             serializer.validated_data['otp_ref_id']
         )
         return Response(response)
+    
+
+class BankViewSet(viewsets.ModelViewSet):
+    queryset = EkoBank.objects.all().order_by("bank_name")
+    serializer_class = EkoBankSerializer

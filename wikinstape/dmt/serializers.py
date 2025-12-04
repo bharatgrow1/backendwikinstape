@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from .models import EkoBank
 
 class DMTOnboardSerializer(serializers.Serializer):
     pan_number = serializers.CharField(max_length=10, required=True)
@@ -93,3 +94,9 @@ class DMTInitiateTransactionSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
     otp = serializers.CharField(max_length=6, required=True)
     otp_ref_id = serializers.CharField(required=True)
+
+
+class EkoBankSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EkoBank
+        fields = ["bank_id", "bank_name", "bank_code", "static_ifsc"]

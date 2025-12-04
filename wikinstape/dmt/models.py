@@ -331,3 +331,18 @@ class DMTBank(models.Model):
     
     def __str__(self):
         return f"{self.bank_name} ({self.bank_id})"
+    
+
+
+class EkoBank(models.Model):
+    bank_id = models.IntegerField(primary_key=True)
+    bank_name = models.CharField(max_length=255)
+    bank_code = models.CharField(max_length=50)
+    imps_status = models.CharField(max_length=50)
+    neft_status = models.CharField(max_length=50)
+    verification_status = models.CharField(max_length=50)
+    ifsc_status = models.CharField(max_length=255)
+    static_ifsc = models.CharField(max_length=50, null=True, blank=True)
+
+    def __str__(self):
+        return self.bank_name
