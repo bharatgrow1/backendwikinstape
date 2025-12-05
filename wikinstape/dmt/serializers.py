@@ -110,3 +110,12 @@ class DMTTransactionInquirySerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Inquiry ID cannot be empty")
         return value
+    
+
+class DMTRefundSerializer(serializers.Serializer):
+    tid = serializers.CharField(required=True)
+    otp = serializers.CharField(required=True)
+
+
+class DMTRefundOTPResendSerializer(serializers.Serializer):
+    tid = serializers.CharField(required=True)

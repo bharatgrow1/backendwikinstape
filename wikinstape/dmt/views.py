@@ -10,7 +10,8 @@ from .serializers import (
     DMTOnboardSerializer, DMTGetProfileSerializer, DMTBiometricKycSerializer,
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
-    DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, DMTTransactionInquirySerializer
+    DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, 
+    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer
 )
 
 from .models import EkoBank
@@ -271,3 +272,33 @@ class DMTTransactionInquiryViewSet(viewsets.ViewSet):
                 "message": f"Failed to check transaction status: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+
+class DMTRefundViewSet(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['post'])
+    def refund(self, request):
+        """Refund Payment"""
+        serializer = DMTRefundSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tid = serializer.validated_data['tid']
+        otp = serializer.validated_data['otp']
+        
+        response = dmt_manager.refund_transaction(tid, otp)
+        return Response(response)
+
+    @action(detail=False, methods=['post'])
+    def resend_otp(self, request):
+        """
+        Resend Refund OTP
+        POST /api/dmt/refund/resend_otp/
+        """
+        serializer = DMTRefundOTPResendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        tid = serializer.validated_data['tid']
+
+        response = dmt_manager.resend_refund_otp(tid)
+
+        return Response(response)

@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (DMTOnboardViewSet, DMTProfileViewSet, DMTKYCViewSet, 
                    DMTRecipientViewSet, DMTTransactionViewSet, DMTCustomerViewSet, 
-                   DMTCustomerVerificationViewSet, BankViewSet, DMTTransactionInquiryViewSet)
+                   DMTCustomerVerificationViewSet, BankViewSet, DMTTransactionInquiryViewSet, DMTRefundViewSet)
 
 router = DefaultRouter()
 router.register(r'onboard', DMTOnboardViewSet, basename='dmt-onboard')
@@ -14,6 +14,7 @@ router.register(r'transaction', DMTTransactionViewSet, basename='dmt-transaction
 router.register(r'verification', DMTCustomerVerificationViewSet, basename='dmt-verification')
 router.register(r"banks", BankViewSet, basename="ekobank")
 router.register(r'inquiry', DMTTransactionInquiryViewSet, basename='dmt-inquiry')
+router.register(r'refund', DMTRefundViewSet, basename='dmt-refund')
 
 urlpatterns = [
     path('', include(router.urls)),

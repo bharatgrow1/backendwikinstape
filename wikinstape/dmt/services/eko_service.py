@@ -291,6 +291,39 @@ class EkoAPIService:
         }
 
         return self.make_request("GET", endpoint, data=params)
+    
+
+
+    def refund_transaction(self, tid, otp):
+        """
+        Refund Transaction
+        POST /v2/transactions/{tid}/refund
+        """
+        endpoint = f"/v2/transactions/{tid}/refund"
+
+        payload = {
+            "initiator_id": self.initiator_id,
+            "user_code": self.EKO_USER_CODE,
+            "otp": otp,
+            "state": "1"
+        }
+
+        return self.make_request("POST", endpoint, payload)
+    
+
+    def resend_refund_otp(self, tid):
+        """
+        Resend Refund OTP
+        POST /transactions/{tid}/refund/otp
+        """
+        endpoint = f"/transactions/{tid}/refund/otp"
+
+        payload = {
+            "initiator_id": self.initiator_id
+        }
+
+        return self.make_request("POST", endpoint, payload)
+
 
 
 eko_service = EkoAPIService()
