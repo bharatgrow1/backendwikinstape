@@ -8,6 +8,7 @@ from django.utils import timezone
 import logging
 from decimal import Decimal
 from users.models import Transaction
+from django.db.models import Q
 
 from .models import RechargeTransaction, Operator, Plan, RechargeServiceCharge
 from .serializers import (
@@ -276,9 +277,39 @@ class RechargeViewSet(viewsets.ViewSet):
                 # Step 4: Process commission after successful recharge
                 try:
                     from commission.views import CommissionManager
-                    success, comm_message = CommissionManager.process_recharge_commission(
-                        recharge_txn, wallet_transaction
-                    )
+                    from services.models import ServiceSubCategory
+                    
+                    # Recharge service ko database mein dhoondhein
+                    recharge_service = ServiceSubCategory.objects.filter(
+                        Q(name__icontains='recharge') | Q(name__icontains='mobile'),
+                        is_active=True
+                    ).first()
+                    
+                    if recharge_service:
+                        # Recharge ke liye dummy service submission banayein
+                        class DummyServiceSubmission:
+                            def __init__(self, user, amount, mobile, operator):
+                                self.submitted_by = user
+                                self.amount = amount
+                                self.service_subcategory = recharge_service
+                                self.service_form = type('obj', (object,), {
+                                    'name': f"Mobile Recharge - {operator}"
+                                })()
+                        
+                        dummy_submission = DummyServiceSubmission(
+                            user=user,
+                            amount=data['amount'],
+                            mobile=data['mobile'],
+                            operator=data['operator_id']
+                        )
+                        
+                        # ✅ Use the EXISTING global commission method
+                        success, comm_message = CommissionManager.process_service_commission(
+                            dummy_submission, wallet_transaction
+                        )
+                    else:
+                        # Agar recharge service nahi mila
+                        success, comm_message = False, "Recharge service not configured for commission"
                     
                     if success:
                         logger.info(f"✅ Commission processed for recharge: {recharge_txn.transaction_id}")
@@ -286,7 +317,7 @@ class RechargeViewSet(viewsets.ViewSet):
                     else:
                         logger.warning(f"⚠️ Commission processing failed: {comm_message}")
                         recharge_txn.status_message = f"Recharge successful but commission failed: {comm_message}"
-                
+
                 except ImportError:
                     logger.warning("Commission app not available")
                     recharge_txn.status_message = "Recharge successful (commission app not available)"
