@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db import transaction as db_transaction
+from django.db import transaction as db_transaction, models
 from django.db.models import Sum, Count, Q, Avg, Max, Min
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 import random
 from decimal import InvalidOperation
 from django.db.models.functions import ExtractMonth, ExtractYear
+import logging
+logger = logging.getLogger(__name__)
+
+
 
 
 from commission.models import (CommissionPlan, ServiceCommission, UserCommissionPlan, CommissionPayout,  CommissionTransaction)
@@ -757,6 +761,132 @@ class CommissionManager:
             import traceback
             print(f"🔍 COMMISSION DEBUG: Stack trace: {traceback.format_exc()}")
             return False, f"Commission processing failed: {str(e)}"
+        
+
+    @staticmethod
+    def process_recharge_commission_updated(recharge_transaction, wallet_transaction):
+        """Process commission for recharge transaction - UPDATED VERSION"""
+        try:
+            with db_transaction.atomic():
+                retailer_user = recharge_transaction.user
+                transaction_amount = recharge_transaction.amount
+                
+                logger.info(f"🔄 RECHARGE COMMISSION: Starting for recharge {recharge_transaction.transaction_id}")
+                logger.info(f"🔄 RECHARGE COMMISSION: Retailer: {retailer_user.username}")
+                logger.info(f"🔄 RECHARGE COMMISSION: Amount: ₹{transaction_amount}")
+                
+                if not retailer_user:
+                    logger.error("❌ RECHARGE COMMISSION: No retailer user found")
+                    return False, "No retailer user found for this recharge"
+                
+                # Get retailer's commission plan
+                try:
+                    user_plan = UserCommissionPlan.objects.get(user=retailer_user, is_active=True)
+                    commission_plan = user_plan.commission_plan
+                    logger.info(f"✅ RECHARGE COMMISSION: Commission plan found: {commission_plan.name}")
+                except UserCommissionPlan.DoesNotExist:
+                    logger.error(f"❌ RECHARGE COMMISSION: No active commission plan for {retailer_user.username}")
+                    return False, "No active commission plan for user"
+                
+                # Find recharge service subcategory
+                from services.models import ServiceSubCategory
+                recharge_subcategory = ServiceSubCategory.objects.filter(
+                    name__icontains='recharge',
+                    is_active=True
+                ).first()
+                
+                if not recharge_subcategory:
+                    # Try mobile recharge
+                    recharge_subcategory = ServiceSubCategory.objects.filter(
+                        name__icontains='mobile recharge',
+                        is_active=True
+                    ).first()
+                
+                if not recharge_subcategory:
+                    logger.error(f"❌ RECHARGE COMMISSION: No recharge subcategory found")
+                    return False, "No recharge service configuration found"
+                
+                # Find commission configuration
+                try:
+                    commission_config = ServiceCommission.objects.get(
+                        service_subcategory=recharge_subcategory,
+                        commission_plan=commission_plan,
+                        is_active=True
+                    )
+                    logger.info(f"✅ RECHARGE COMMISSION: Commission config found for {recharge_subcategory.name}")
+                except ServiceCommission.DoesNotExist:
+                    logger.error(f"❌ RECHARGE COMMISSION: No commission config found for recharge")
+                    return False, "No commission configuration found for recharge service"
+                
+                # Use the same distribution logic as services
+                distribution, hierarchy_users = commission_config.distribute_commission(
+                    transaction_amount, retailer_user
+                )
+                
+                logger.info(f"💰 RECHARGE COMMISSION: Distribution: {distribution}")
+                
+                total_commission_distributed = 0
+                
+                for role, amount in distribution.items():
+                    if amount > 0 and hierarchy_users[role]:
+                        recipient_user = hierarchy_users[role]
+                        
+                        logger.info(f"🎯 RECHARGE COMMISSION: Processing {role}: {recipient_user.username} - Amount: ₹{amount}")
+                        
+                        # Ensure wallet exists
+                        recipient_wallet, created = Wallet.objects.get_or_create(user=recipient_user)
+                        if created:
+                            logger.info(f"✅ RECHARGE COMMISSION: Created wallet for {recipient_user.username}")
+                        
+                        # Get current balance before adding commission
+                        old_balance = recipient_wallet.balance
+                        
+                        # Create commission transaction
+                        commission_txn = CommissionTransaction.objects.create(
+                            main_transaction=wallet_transaction,
+                            service_submission=None,  # No service submission for recharge
+                            commission_config=commission_config,
+                            commission_plan=commission_plan,
+                            user=recipient_user,
+                            role=role,
+                            commission_amount=amount,
+                            transaction_type='credit',
+                            status='success',
+                            description=f"Commission for recharge {recharge_transaction.mobile_number} - {role}",
+                            retailer_user=retailer_user,
+                            original_transaction_amount=transaction_amount
+                        )
+                        
+                        # ✅ Add to wallet balance
+                        recipient_wallet.balance += amount
+                        recipient_wallet.save()
+                        
+                        # Create wallet transaction
+                        Transaction.objects.create(
+                            wallet=recipient_wallet,
+                            amount=amount,
+                            net_amount=amount,
+                            service_charge=0,
+                            transaction_type='credit',
+                            transaction_category='commission',
+                            description=f"Commission from recharge {recharge_transaction.mobile_number} as {role}",
+                            created_by=recipient_user,
+                            status='success'
+                        )
+                        
+                        total_commission_distributed += amount
+                        
+                        logger.info(f"✅ RECHARGE COMMISSION: Added ₹{amount} to {recipient_user.username} | Old: ₹{old_balance} | New: ₹{recipient_wallet.balance}")
+                
+                logger.info(f"🎉 RECHARGE COMMISSION: Total distributed: ₹{total_commission_distributed}")
+                
+                return True, f"Recharge commission processed successfully. Total: ₹{total_commission_distributed}"
+                
+        except Exception as e:
+            logger.error(f"❌ RECHARGE COMMISSION: Error: {str(e)}")
+            import traceback
+            logger.error(f"🔍 RECHARGE COMMISSION: Stack trace: {traceback.format_exc()}")
+            return False, f"Recharge commission processing failed: {str(e)}"
         
 
 

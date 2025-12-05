@@ -58,6 +58,14 @@ class RechargeRequestSerializer(serializers.Serializer):
     customer_name = serializers.CharField(max_length=255, required=False, allow_null=True)
     is_plan_recharge = serializers.BooleanField(default=False)
     plan_id = serializers.CharField(max_length=100, required=False, allow_null=True)
+    pin = serializers.CharField(max_length=4, min_length=4, write_only=True, required=True)
+
+    def validate_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value
 
 class BillFetchRequestSerializer(serializers.Serializer):
     operator_id = serializers.CharField(max_length=50, required=True)

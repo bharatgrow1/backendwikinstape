@@ -3,10 +3,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
-from django.db import transaction
+from django.db import transaction as db_transaction
 from django.utils import timezone
 import logging
 from decimal import Decimal
+from users.models import Transaction
 
 from .models import RechargeTransaction, Operator, Plan, RechargeServiceCharge
 from .serializers import (
@@ -95,10 +96,58 @@ class RechargeViewSet(viewsets.ViewSet):
         return Response(response_serializer.data)
     
     @action(detail=False, methods=['post'])
-    @transaction.atomic
+    def check_balance(self, request):
+        """
+        Check if user has sufficient balance for recharge
+        POST /api/recharge/check_balance/
+        {
+            "amount": 100.00,
+            "pin": "1234"
+        }
+        """
+        amount = request.data.get('amount')
+        pin = request.data.get('pin')
+        
+        if not amount or not pin:
+            return Response({
+                'success': False,
+                'message': 'Amount and PIN are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            wallet = request.user.wallet
+            service_charge = RechargeServiceCharge.calculate_charge(Decimal(amount))
+            total_amount = Decimal(amount) + service_charge
+            
+            if not wallet.verify_pin(pin):
+                return Response({
+                    'success': False,
+                    'message': 'Invalid PIN'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            has_balance = wallet.has_sufficient_balance(Decimal(amount), service_charge)
+            
+            return Response({
+                'success': True,
+                'has_sufficient_balance': has_balance,
+                'current_balance': wallet.balance,
+                'recharge_amount': amount,
+                'service_charge': service_charge,
+                'total_amount': total_amount,
+                'remaining_balance': wallet.balance - total_amount if has_balance else 0
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f"Error checking balance: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    @db_transaction.atomic
     def recharge(self, request):
         """
-        Perform recharge
+        Perform recharge with wallet payment and commission
         POST /api/recharge/recharge/
         {
             "mobile": "9876543210",
@@ -109,7 +158,8 @@ class RechargeViewSet(viewsets.ViewSet):
             "consumer_number": "optional",
             "customer_name": "optional",
             "is_plan_recharge": false,
-            "plan_id": "optional"
+            "plan_id": "optional",
+            "pin": "1234"  # REQUIRED for wallet payment
         }
         """
         serializer = RechargeRequestSerializer(data=request.data)
@@ -117,12 +167,35 @@ class RechargeViewSet(viewsets.ViewSet):
         
         data = serializer.validated_data
         user = request.user
+        pin = request.data.get('pin')  # Get PIN from request
         
         try:
             # Calculate service charge
             service_charge = RechargeServiceCharge.calculate_charge(data['amount'])
+            total_amount = data['amount'] + service_charge
             
-            # Create transaction record
+            # Validate wallet PIN
+            wallet = user.wallet
+            
+            if not pin:
+                return Response({
+                    'success': False,
+                    'message': 'Wallet PIN is required for recharge'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not wallet.verify_pin(pin):
+                return Response({
+                    'success': False,
+                    'message': 'Invalid wallet PIN'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not wallet.has_sufficient_balance(data['amount'], service_charge):
+                return Response({
+                    'success': False,
+                    'message': 'Insufficient wallet balance'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create recharge transaction record
             recharge_txn = RechargeTransaction.objects.create(
                 user=user,
                 operator_id=data['operator_id'],
@@ -133,15 +206,46 @@ class RechargeViewSet(viewsets.ViewSet):
                 customer_name=data.get('customer_name'),
                 amount=data['amount'],
                 service_charge=service_charge,
-                client_ref_id=f"TXN{int(timezone.now().timestamp())}",
+                total_amount=total_amount,
+                client_ref_id=f"RECH{int(timezone.now().timestamp())}",
                 is_plan_recharge=data.get('is_plan_recharge', False),
                 plan_details={
                     'plan_id': data.get('plan_id')
                 } if data.get('plan_id') else None,
-                status='processing'
+                status='processing',
+                payment_status='processing'
             )
             
-            # Perform recharge via EKO API
+            # Step 1: Deduct amount from wallet FIRST
+            try:
+                total_deducted = wallet.deduct_amount(data['amount'], service_charge, pin)
+                
+                # Create wallet transaction record
+                wallet_transaction = Transaction.objects.create(
+                    wallet=wallet,
+                    amount=data['amount'],
+                    service_charge=service_charge,
+                    net_amount=data['amount'],
+                    transaction_type='debit',
+                    transaction_category='recharge',
+                    description=f"Recharge for {data['mobile']} - {recharge_txn.transaction_id}",
+                    created_by=user,
+                    status='success'
+                )
+                
+                logger.info(f"✅ Wallet deduction successful: ₹{total_deducted} from {user.username}")
+                
+            except ValueError as e:
+                recharge_txn.status = 'failed'
+                recharge_txn.payment_status = 'failed'
+                recharge_txn.status_message = f"Payment failed: {str(e)}"
+                recharge_txn.save()
+                return Response({
+                    'success': False,
+                    'message': f"Payment failed: {str(e)}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Step 2: Perform recharge via EKO API
             result = recharge_manager.perform_recharge(
                 mobile=data['mobile'],
                 amount=data['amount'],
@@ -150,7 +254,7 @@ class RechargeViewSet(viewsets.ViewSet):
                 circle=data.get('circle')
             )
             
-            # Update transaction with API response
+            # Step 3: Update transaction with API response
             recharge_txn.eko_message = result.get('eko_message')
             recharge_txn.eko_txstatus_desc = result.get('txstatus_desc')
             recharge_txn.eko_response_status = result.get('response_status')
@@ -158,6 +262,7 @@ class RechargeViewSet(viewsets.ViewSet):
             
             if result['success']:
                 recharge_txn.status = 'success'
+                recharge_txn.payment_status = 'paid'
                 recharge_txn.eko_transaction_ref = result.get('eko_transaction_ref')
                 recharge_txn.processed_at = timezone.now()
                 recharge_txn.completed_at = timezone.now()
@@ -167,38 +272,51 @@ class RechargeViewSet(viewsets.ViewSet):
                     recharge_txn.transaction_id = result['transaction_id']
                 
                 message = result.get('message', 'Recharge successful')
-            else:
-                recharge_txn.status = 'failed'
-                recharge_txn.status_message = result.get('message', 'Recharge failed')
-                recharge_txn.completed_at = timezone.now()
-                message = result.get('message', 'Recharge failed')
-            
-            recharge_txn.save()
-            
-            # Process commission if payment is successful
-            if result['success'] and recharge_txn.amount > 0:
+                
+                # Step 4: Process commission after successful recharge
                 try:
                     from commission.views import CommissionManager
-                    from users.models import Transaction as WalletTransaction
+                    success, comm_message = CommissionManager.process_recharge_commission(
+                        recharge_txn, wallet_transaction
+                    )
                     
-                    # Find wallet transaction
-                    wallet_txn = WalletTransaction.objects.filter(
-                        service_submission__isnull=True,
-                        description__icontains=f"Recharge {recharge_txn.transaction_id}",
-                        status='success'
-                    ).first()
-                    
-                    if wallet_txn:
-                        success, comm_message = CommissionManager.process_service_commission(
-                            recharge_txn, wallet_txn
-                        )
-                        if not success:
-                            logger.warning(f"Commission processing failed: {comm_message}")
-                    
+                    if success:
+                        logger.info(f"✅ Commission processed for recharge: {recharge_txn.transaction_id}")
+                        recharge_txn.status_message = f"Recharge successful. {comm_message}"
+                    else:
+                        logger.warning(f"⚠️ Commission processing failed: {comm_message}")
+                        recharge_txn.status_message = f"Recharge successful but commission failed: {comm_message}"
+                
                 except ImportError:
                     logger.warning("Commission app not available")
+                    recharge_txn.status_message = "Recharge successful (commission app not available)"
                 except Exception as e:
-                    logger.error(f"Commission processing error: {str(e)}")
+                    logger.error(f"❌ Commission processing error: {str(e)}")
+                    recharge_txn.status_message = f"Recharge successful but commission error: {str(e)}"
+                
+            else:
+                recharge_txn.status = 'failed'
+                recharge_txn.payment_status = 'failed'
+                recharge_txn.status_message = result.get('message', 'Recharge failed')
+                recharge_txn.completed_at = timezone.now()
+                
+                # Refund amount if recharge failed
+                try:
+                    wallet.add_amount(data['amount'])
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=data['amount'],
+                        transaction_type='credit',
+                        transaction_category='refund',
+                        description=f"Refund for failed recharge {recharge_txn.transaction_id}",
+                        created_by=user,
+                        status='success'
+                    )
+                    message = f"Recharge failed. Amount refunded: ₹{data['amount']}"
+                except Exception as e:
+                    message = f"Recharge failed. Please contact support for refund: {str(e)}"
+            
+            recharge_txn.save()
             
             # Serialize response
             txn_serializer = RechargeTransactionSerializer(recharge_txn)
@@ -207,6 +325,7 @@ class RechargeViewSet(viewsets.ViewSet):
                 'success': result['success'],
                 'message': message,
                 'transaction': txn_serializer.data,
+                'wallet_balance': wallet.balance,
                 'eko_response': result.get('eko_response', {})
             })
             
@@ -374,7 +493,7 @@ class PlanViewSet(viewsets.ReadOnlyModelViewSet):
         if operator_id:
             queryset = queryset.filter(operator__operator_id=operator_id)
         
-        queryset = queryset.order_by('amount')[:20]  # Limit to 20 popular plans
+        queryset = queryset.order_by('amount')[:20]
         
         serializer = self.get_serializer(queryset, many=True)
         return Response({
