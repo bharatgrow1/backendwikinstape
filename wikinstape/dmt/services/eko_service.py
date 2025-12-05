@@ -276,5 +276,20 @@ class EkoAPIService:
         }
         
         return self.make_request("POST", endpoint, payload)
+    
+
+
+    def transaction_inquiry(self, inquiry_id, is_client_ref_id=False):
+        if is_client_ref_id:
+            endpoint = f"/transactions/client_ref_id:{inquiry_id}"
+        else:
+            endpoint = f"/transactions/{inquiry_id}"
+        
+        params = {
+            "initiator_id": self.initiator_id,
+            "user_code": self.EKO_USER_CODE
+        }
+        
+        return self.make_request("GET", endpoint, data=params)
 
 eko_service = EkoAPIService()

@@ -72,5 +72,9 @@ class DMTManager:
             otp=otp,
             otp_ref_id=otp_ref_id
         )
+    
+    def transaction_inquiry(self, inquiry_id, is_client_ref_id=False):
+        """Check transaction status by TID or client_ref_id"""
+        return self.eko_service.transaction_inquiry(inquiry_id, is_client_ref_id)
 
 dmt_manager = DMTManager()

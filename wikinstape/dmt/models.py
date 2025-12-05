@@ -14,14 +14,29 @@ class DMTTransaction(models.Model):
         ('failed', 'Failed'),
         ('cancelled', 'Cancelled'),
     )
+
+    EKO_TX_STATUS_CHOICES = (
+        ('0', 'Success'),
+        ('1', 'Fail'),
+        ('2', 'Response Awaited/Initiated'),
+        ('3', 'Refund Pending'),
+        ('4', 'Refunded'),
+        ('5', 'Hold (Transaction Inquiry Required)'),
+    )
     
     TRANSACTION_TYPE_CHOICES = (
         ('imps', 'IMPS'),
         ('neft', 'NEFT'),
         ('rtgs', 'RTGS'),
     )
+
+
+    eko_tx_status = models.CharField(max_length=1, choices=EKO_TX_STATUS_CHOICES, blank=True, null=True)
+    eko_txstatus_desc = models.CharField(max_length=255, blank=True, null=True)
+    eko_bank_ref_num = models.CharField(max_length=100, blank=True, null=True)
+    eko_tid = models.CharField(max_length=100, blank=True, null=True)
+    client_ref_id = models.CharField(max_length=100, blank=True, null=True)
     
-    # Transaction Information
     transaction_id = models.CharField(max_length=100, unique=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='dmt_transactions')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -107,6 +122,38 @@ class DMTTransaction(models.Model):
         self.error_details = error_details or {}
         self.completed_at = timezone.now()
         self.save()
+
+
+    def update_from_eko_response(self, eko_response):
+        """Update transaction from EKO API response"""
+        if eko_response.get('status') == 0:
+            data = eko_response.get('data', {})
+            
+            self.eko_tx_status = data.get('tx_status')
+            self.eko_txstatus_desc = data.get('txstatus_desc')
+            self.eko_bank_ref_num = data.get('bank_ref_num')
+            self.eko_tid = data.get('tid')
+            self.client_ref_id = data.get('client_ref_id')
+            
+            if self.eko_tx_status == '0':
+                self.status = 'success'
+                if not self.completed_at:
+                    self.completed_at = timezone.now()
+            elif self.eko_tx_status == '1':
+                self.status = 'failed'
+                if not self.completed_at:
+                    self.completed_at = timezone.now()
+            elif self.eko_tx_status == '2':
+                self.status = 'processing'
+            elif self.eko_tx_status == '5':
+                self.status = 'processing'
+            
+            self.api_response = eko_response
+            self.save()
+            
+            return True
+        return False
+    
 
 class DMTRecipient(models.Model):
     ACCOUNT_TYPE_CHOICES = (

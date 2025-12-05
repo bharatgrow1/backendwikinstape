@@ -1,7 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (DMTOnboardViewSet, DMTProfileViewSet, DMTKYCViewSet, 
-                   DMTRecipientViewSet, DMTTransactionViewSet, DMTCustomerViewSet, DMTCustomerVerificationViewSet, BankViewSet)
+                   DMTRecipientViewSet, DMTTransactionViewSet, DMTCustomerViewSet, 
+                   DMTCustomerVerificationViewSet, BankViewSet, DMTTransactionInquiryViewSet)
 
 router = DefaultRouter()
 router.register(r'onboard', DMTOnboardViewSet, basename='dmt-onboard')
@@ -12,6 +13,7 @@ router.register(r'recipient', DMTRecipientViewSet, basename='dmt-recipient')
 router.register(r'transaction', DMTTransactionViewSet, basename='dmt-transaction')
 router.register(r'verification', DMTCustomerVerificationViewSet, basename='dmt-verification')
 router.register(r"banks", BankViewSet, basename="ekobank")
+router.register(r'inquiry', DMTTransactionInquiryViewSet, basename='dmt-inquiry')  # Add this
 
 urlpatterns = [
     path('', include(router.urls)),

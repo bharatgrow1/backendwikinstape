@@ -10,7 +10,7 @@ from .serializers import (
     DMTOnboardSerializer, DMTGetProfileSerializer, DMTBiometricKycSerializer,
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
-    DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer
+    DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, DMTTransactionInquirySerializer
 )
 
 from .models import EkoBank
@@ -244,4 +244,30 @@ class BankViewSet(viewsets.ModelViewSet):
 
     filter_backends = [filters.SearchFilter]
     search_fields = ['bank_name', 'bank_code']
+
+
+
+class DMTTransactionInquiryViewSet(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+    
+    @action(detail=False, methods=['post'])
+    def check_status(self, request):
+
+        try:
+            serializer = DMTTransactionInquirySerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            response = dmt_manager.transaction_inquiry(
+                serializer.validated_data['inquiry_id'],
+                serializer.validated_data.get('is_client_ref_id', False)
+            )
+            
+            return Response(response)
+            
+        except Exception as e:
+            logger.error(f"Transaction inquiry error: {str(e)}")
+            return Response({
+                "status": 1,
+                "message": f"Failed to check transaction status: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

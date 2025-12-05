@@ -100,3 +100,13 @@ class EkoBankSerializer(serializers.ModelSerializer):
     class Meta:
         model = EkoBank
         fields = ["bank_id", "bank_name", "bank_code", "static_ifsc"]
+
+
+class DMTTransactionInquirySerializer(serializers.Serializer):
+    inquiry_id = serializers.CharField(required=True)
+    is_client_ref_id = serializers.BooleanField(default=False, required=False)
+    
+    def validate_inquiry_id(self, value):
+        if not value:
+            raise serializers.ValidationError("Inquiry ID cannot be empty")
+        return value
