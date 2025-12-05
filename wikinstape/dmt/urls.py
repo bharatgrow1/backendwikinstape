@@ -13,7 +13,7 @@ router.register(r'recipient', DMTRecipientViewSet, basename='dmt-recipient')
 router.register(r'transaction', DMTTransactionViewSet, basename='dmt-transaction')
 router.register(r'verification', DMTCustomerVerificationViewSet, basename='dmt-verification')
 router.register(r"banks", BankViewSet, basename="ekobank")
-router.register(r'inquiry', DMTTransactionInquiryViewSet, basename='dmt-inquiry')  # Add this
+router.register(r'inquiry', DMTTransactionInquiryViewSet, basename='dmt-inquiry')
 
 urlpatterns = [
     path('', include(router.urls)),

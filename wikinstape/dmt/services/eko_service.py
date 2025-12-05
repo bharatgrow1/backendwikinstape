@@ -283,7 +283,7 @@ class EkoAPIService:
         if is_client_ref_id:
             endpoint = f"/transactions/client_ref_id:{inquiry_id}"
         else:
-            endpoint = f"/transactions/{inquiry_id}"
+            endpoint = f"/v2/transactions/{inquiry_id}"
         
         params = {
             "initiator_id": self.initiator_id,
