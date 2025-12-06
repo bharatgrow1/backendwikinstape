@@ -162,7 +162,7 @@ class EkoRechargeService:
             "sender_name": sender_name,
             "operator_id": operator_id,
             "latlong": "28.6139,77.2090",
-            "hc_channel": "1"
+            "hc_channel": "0"
         }
         
         # Generate concat string for request_hash
