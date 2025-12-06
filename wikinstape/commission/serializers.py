@@ -56,6 +56,9 @@ class ServiceCommissionSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate commission distribution doesn't exceed 100% for percentage type"""
+        request = self.context.get('request')
+        user = request.user if request else None
+        
         if data.get('commission_type') == 'percentage':
             total_commission = (
                 data.get('admin_commission', 0) +
@@ -67,7 +70,84 @@ class ServiceCommissionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Total commission distribution cannot exceed 100%"
                 )
+            
+            # Role-based validation
+            if user:
+                user_role = user.role
+                if user_role == 'superadmin' and data.get('admin_commission', 0) > 100:
+                    raise serializers.ValidationError("Admin commission cannot exceed 100%")
+                elif user_role == 'admin' and data.get('master_commission', 0) > 100:
+                    raise serializers.ValidationError("Master commission cannot exceed 100%")
+                elif user_role == 'master' and data.get('dealer_commission', 0) > 100:
+                    raise serializers.ValidationError("Dealer commission cannot exceed 100%")
+                elif user_role == 'dealer' and data.get('retailer_commission', 0) > 100:
+                    raise serializers.ValidationError("Retailer commission cannot exceed 100%")
+        
         return data
+    
+
+
+class RoleBasedServiceCommissionSerializer(serializers.ModelSerializer):
+    service_category_name = serializers.CharField(source='service_category.name', read_only=True)
+    service_subcategory_name = serializers.CharField(source='service_subcategory.name', read_only=True)
+    commission_plan_name = serializers.CharField(source='commission_plan.name', read_only=True)
+    superadmin_commission = serializers.SerializerMethodField()
+    
+    # Show only what user can see based on role
+    admin_commission = serializers.SerializerMethodField()
+    master_commission = serializers.SerializerMethodField()
+    dealer_commission = serializers.SerializerMethodField()
+    retailer_commission = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ServiceCommission
+        fields = [
+            'id', 'service_category', 'service_category_name', 'service_subcategory', 
+            'service_subcategory_name', 'commission_plan', 'commission_plan_name',
+            'commission_type', 'commission_value', 
+            'admin_commission', 'master_commission', 'dealer_commission', 'retailer_commission',
+            'superadmin_commission', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['superadmin_commission']
+    
+    def get_admin_commission(self, obj):
+        """Only show admin commission to superadmin and admin"""
+        request = self.context.get('request')
+        if request and request.user.role in ['superadmin', 'admin']:
+            return obj.admin_commission
+        return None
+    
+    def get_master_commission(self, obj):
+        """Show master commission to superadmin, admin, and master"""
+        request = self.context.get('request')
+        if request and request.user.role in ['superadmin', 'admin', 'master']:
+            return obj.master_commission
+        return None
+    
+    def get_dealer_commission(self, obj):
+        """Show dealer commission to superadmin, admin, master, and dealer"""
+        request = self.context.get('request')
+        if request and request.user.role in ['superadmin', 'admin', 'master', 'dealer']:
+            return obj.dealer_commission
+        return None
+    
+    def get_retailer_commission(self, obj):
+        """Show retailer commission to all roles"""
+        request = self.context.get('request')
+        if request:
+            return obj.retailer_commission
+        return None
+    
+    def get_superadmin_commission(self, obj):
+        """Calculate superadmin commission percentage"""
+        total_distributed = (
+            obj.admin_commission + 
+            obj.master_commission + 
+            obj.dealer_commission + 
+            obj.retailer_commission
+        )
+        return 100 - total_distributed
+
 
 class CommissionTransactionSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
@@ -105,6 +185,7 @@ class UserCommissionPlanSerializer(serializers.ModelSerializer):
             'assigned_by', 'assigned_by_username', 'assigned_at', 'updated_at'
         ]
 
+
 class CommissionPayoutSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
     user_role = serializers.CharField(source='user.role', read_only=True)
@@ -119,6 +200,7 @@ class CommissionPayoutSerializer(serializers.ModelSerializer):
             'processed_by', 'processed_by_username', 'processed_at',
             'created_at', 'updated_at'
         ]
+
 
 class CommissionStatsSerializer(serializers.Serializer):
     total_commission = serializers.DecimalField(max_digits=15, decimal_places=2)
@@ -163,7 +245,7 @@ class RoleFilteredServiceCommissionSerializer(serializers.ModelSerializer):
                 distribution_percentages = obj.get_distribution_percentages()
                 return distribution_percentages.get(role, 0)
         return 0
-    
+
 
 
 class DealerRetailerServiceCommissionSerializer(serializers.ModelSerializer):
@@ -212,7 +294,7 @@ class DealerRetailerServiceCommissionSerializer(serializers.ModelSerializer):
                     'description': f"You earn ₹{role_commission} from ₹{example_amount} transaction"
                 }
         return None
-    
+
 
 
 class BulkServiceCommissionCreateSerializer(serializers.Serializer):

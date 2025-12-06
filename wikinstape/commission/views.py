@@ -3,21 +3,21 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction as db_transaction
-from django.db.models import Sum, Count, Q, Avg, Max, Min
+from django.db.models import Sum, Count, Q, Avg, Max, Min, F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import datetime, timedelta
 import random
 from decimal import InvalidOperation
 from django.db.models.functions import ExtractMonth, ExtractYear
-from django.db import models
+from rest_framework.exceptions import PermissionDenied
 
 
 from commission.models import (CommissionPlan, ServiceCommission, UserCommissionPlan, CommissionPayout,  CommissionTransaction)
 from commission.serializers import (CommissionPlanSerializer, ServiceCommissionSerializer, RoleFilteredServiceCommissionSerializer,
         BulkServiceCommissionCreateSerializer, CommissionTransactionSerializer, UserCommissionPlanSerializer,
         CommissionPayoutSerializer, DealerRetailerServiceCommissionSerializer, 
-        AssignCommissionPlanSerializer, CommissionCalculatorSerializer)
+        AssignCommissionPlanSerializer, CommissionCalculatorSerializer, RoleBasedServiceCommissionSerializer)
 
 from users.models import (User, Wallet, Transaction)
 from services.models import (ServiceCategory, ServiceSubCategory, ServiceSubmission)
@@ -34,22 +34,26 @@ class CommissionPlanViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 class ServiceCommissionViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated]  # Changed from [IsAuthenticated, IsAdminUser]
     queryset = ServiceCommission.objects.all()
     serializer_class = ServiceCommissionSerializer
     filter_fields = ['service_category', 'service_subcategory', 'commission_plan', 'is_active']
     
     def get_serializer_class(self):
-        """Use different serializer when role filter is applied"""
-        if self.request.query_params.get('role'):
-            return RoleFilteredServiceCommissionSerializer
+        """Use different serializer based on user role"""
+        user = self.request.user
+        if user.role != 'superadmin':
+            return RoleBasedServiceCommissionSerializer
         return ServiceCommissionSerializer
     
     def get_queryset(self):
         """Override get_queryset to add role-based filtering"""
+        user = self.request.user
+        user_role = user.role
+        
         queryset = super().get_queryset()
         
-        # Get role filter from query parameters
+        # Get role filter from query parameters (if any)
         role = self.request.query_params.get('role')
         
         if role:
@@ -65,12 +69,41 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
             elif role == 'superadmin':
                 queryset = queryset.annotate(
                     total_distributed=(
-                        models.F('admin_commission') + 
-                        models.F('master_commission') + 
-                        models.F('dealer_commission') + 
-                        models.F('retailer_commission')
+                        F('admin_commission') + 
+                        F('master_commission') + 
+                        F('dealer_commission') + 
+                        F('retailer_commission')
                     )
                 ).filter(total_distributed__lt=100)
+        else:
+            # Apply role-based filtering automatically based on user's role
+            if user_role == 'superadmin':
+                # Super Admin sees all
+                pass
+            elif user_role == 'admin':
+                # Admin sees Admin, Master, Dealer, Retailer
+                queryset = queryset.filter(
+                    Q(admin_commission__gt=0) |
+                    Q(master_commission__gt=0) |
+                    Q(dealer_commission__gt=0) |
+                    Q(retailer_commission__gt=0)
+                )
+            elif user_role == 'master':
+                # Master sees Master, Dealer, Retailer
+                queryset = queryset.filter(
+                    Q(master_commission__gt=0) |
+                    Q(dealer_commission__gt=0) |
+                    Q(retailer_commission__gt=0)
+                )
+            elif user_role == 'dealer':
+                # Dealer sees Dealer, Retailer
+                queryset = queryset.filter(
+                    Q(dealer_commission__gt=0) |
+                    Q(retailer_commission__gt=0)
+                )
+            elif user_role == 'retailer':
+                # Retailer sees only Retailer
+                queryset = queryset.filter(retailer_commission__gt=0)
         
         return queryset
     
@@ -80,59 +113,154 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
         context['request'] = self.request
         return context
     
+    def check_permissions(self, request):
+        """Check if user has permission for the action"""
+        super().check_permissions(request)
+        
+        user = request.user
+        user_role = user.role
+        
+        # Define allowed actions per role
+        allowed_actions = {
+            'superadmin': ['list', 'retrieve', 'create', 'update', 'partial_update', 'destroy'],
+            'admin': ['list', 'retrieve', 'create', 'update', 'partial_update'],
+            'master': ['list', 'retrieve', 'create', 'update', 'partial_update'],
+            'dealer': ['list', 'retrieve', 'create', 'update', 'partial_update'],
+            'retailer': ['list', 'retrieve']
+        }
+        
+        action_name = self.action if self.action else 'list'
+        
+        if action_name not in allowed_actions.get(user_role, []):
+            raise PermissionDenied(f"{user_role} cannot perform {action_name} action")
+    
+    def check_edit_permissions(self, user, data, instance=None):
+        """Check if user has permission to edit specific commission fields"""
+        user_role = user.role
+        
+        # Define editable fields for each role
+        editable_fields_map = {
+            'superadmin': ['admin_commission'],
+            'admin': ['master_commission'],
+            'master': ['dealer_commission'],
+            'dealer': ['retailer_commission'],
+            'retailer': []
+        }
+        
+        editable_fields = editable_fields_map.get(user_role, [])
+        
+        # Check each field in data
+        for field in data.keys():
+            if field.endswith('_commission') and field != 'superadmin_commission':
+                if field not in editable_fields:
+                    raise PermissionDenied(
+                        f"You do not have permission to edit {field}. "
+                        f"As {user_role}, you can only edit: {', '.join(editable_fields)}"
+                    )
+        
+        return True
+    
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        """Create commission with role-based permissions"""
+        user = self.request.user
+        user_role = user.role
+        data = serializer.validated_data
+        
+        # Check edit permissions
+        self.check_edit_permissions(user, data)
+        
+        # For non-superadmin users, preserve other commission values
+        if user_role != 'superadmin':
+            # Get existing commission for this service and plan
+            service_subcategory = data.get('service_subcategory')
+            service_category = data.get('service_category')
+            commission_plan = data.get('commission_plan')
+            
+            existing_commission = ServiceCommission.objects.filter(
+                Q(service_subcategory=service_subcategory) | Q(service_category=service_category),
+                commission_plan=commission_plan
+            ).first()
+            
+            if existing_commission:
+                # For updates, preserve non-editable fields from existing commission
+                if user_role == 'admin':
+                    data['admin_commission'] = existing_commission.admin_commission
+                elif user_role == 'master':
+                    data['admin_commission'] = existing_commission.admin_commission
+                    data['master_commission'] = existing_commission.master_commission
+                elif user_role == 'dealer':
+                    data['admin_commission'] = existing_commission.admin_commission
+                    data['master_commission'] = existing_commission.master_commission
+                    data['dealer_commission'] = existing_commission.dealer_commission
+            else:
+                # For new commissions, set defaults for non-editable fields
+                if user_role == 'admin':
+                    data['admin_commission'] = 0
+                elif user_role == 'master':
+                    data['admin_commission'] = 0
+                    data['master_commission'] = 0
+                elif user_role == 'dealer':
+                    data['admin_commission'] = 0
+                    data['master_commission'] = 0
+                    data['dealer_commission'] = 0
+        
+        serializer.save(created_by=user)
     
-    @action(detail=False, methods=['get'])
-    def by_service(self, request):
-        """Get commissions for specific service"""
-        subcategory_id = request.query_params.get('subcategory_id')
-        category_id = request.query_params.get('category_id')
+    def perform_update(self, serializer):
+        """Update commission with role-based permissions"""
+        user = self.request.user
+        user_role = user.role
+        data = serializer.validated_data
+        instance = self.get_object()
         
-        if not subcategory_id and not category_id:
-            return Response(
-                {'error': 'Either subcategory_id or category_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Check edit permissions
+        self.check_edit_permissions(user, data)
         
-        queryset = self.get_queryset()
-        if subcategory_id:
-            queryset = queryset.filter(service_subcategory_id=subcategory_id)
-        elif category_id:
-            queryset = queryset.filter(service_category_id=category_id)
+        # For partial updates, preserve fields user cannot edit
+        if user_role != 'superadmin':
+            # Get the original instance values
+            original_data = {
+                'admin_commission': instance.admin_commission,
+                'master_commission': instance.master_commission,
+                'dealer_commission': instance.dealer_commission,
+                'retailer_commission': instance.retailer_commission
+            }
+            
+            # Preserve fields based on role
+            if user_role == 'admin':
+                # Admin can only edit master_commission
+                data['admin_commission'] = original_data['admin_commission']
+                if 'dealer_commission' in data:
+                    data['dealer_commission'] = original_data['dealer_commission']
+                if 'retailer_commission' in data:
+                    data['retailer_commission'] = original_data['retailer_commission']
+            elif user_role == 'master':
+                # Master can only edit dealer_commission
+                data['admin_commission'] = original_data['admin_commission']
+                data['master_commission'] = original_data['master_commission']
+                if 'retailer_commission' in data:
+                    data['retailer_commission'] = original_data['retailer_commission']
+            elif user_role == 'dealer':
+                # Dealer can only edit retailer_commission
+                data['admin_commission'] = original_data['admin_commission']
+                data['master_commission'] = original_data['master_commission']
+                data['dealer_commission'] = original_data['dealer_commission']
         
-        serializer_class = self.get_serializer_class()
-        serializer = serializer_class(queryset, many=True, context={'request': request})
-        return Response(serializer.data)
+        serializer.save()
     
-    @action(detail=True, methods=['get'])
-    def distribution_details(self, request, pk=None):
-        """Get detailed distribution information for a service commission"""
-        service_commission = self.get_object()
-        
-        distribution_percentages = service_commission.get_distribution_percentages()
-        
-        return Response({
-            'service_commission_id': service_commission.id,
-            'service_name': service_commission.service_subcategory.name if service_commission.service_subcategory else service_commission.service_category.name,
-            'commission_plan': service_commission.commission_plan.name,
-            'commission_type': service_commission.commission_type,
-            'commission_value': service_commission.commission_value,
-            'distribution_percentages': distribution_percentages,
-            'total_distributed': sum([
-                service_commission.admin_commission,
-                service_commission.master_commission,
-                service_commission.dealer_commission,
-                service_commission.retailer_commission
-            ]),
-            'superadmin_share': distribution_percentages['superadmin']
-        })
-
-
-
+    def perform_destroy(self, instance):
+        """Only superadmin can delete commissions"""
+        user = self.request.user
+        if user.role != 'superadmin':
+            raise PermissionDenied("Only Super Admin can delete commissions")
+        instance.delete()
+    
     @action(detail=False, methods=['post'])
     def bulk_create(self, request):
         """Create multiple service commissions at once with individual data"""
+        user = request.user
+        user_role = user.role
+        
         serializer = BulkServiceCommissionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -141,30 +269,54 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
         
         for commission_data in serializer.validated_data['commissions']:
             try:
+                # Check permissions for this commission
+                self.check_edit_permissions(user, commission_data)
+                
                 service_subcategory_id = commission_data.get('service_subcategory')
                 commission_plan_id = commission_data.get('commission_plan')
+                service_category_id = commission_data.get('service_category')
                 
+                # Find existing commission
                 existing_commission = ServiceCommission.objects.filter(
-                    service_subcategory_id=service_subcategory_id,
+                    Q(service_subcategory_id=service_subcategory_id) | Q(service_category_id=service_category_id),
                     commission_plan_id=commission_plan_id
                 ).first()
                 
                 if existing_commission:
+                    # Update existing commission
                     commission_serializer = ServiceCommissionSerializer(
                         existing_commission, 
                         data=commission_data,
-                        partial=True
+                        partial=True,
+                        context={'request': request}
                     )
                 else:
-                    commission_data['service_category'] = commission_data.get('service_category')
-                    commission_serializer = ServiceCommissionSerializer(data=commission_data)
+                    # Create new commission
+                    commission_serializer = ServiceCommissionSerializer(
+                        data=commission_data,
+                        context={'request': request}
+                    )
                 
                 if commission_serializer.is_valid():
-                    commission_serializer.save(created_by=request.user)
+                    # For new commissions by non-superadmin, set defaults
+                    if not existing_commission and user_role != 'superadmin':
+                        if user_role == 'admin':
+                            commission_data['admin_commission'] = 0
+                        elif user_role == 'master':
+                            commission_data['admin_commission'] = 0
+                            commission_data['master_commission'] = 0
+                        elif user_role == 'dealer':
+                            commission_data['admin_commission'] = 0
+                            commission_data['master_commission'] = 0
+                            commission_data['dealer_commission'] = 0
+                    
+                    commission_serializer.save(created_by=user)
                     created_count += 1
                 else:
                     errors.append(f"Validation error for service {service_subcategory_id}: {commission_serializer.errors}")
                     
+            except PermissionDenied as e:
+                errors.append(f"Permission error for service {commission_data.get('service_subcategory')}: {str(e)}")
             except Exception as e:
                 errors.append(f"Error creating commission for service {commission_data.get('service_subcategory')}: {str(e)}")
         
@@ -179,7 +331,83 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
         
         return Response(response_data, status=status.HTTP_201_CREATED)
     
-
+    @action(detail=False, methods=['get'])
+    def my_permissions(self, request):
+        """Get current user's commission permissions"""
+        user = request.user
+        user_role = user.role
+        
+        permissions = {
+            'user_role': user_role,
+            'can_view': [],
+            'can_edit': [],
+            'can_delete': user_role == 'superadmin',
+            'description': ''
+        }
+        
+        # Define permissions based on role
+        if user_role == 'superadmin':
+            permissions['can_view'] = ['admin', 'master', 'dealer', 'retailer', 'superadmin']
+            permissions['can_edit'] = ['admin_commission']
+            permissions['description'] = 'Can view all commissions, edit only Admin commission'
+        elif user_role == 'admin':
+            permissions['can_view'] = ['admin', 'master', 'dealer', 'retailer']
+            permissions['can_edit'] = ['master_commission']
+            permissions['description'] = 'Can view Admin to Retailer commissions, edit only Master commission'
+        elif user_role == 'master':
+            permissions['can_view'] = ['master', 'dealer', 'retailer']
+            permissions['can_edit'] = ['dealer_commission']
+            permissions['description'] = 'Can view Master to Retailer commissions, edit only Dealer commission'
+        elif user_role == 'dealer':
+            permissions['can_view'] = ['dealer', 'retailer']
+            permissions['can_edit'] = ['retailer_commission']
+            permissions['description'] = 'Can view Dealer and Retailer commissions, edit only Retailer commission'
+        elif user_role == 'retailer':
+            permissions['can_view'] = ['retailer']
+            permissions['can_edit'] = []
+            permissions['description'] = 'Can view only Retailer commission, cannot edit any'
+        
+        return Response(permissions)
+    
+    @action(detail=True, methods=['get'])
+    def distribution_details(self, request, pk=None):
+        """Get detailed distribution information for a service commission"""
+        service_commission = self.get_object()
+        user = request.user
+        user_role = user.role
+        
+        distribution_percentages = service_commission.get_distribution_percentages()
+        
+        # Filter what user can see based on role
+        filtered_distribution = {}
+        for role, percentage in distribution_percentages.items():
+            if role == 'superadmin':
+                filtered_distribution[role] = percentage
+            elif role == 'admin' and user_role in ['superadmin', 'admin']:
+                filtered_distribution[role] = percentage
+            elif role == 'master' and user_role in ['superadmin', 'admin', 'master']:
+                filtered_distribution[role] = percentage
+            elif role == 'dealer' and user_role in ['superadmin', 'admin', 'master', 'dealer']:
+                filtered_distribution[role] = percentage
+            elif role == 'retailer' and user_role in ['superadmin', 'admin', 'master', 'dealer', 'retailer']:
+                filtered_distribution[role] = percentage
+        
+        return Response({
+            'service_commission_id': service_commission.id,
+            'service_name': service_commission.service_subcategory.name if service_commission.service_subcategory else service_commission.service_category.name,
+            'commission_plan': service_commission.commission_plan.name,
+            'commission_type': service_commission.commission_type,
+            'commission_value': service_commission.commission_value,
+            'distribution_percentages': filtered_distribution,
+            'total_distributed': sum([
+                service_commission.admin_commission,
+                service_commission.master_commission,
+                service_commission.dealer_commission,
+                service_commission.retailer_commission
+            ]),
+            'superadmin_share': distribution_percentages['superadmin']
+        })
+    
 
 class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
