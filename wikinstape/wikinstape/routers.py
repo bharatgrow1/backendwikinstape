@@ -10,6 +10,7 @@ from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, C
         UserCommissionPlanViewSet, CommissionPayoutViewSet, CommissionStatsViewSet, DealerRetailerCommissionViewSet, 
         CommissionDashboardViewSet)
 from services.views_permissions import ServicePermissionViewSet
+from vendorpayment.views import VendorPaymentViewSet
 
 router = DefaultRouter()
 
@@ -53,3 +54,5 @@ router.register(r'commission-payouts', CommissionPayoutViewSet, basename='commis
 router.register(r'my-service-commissions', DealerRetailerCommissionViewSet, basename='my-service-commissions')
 router.register(r'commission-stats', CommissionStatsViewSet, basename='commission-stats')
 router.register(r'commission-dashboard', CommissionDashboardViewSet, basename='commission-dashboard')
+
+router.register(r'vendor-payment', VendorPaymentViewSet, basename='vendor-payment')
