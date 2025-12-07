@@ -3,7 +3,7 @@ from django.utils import timezone
 from decimal import Decimal
 import logging
 from .eko_service import eko_service
-from services.models import DMTTransaction
+from dmt.models import DMTTransaction
 
 logger = logging.getLogger(__name__)
 
