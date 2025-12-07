@@ -3,6 +3,7 @@ from django.utils import timezone
 from decimal import Decimal
 import logging
 from .eko_service import eko_service
+from services.models import DMTTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +76,75 @@ class DMTManager:
     
     def transaction_inquiry(self, inquiry_id, is_client_ref_id=False):
         """Check transaction status by TID or client_ref_id"""
-        return self.eko_service.transaction_inquiry(inquiry_id, is_client_ref_id)
+        try:
+            response = self.eko_service.transaction_inquiry(inquiry_id, is_client_ref_id)
+            
+            # Optionally update transaction status in database
+            if response.get('status') == 0:
+                data = response.get('data', {})
+                tx_status = data.get('tx_status')
+                
+                # Update transaction record if exists
+                try:
+                    if is_client_ref_id:
+                        transaction = DMTTransaction.objects.filter(
+                            client_ref_id=inquiry_id
+                        ).first()
+                    else:
+                        transaction = DMTTransaction.objects.filter(
+                            eko_tid=inquiry_id
+                        ).first()
+                    
+                    if transaction:
+                        transaction.update_from_eko_response(response)
+                except Exception as e:
+                    logger.error(f"Failed to update transaction record: {str(e)}")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Transaction inquiry error: {str(e)}")
+            return {"status": 1, "message": f"Failed to check transaction status: {str(e)}"}
     
 
     def refund_transaction(self, tid, otp):
-        """Refund failed transaction"""
-        return self.eko_service.refund_transaction(tid, otp)
+        """Process refund for transaction"""
+        try:
+            # First verify the transaction exists and is eligible for refund
+            try:
+                transaction = DMTTransaction.objects.filter(eko_tid=tid).first()
+                if not transaction:
+                    return {"status": 1, "message": "Transaction not found"}
+                
+                if transaction.status not in ['failed', 'processing']:
+                    return {"status": 1, "message": "Transaction is not eligible for refund"}
+            except DMTTransaction.DoesNotExist:
+                return {"status": 1, "message": "Transaction not found"}
+            
+            # Process refund through EKO API
+            response = self.eko_service.refund_transaction(tid, otp)
+            
+            # Update transaction status based on refund response
+            if response.get('status') == 0:
+                transaction.status = 'cancelled'
+                transaction.status_message = "Refund initiated"
+                transaction.save()
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Refund transaction error: {str(e)}")
+            return {"status": 1, "message": f"Failed to process refund: {str(e)}"}
     
 
     def resend_refund_otp(self, tid):
-        return self.eko_service.resend_refund_otp(tid)
+        """Resend OTP for refund"""
+        try:
+            response = self.eko_service.resend_refund_otp(tid)
+            return response
+        except Exception as e:
+            logger.error(f"Resend refund OTP error: {str(e)}")
+            return {"status": 1, "message": f"Failed to resend refund OTP: {str(e)}"}
 
 
 dmt_manager = DMTManager()

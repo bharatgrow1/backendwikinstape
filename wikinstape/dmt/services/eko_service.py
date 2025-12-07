@@ -280,16 +280,20 @@ class EkoAPIService:
 
 
     def transaction_inquiry(self, inquiry_id, is_client_ref_id=False):
+        """
+        Transaction Inquiry
+        GET /v1/transactions/{tid} OR /v1/transactions/client_ref_id:{client_ref_id}
+        """
         if is_client_ref_id:
-            endpoint = f"/ekoapi/v2/transactions/client_ref_id:{inquiry_id}"
+            endpoint = f"/v1/transactions/client_ref_id:{inquiry_id}"
         else:
-            endpoint = f"/ekoapi/v2/transactions/{inquiry_id}"
-
+            endpoint = f"/v1/transactions/{inquiry_id}"
+        
         params = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE
         }
-
+        
         return self.make_request("GET", endpoint, data=params)
     
 
@@ -300,28 +304,28 @@ class EkoAPIService:
         POST /v2/transactions/{tid}/refund
         """
         endpoint = f"/v2/transactions/{tid}/refund"
-
+        
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
             "otp": otp,
-            "state": "1"
+            "state": 1
         }
-
+        
         return self.make_request("POST", endpoint, payload)
     
 
     def resend_refund_otp(self, tid):
         """
         Resend Refund OTP
-        POST /transactions/{tid}/refund/otp
+        POST /v2/transactions/{tid}/refund/otp
         """
-        endpoint = f"/transactions/{tid}/refund/otp"
-
+        endpoint = f"/v2/transactions/{tid}/refund/otp"
+        
         payload = {
             "initiator_id": self.initiator_id
         }
-
+        
         return self.make_request("POST", endpoint, payload)
 
 

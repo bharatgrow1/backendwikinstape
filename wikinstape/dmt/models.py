@@ -3,6 +3,9 @@ from django.conf import settings
 from django.utils import timezone
 import uuid
 from decimal import Decimal
+import logging
+logger = logging.getLogger(__name__)
+
 
 class DMTTransaction(models.Model):
     STATUS_CHOICES = (
@@ -393,3 +396,61 @@ class EkoBank(models.Model):
 
     def __str__(self):
         return self.bank_name
+    
+
+
+class TransactionStatusManager:
+    @staticmethod
+    def check_and_update_status(tid=None, client_ref_id=None):
+        """Check transaction status from EKO and update local record"""
+        try:
+            if tid:
+                transaction = DMTTransaction.objects.filter(eko_tid=tid).first()
+                inquiry_id = tid
+                is_client_ref_id = False
+            elif client_ref_id:
+                transaction = DMTTransaction.objects.filter(client_ref_id=client_ref_id).first()
+                inquiry_id = client_ref_id
+                is_client_ref_id = True
+            else:
+                return {"status": 1, "message": "Either tid or client_ref_id is required"}
+            
+            if not transaction:
+                return {"status": 1, "message": "Transaction not found"}
+            
+            # Use DMTManager to check status
+            from .services.dmt_manager import dmt_manager
+            response = dmt_manager.transaction_inquiry(inquiry_id, is_client_ref_id)
+            
+            if response.get('status') == 0:
+                # Update transaction
+                transaction.update_from_eko_response(response)
+                return {
+                    "status": 0,
+                    "message": "Status updated successfully",
+                    "transaction_status": transaction.status,
+                    "eko_tx_status": transaction.eko_tx_status
+                }
+            else:
+                return response
+                
+        except Exception as e:
+            logger.error(f"Status update error: {str(e)}")
+            return {"status": 1, "message": str(e)}
+    
+    @staticmethod
+    def get_eligible_refund_transactions(user=None):
+        """Get transactions eligible for refund"""
+        try:
+            queryset = DMTTransaction.objects.filter(
+                status__in=['failed', 'processing'],
+                eko_tx_status__in=['1', '2', '5'] 
+            )
+            
+            if user:
+                queryset = queryset.filter(user=user)
+            
+            return queryset.order_by('-initiated_at')
+        except Exception as e:
+            logger.error(f"Error getting refund eligible transactions: {str(e)}")
+            return DMTTransaction.objects.none()
