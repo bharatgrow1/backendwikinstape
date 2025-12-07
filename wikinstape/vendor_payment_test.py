@@ -6,17 +6,21 @@ import hashlib
 import json
 
 # -----------------------------------
-# 🔧 CONFIGURATION
+# CONFIGURATION
 # -----------------------------------
-BASE_URL = "https://api.eko.in:25002/ekoicici"  # ✅ Correct base URL for transaction inquiry
+BASE_URL = "https://api.eko.in:25002/ekoicici" 
 DEVELOPER_KEY = "753595f07a59eb5a52341538fad5a63d"
 ACCESS_KEY = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
 INITIATOR_ID = "9212094999"
 USER_CODE = "38130001"
 
-# 🔹 ID to test
-INQUIRY_ID = "3513729402"
-IS_CLIENT_REF_ID = False  # True → client_ref_id:xxxx
+# Transaction Details
+CLIENT_REF_ID = f"VP{int(time.time())}"
+BENEFICIARY_NAME = "Pritesh Prasad"
+BENEFICIARY_ACCOUNT = "9924000100007471"
+BENEFICIARY_IFSC = "PUNB0992400"
+AMOUNT = 10
+PAYMENT_MODE = 5   # 5=IMPS, 4=NEFT, 13=RTGS
 
 # -----------------------------------
 def generate_signature():
@@ -27,35 +31,40 @@ def generate_signature():
     return secret_key, timestamp
 
 
-def transaction_inquiry(inquiry_id, is_client_ref_id=False):
+def vendor_payment():
     secret_key, ts = generate_signature()
 
-    if is_client_ref_id:
-        endpoint = f"/v1/transactions/client_ref_id:{inquiry_id}"
-    else:
-        endpoint = f"/v1/transactions/{inquiry_id}"
-
+    endpoint = f"/v1/agent/user_code:{USER_CODE}/settlement"
     url = f"{BASE_URL}{endpoint}"
 
     headers = {
         "accept": "application/json",
         "developer_key": DEVELOPER_KEY,
         "secret-key": secret_key,
-        "secret-key-timestamp": ts
+        "secret-key-timestamp": ts,
+        "content-type": "application/x-www-form-urlencoded"
     }
 
-    params = {
+    payload = {
         "initiator_id": INITIATOR_ID,
-        "user_code": USER_CODE
+        "client_ref_id": CLIENT_REF_ID,
+        "service_code": 45,
+        "payment_mode": PAYMENT_MODE,
+        "recipient_name": BENEFICIARY_NAME,
+        "account": BENEFICIARY_ACCOUNT,
+        "ifsc": BENEFICIARY_IFSC,
+        "amount": AMOUNT,
+        "source": "NEWCONNECT",
+        "sender_name": "Pritesh Enterprises",
+        "tag": "Vendor Payment"
     }
 
-    print(f"\n🔹 Checking transaction status for: {inquiry_id}")
+    print("\n🔹 Initiating Vendor Payment")
     print(f"🔸 URL: {url}")
-    print(f"🔸 Headers: {headers}")
-    print(f"🔸 Params: {params}\n")
+    print(f"🔸 Payload: {payload}\n")
 
-    response = requests.get(url, headers=headers, params=params)
-    print(f"HTTP {response.status_code}")
+    response = requests.post(url, headers=headers, data=payload)
+    print(f"HTTP {response.status_code}\n")
 
     try:
         data = response.json()
@@ -67,4 +76,4 @@ def transaction_inquiry(inquiry_id, is_client_ref_id=False):
 
 
 if __name__ == "__main__":
-    transaction_inquiry(INQUIRY_ID, IS_CLIENT_REF_ID)
+    vendor_payment()
