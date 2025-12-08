@@ -15,7 +15,7 @@ class VendorPayment(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='vendor_payments')
     eko_tid = models.CharField(max_length=50, blank=True, null=True)
-    client_ref_id = models.CharField(max_length=50, unique=True)
+    client_ref_id = models.CharField(max_length=50, unique=True, blank=True, null=True)  # ✅ Allow null
     
     recipient_name = models.CharField(max_length=255)
     recipient_account = models.CharField(max_length=50)
@@ -56,24 +56,35 @@ class VendorPayment(models.Model):
         ]
     
     def __str__(self):
-        return f"{self.client_ref_id} - ₹{self.amount} - {self.status}"
+        return f"{self.client_ref_id or 'N/A'} - ₹{self.amount} - {self.status}"
     
     def save(self, *args, **kwargs):
-        if not self.receipt_number:
-            self.receipt_number = f"VP{self.id:08d}"
+        # ✅ FIXED: Generate client_ref_id if not provided
+        if not self.client_ref_id:
+            self.client_ref_id = f"VP{int(timezone.now().timestamp())}"
+        
+        # ✅ FIXED: Calculate total deduction if not provided
         if not self.total_deduction:
             self.total_deduction = self.amount + self.total_fee
+        
+        # Save first to get ID
         super().save(*args, **kwargs)
+        
+        # ✅ FIXED: Generate receipt_number AFTER saving (when ID exists)
+        if not self.receipt_number:
+            self.receipt_number = f"VP{self.id:08d}"
+            # Save again with receipt number
+            super().save(update_fields=['receipt_number'])
     
     def generate_receipt_data(self):
         """Generate data for receipt PDF"""
         return {
-            'receipt_number': self.receipt_number,
+            'receipt_number': self.receipt_number or 'Pending',
             'date': self.payment_date.strftime('%d/%m/%Y %H:%M:%S'),
             'user': {
                 'name': self.user.get_full_name() or self.user.username,
-                'phone': self.user.phone_number,
-                'email': self.user.email
+                'phone': self.user.phone_number or 'N/A',
+                'email': self.user.email or 'N/A'
             },
             'recipient': {
                 'name': self.recipient_name,
@@ -90,7 +101,7 @@ class VendorPayment(models.Model):
             },
             'transaction': {
                 'id': self.client_ref_id,
-                'eko_tid': self.eko_tid,
+                'eko_tid': self.eko_tid or 'N/A',
                 'status': self.status,
                 'mode': self.payment_mode,
                 'purpose': self.purpose
