@@ -41,11 +41,12 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                     'message': 'Invalid wallet PIN'
                 })
             
+            # ✅ FIXED: Convert all to Decimal properly
             amount = Decimal(str(data['amount']))
             fee = Decimal('7.00')
             gst = Decimal('1.26')
-            total_fee = Decimal('8.26')
-            total_deduction = amount + total_fee
+            total_fee = fee + gst  # Decimal + Decimal = Decimal
+            total_deduction = amount + total_fee  # Decimal + Decimal = Decimal
             
             if wallet.balance < total_deduction:
                 return Response({
@@ -70,11 +71,14 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 status='initiated'
             )
             
-            # ✅ STEP 2: Deduct from wallet
+            logger.info(f"✅ Created VendorPayment: ID={vendor_payment.id}")
+            logger.info(f"✅ Amount: {amount}, Fee: {fee}, GST: {gst}, Total Deduction: {total_deduction}")
+            
+            # ✅ STEP 2: Deduct from wallet (pass Decimal values)
             wallet.deduct_amount(amount, total_fee, pin)
             
             # ✅ STEP 3: Create wallet transaction
-            wallet_transaction = Transaction.objects.create(
+            Transaction.objects.create(
                 wallet=wallet,
                 amount=amount,
                 service_charge=total_fee,
@@ -95,6 +99,8 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             
         except Exception as e:
             logger.error(f"❌ Wallet deduction failed: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return Response({
                 'status': 1,
                 'message': f'Payment failed: {str(e)}'
@@ -103,7 +109,13 @@ class VendorPaymentViewSet(viewsets.ViewSet):
         try:
             # ✅ STEP 4: Initiate EKO payment
             eko_data = data.copy()
-            eko_result = vendor_manager.initiate_payment(eko_data)
+            # ✅ FIXED: Convert amount to string for EKO API
+            eko_data['amount'] = str(amount)
+            
+            logger.info(f"📤 Sending to EKO: {eko_data}")
+
+            # ✅ FIXED: Pass vendor_payment_id to vendor_manager
+            eko_result = vendor_manager.initiate_payment(eko_data, vendor_payment.id)
             
             logger.info(f"✅ EKO vendor payment response: {eko_result}")
             
@@ -112,6 +124,7 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             eko_data_response = eko_result.get('data', {})
             
             # ✅ STEP 5: Update VendorPayment record with EKO response
+            vendor_payment.refresh_from_db()
             vendor_payment.eko_tid = eko_data_response.get('tid')
             vendor_payment.client_ref_id = eko_data_response.get('client_ref_id', vendor_payment.client_ref_id)
             vendor_payment.bank_ref_num = eko_data_response.get('bank_ref_num', '')
@@ -138,13 +151,19 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 return Response({
                     'status': 1,
                     'message': f'Vendor payment failed: {eko_message}. Amount refunded.',
-                    'payment_id': vendor_payment.id
+                    'payment_id': vendor_payment.id,
+                    'receipt_number': vendor_payment.receipt_number or 'Pending'
                 })
             
             # ✅ STEP 6: Payment successful, update status
             vendor_payment.status = 'success'
             vendor_payment.status_message = 'Payment initiated successfully'
             vendor_payment.save()
+            
+            # ✅ FIXED: Generate receipt number if not generated
+            if not vendor_payment.receipt_number:
+                vendor_payment.receipt_number = f"VP{vendor_payment.id:08d}"
+                vendor_payment.save(update_fields=['receipt_number'])
             
             response_data = {
                 'status': 0,
@@ -169,14 +188,19 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 }
             }
             
+            logger.info(f"✅ Final response: {response_data}")
             return Response(response_data)
             
         except Exception as e:
             logger.error(f"❌ EKO payment failed: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
             # Update vendor payment status to failed
-            vendor_payment.status = 'failed'
-            vendor_payment.status_message = str(e)
-            vendor_payment.save()
+            if 'vendor_payment' in locals():
+                vendor_payment.status = 'failed'
+                vendor_payment.status_message = str(e)
+                vendor_payment.save()
             
             try:
                 wallet.add_amount(amount)
@@ -196,45 +220,5 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             return Response({
                 'status': 1,
                 'message': f'Vendor payment failed: {str(e)}. Please contact support.',
-                'payment_id': vendor_payment.id
+                'payment_id': vendor_payment.id if 'vendor_payment' in locals() else None
             })
-    
-    @action(detail=False, methods=['get'])
-    def history(self, request):
-        """Get vendor payment history for current user"""
-        payments = VendorPayment.objects.filter(user=request.user).order_by('-created_at')
-        serializer = VendorPaymentResponseSerializer(payments, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['get'])
-    def receipt(self, request, pk=None):
-        """Generate receipt for vendor payment"""
-        try:
-            payment = VendorPayment.objects.get(id=pk, user=request.user)
-            
-            # Mark receipt as generated
-            if not payment.is_receipt_generated:
-                payment.is_receipt_generated = True
-                payment.receipt_generated_at = timezone.now()
-                payment.save()
-            
-            receipt_data = payment.generate_receipt_data()
-            
-            return Response({
-                'status': 0,
-                'message': 'Receipt generated successfully',
-                'receipt_data': receipt_data,
-                'download_url': f'/api/vendor-payment/{payment.id}/download-receipt/'
-            })
-        except VendorPayment.DoesNotExist:
-            return Response({
-                'status': 1,
-                'message': 'Payment not found'
-            }, status=404)
-    
-    @action(detail=True, methods=['get'])
-    def download_receipt(self, request, pk=None):
-        """Download receipt as PDF"""
-        # You'll need to implement PDF generation here
-        # Using libraries like reportlab, weasyprint, or xhtml2pdf
-        pass
