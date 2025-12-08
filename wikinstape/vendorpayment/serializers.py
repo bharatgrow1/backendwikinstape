@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from .models import VendorPayment
 
 class VendorPaymentSerializer(serializers.Serializer):
     recipient_name = serializers.CharField()
@@ -16,3 +17,16 @@ class VendorPaymentSerializer(serializers.Serializer):
         if len(value) != 4:
             raise serializers.ValidationError("PIN must be exactly 4 digits")
         return value
+
+class VendorPaymentResponseSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField()
+    
+    class Meta:
+        model = VendorPayment
+        fields = [
+            'id', 'receipt_number', 'user', 'recipient_name', 
+            'recipient_account', 'recipient_ifsc', 'amount',
+            'processing_fee', 'gst', 'total_fee', 'total_deduction',
+            'status', 'bank_ref_num', 'utr_number', 'payment_date',
+            'purpose', 'payment_mode', 'created_at'
+        ]
