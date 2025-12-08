@@ -1,5 +1,3 @@
-# vendorpayment/services/vendor_manager.py
-
 import time
 from .eko_vendor_service import EkoVendorService
 from vendorpayment.models import VendorPayment
@@ -14,7 +12,6 @@ class VendorManager:
     def initiate_payment(self, data, vendor_payment_id):
         """Initiate payment with EKO API"""
         try:
-            # Get existing vendor payment
             vendor_payment = VendorPayment.objects.get(id=vendor_payment_id)
             client_ref_id = vendor_payment.client_ref_id
             
@@ -30,7 +27,7 @@ class VendorManager:
                 "recipient_name": data['recipient_name'],
                 "account": data['account'],
                 "ifsc": data['ifsc'],
-                "amount": str(data['amount']),  # ✅ Must be string
+                "amount": str(data['amount']),
                 "source": "NEWCONNECT",
                 "sender_name": "VendorService App",
             }
@@ -40,7 +37,6 @@ class VendorManager:
             api_res = self.eko.initiate_payment(payload)
             logger.info(f"✅ EKO Response: {api_res}")
             
-            # Update vendor payment with EKO response
             vendor_payment.eko_tid = api_res.get("data", {}).get("tid")
             vendor_payment.bank_ref_num = api_res.get("data", {}).get("bank_ref_num", "")
             vendor_payment.timestamp = api_res.get("data", {}).get("timestamp", "")

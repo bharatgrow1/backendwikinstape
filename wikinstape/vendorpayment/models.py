@@ -15,7 +15,7 @@ class VendorPayment(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='vendor_payments')
     eko_tid = models.CharField(max_length=50, blank=True, null=True)
-    client_ref_id = models.CharField(max_length=50, unique=True, blank=True, null=True)  # ✅ Allow null
+    client_ref_id = models.CharField(max_length=50, unique=True, blank=True, null=True)
     
     recipient_name = models.CharField(max_length=255)
     recipient_account = models.CharField(max_length=50)
@@ -59,21 +59,16 @@ class VendorPayment(models.Model):
         return f"{self.client_ref_id or 'N/A'} - ₹{self.amount} - {self.status}"
     
     def save(self, *args, **kwargs):
-        # ✅ FIXED: Generate client_ref_id if not provided
         if not self.client_ref_id:
             self.client_ref_id = f"VP{int(timezone.now().timestamp())}"
         
-        # ✅ FIXED: Calculate total deduction if not provided
         if not self.total_deduction:
             self.total_deduction = self.amount + self.total_fee
         
-        # Save first to get ID
         super().save(*args, **kwargs)
         
-        # ✅ FIXED: Generate receipt_number AFTER saving (when ID exists)
         if not self.receipt_number:
             self.receipt_number = f"VP{self.id:08d}"
-            # Save again with receipt number
             super().save(update_fields=['receipt_number'])
     
     def generate_receipt_data(self):

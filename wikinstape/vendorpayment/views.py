@@ -6,11 +6,9 @@ from django.utils import timezone
 from users.models import Transaction
 from decimal import Decimal
 import logging
-import json
-
-from .serializers import VendorPaymentSerializer, VendorPaymentResponseSerializer
-from .services.vendor_manager import vendor_manager
-from .models import VendorPayment
+from vendorpayment.models import VendorPayment 
+from vendorpayment.serializers import VendorPaymentSerializer
+from vendorpayment.services.vendor_manager import vendor_manager
 
 logger = logging.getLogger(__name__)
 
@@ -41,20 +39,27 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                     'message': 'Invalid wallet PIN'
                 })
             
-            # ✅ FIXED: Convert all to Decimal properly
-            amount = Decimal(str(data['amount']))
-            fee = Decimal('7.00')
-            gst = Decimal('1.26')
-            total_fee = fee + gst  # Decimal + Decimal = Decimal
-            total_deduction = amount + total_fee  # Decimal + Decimal = Decimal
+            # ✅ FIXED: Calculate total deduction properly
+            amount = Decimal(str(data['amount']))  # ₹10.00
+            fee = Decimal('7.00')  # Processing fee
+            gst = Decimal('1.26')  # GST
+            total_fee = fee + gst  # ₹8.26
+            total_deduction = amount + total_fee  # ₹10.00 + ₹8.26 = ₹18.26
+            
+            logger.info(f"💰 Payment Calculation:")
+            logger.info(f"   Transfer Amount: ₹{amount}")
+            logger.info(f"   Processing Fee: ₹{fee}")
+            logger.info(f"   GST: ₹{gst}")
+            logger.info(f"   Total Fee: ₹{total_fee}")
+            logger.info(f"   Total Deduction: ₹{total_deduction}")
+            logger.info(f"   Wallet Balance: ₹{wallet.balance}")
             
             if wallet.balance < total_deduction:
                 return Response({
                     'status': 1,
-                    'message': f'Insufficient wallet balance. Required: ₹{total_deduction}, Available: ₹{wallet.balance}'
+                    'message': f'Insufficient wallet balance. Required: ₹{total_deduction} (₹{amount} transfer + ₹{total_fee} fees), Available: ₹{wallet.balance}'
                 })
             
-            # ✅ STEP 1: Create VendorPayment record BEFORE processing
             vendor_payment = VendorPayment.objects.create(
                 user=user,
                 recipient_name=data['recipient_name'],
@@ -71,31 +76,31 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 status='initiated'
             )
             
-            logger.info(f"✅ Created VendorPayment: ID={vendor_payment.id}")
-            logger.info(f"✅ Amount: {amount}, Fee: {fee}, GST: {gst}, Total Deduction: {total_deduction}")
-            
-            # ✅ STEP 2: Deduct from wallet (pass Decimal values)
             wallet.deduct_amount(amount, total_fee, pin)
             
-            # ✅ STEP 3: Create wallet transaction
-            Transaction.objects.create(
+            transaction = Transaction.objects.create(
                 wallet=wallet,
                 amount=amount,
                 service_charge=total_fee,
                 net_amount=amount,
                 transaction_type='debit',
                 transaction_category='vendor_payment',
-                description=f"Vendor payment to {data['recipient_name']}",
+                description=f"Vendor payment to {data['recipient_name']} - Account: {data['account'][-4:]}",
                 created_by=user,
                 status='success',
                 metadata={
                     'vendor_payment_id': vendor_payment.id,
-                    'recipient_account': data['account'],
-                    'ifsc': data['ifsc']
+                    'recipient_name': data['recipient_name'],
+                    'recipient_account': data['account'][-4:],
+                    'ifsc': data['ifsc'],
+                    'transfer_amount': str(amount),
+                    'fee': str(total_fee),
+                    'total_deduction': str(total_deduction)
                 }
             )
             
-            logger.info(f"✅ Wallet deduction successful: ₹{total_deduction} from {user.username}")
+            logger.info(f"✅ Wallet deduction successful: ₹{total_deduction} deducted from wallet")
+            logger.info(f"✅ New wallet balance: ₹{wallet.balance}")
             
         except Exception as e:
             logger.error(f"❌ Wallet deduction failed: {str(e)}")
@@ -107,14 +112,10 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             })
         
         try:
-            # ✅ STEP 4: Initiate EKO payment
             eko_data = data.copy()
-            # ✅ FIXED: Convert amount to string for EKO API
             eko_data['amount'] = str(amount)
             
-            logger.info(f"📤 Sending to EKO: {eko_data}")
-
-            # ✅ FIXED: Pass vendor_payment_id to vendor_manager
+            logger.info(f"📤 Sending to EKO: Transfer Amount = ₹{amount}")
             eko_result = vendor_manager.initiate_payment(eko_data, vendor_payment.id)
             
             logger.info(f"✅ EKO vendor payment response: {eko_result}")
@@ -123,7 +124,6 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             eko_message = eko_result.get('message', '')
             eko_data_response = eko_result.get('data', {})
             
-            # ✅ STEP 5: Update VendorPayment record with EKO response
             vendor_payment.refresh_from_db()
             vendor_payment.eko_tid = eko_data_response.get('tid')
             vendor_payment.client_ref_id = eko_data_response.get('client_ref_id', vendor_payment.client_ref_id)
@@ -131,15 +131,14 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             vendor_payment.timestamp = eko_data_response.get('timestamp', '')
             
             if eko_status != 0:
-                # Payment failed, refund and update status
                 vendor_payment.status = 'failed'
                 vendor_payment.status_message = eko_message
                 vendor_payment.save()
                 
-                wallet.add_amount(amount)
+                wallet.add_amount(total_deduction) 
                 Transaction.objects.create(
                     wallet=wallet,
-                    amount=amount,
+                    amount=total_deduction, 
                     transaction_type='credit',
                     transaction_category='refund',
                     description=f"Refund for failed vendor payment to {data['recipient_name']}",
@@ -150,17 +149,14 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 
                 return Response({
                     'status': 1,
-                    'message': f'Vendor payment failed: {eko_message}. Amount refunded.',
-                    'payment_id': vendor_payment.id,
-                    'receipt_number': vendor_payment.receipt_number or 'Pending'
+                    'message': f'Vendor payment failed: {eko_message}. ₹{total_deduction} refunded to wallet.',
+                    'payment_id': vendor_payment.id
                 })
             
-            # ✅ STEP 6: Payment successful, update status
             vendor_payment.status = 'success'
             vendor_payment.status_message = 'Payment initiated successfully'
             vendor_payment.save()
             
-            # ✅ FIXED: Generate receipt number if not generated
             if not vendor_payment.receipt_number:
                 vendor_payment.receipt_number = f"VP{vendor_payment.id:08d}"
                 vendor_payment.save(update_fields=['receipt_number'])
@@ -171,20 +167,21 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 'payment_id': vendor_payment.id,
                 'receipt_number': vendor_payment.receipt_number,
                 'data': {
-                    'tid': eko_data_response.get('tid'),
-                    'client_ref_id': vendor_payment.client_ref_id,
+                    'transfer_amount': str(amount),
                     'fee': str(fee),
                     'gst': str(gst),
-                    'totalfee': str(total_fee),
+                    'total_fee': str(total_fee),
+                    'total_deduction': str(total_deduction),
                     'balance': str(wallet.balance),
                     'recipient_name': data['recipient_name'],
+                    'account': data['account'][-4:],
                     'ifsc': data['ifsc'],
                     'bank_ref_num': eko_data_response.get('bank_ref_num', ''),
-                    'account': data['account'],
-                    'txstatus_desc': eko_data_response.get('txstatus_desc', 'Initiated'),
+                    'status': eko_data_response.get('txstatus_desc', 'Initiated'),
+                    'transaction_id': vendor_payment.client_ref_id,
                     'timestamp': eko_data_response.get('timestamp', ''),
-                    'amount': str(amount),
-                    'total_deduction': str(total_deduction)
+                    'purpose': data.get('purpose', 'Vendor Payment'),
+                    'payment_mode': data['payment_mode']
                 }
             }
             
@@ -196,29 +193,24 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             import traceback
             logger.error(traceback.format_exc())
             
-            # Update vendor payment status to failed
-            if 'vendor_payment' in locals():
-                vendor_payment.status = 'failed'
-                vendor_payment.status_message = str(e)
-                vendor_payment.save()
+            vendor_payment.status = 'failed'
+            vendor_payment.status_message = str(e)
+            vendor_payment.save()
             
-            try:
-                wallet.add_amount(amount)
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=amount,
-                    transaction_type='credit',
-                    transaction_category='refund',
-                    description=f"Refund for failed vendor payment (EKO error) to {data['recipient_name']}",
-                    created_by=user,
-                    status='success',
-                    metadata={'vendor_payment_id': vendor_payment.id}
-                )
-            except Exception as refund_error:
-                logger.error(f"❌ Refund failed: {str(refund_error)}")
+            wallet.add_amount(total_deduction)
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=total_deduction,
+                transaction_type='credit',
+                transaction_category='refund',
+                description=f"Refund for failed vendor payment (EKO error) to {data['recipient_name']}",
+                created_by=user,
+                status='success',
+                metadata={'vendor_payment_id': vendor_payment.id}
+            )
             
             return Response({
                 'status': 1,
-                'message': f'Vendor payment failed: {str(e)}. Please contact support.',
-                'payment_id': vendor_payment.id if 'vendor_payment' in locals() else None
+                'message': f'Vendor payment failed: {str(e)}. ₹{total_deduction} refunded.',
+                'payment_id': vendor_payment.id
             })
