@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'dmt',
     'recharge',
     'vendorpayment',
+    'aeps',
 ]
 
 
