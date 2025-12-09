@@ -43,4 +43,10 @@ class AEPSManager:
     def get_available_services(self):
         eko = EkoAEPSService()
         return eko.get_services()
+    
+
+    def activate_aeps(self, data):
+        eko = EkoAEPSService()
+        return eko.activate_aeps_service(data)
+
 

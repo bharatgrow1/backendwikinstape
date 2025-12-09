@@ -2,6 +2,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
+from aeps.serializers import AEPSActivationSerializer
 
 from .serializers import OnboardMerchantSerializer
 from .services.aeps_manager import AEPSManager
@@ -25,4 +26,17 @@ class AEPSMerchantViewSet(viewsets.ViewSet):
         manager = AEPSManager()
         response = manager.get_available_services()
         return Response(response)
+    
+
+
+    @action(detail=False, methods=["post"])
+    def activate(self, request):
+        serializer = AEPSActivationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        manager = AEPSManager()
+        result = manager.activate_aeps(serializer.validated_data)
+
+        return Response(result)
+
 

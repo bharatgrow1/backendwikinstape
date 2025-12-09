@@ -24,3 +24,21 @@ class OnboardMerchantSerializer(serializers.Serializer):
     pincode = serializers.CharField(max_length=10)
     district = serializers.CharField(max_length=100, required=False, allow_blank=True)
     area = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+
+
+class AEPSActivationSerializer(serializers.Serializer):
+    user_code = serializers.CharField()
+    shop_type = serializers.CharField()
+    modelname = serializers.CharField()
+    devicenumber = serializers.CharField()
+    latlong = serializers.CharField()
+    aadhar = serializers.CharField()
+    account = serializers.CharField()
+    ifsc = serializers.CharField()
+    address_as_per_proof = serializers.JSONField()
+    office_address = serializers.JSONField()
+
+    pan_card = serializers.FileField()
+    aadhar_front = serializers.FileField()
+    aadhar_back = serializers.FileField()

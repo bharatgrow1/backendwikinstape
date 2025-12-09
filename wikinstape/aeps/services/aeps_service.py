@@ -69,4 +69,43 @@ class EkoAEPSService:
 
         resp = requests.get(url, headers=headers)
         return resp.json()
+    
+
+
+    def activate_aeps_service(self, data):
+        secret, ts = self.generate_secret()
+
+        url = f"{self.BASE_URL}/v1/user/service/activate"
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "accept": "application/json"
+        }
+
+        form_data = {
+            "initiator_id": self.INITIATOR_ID,
+            "user_code": data["user_code"],
+            "shop_type": data["shop_type"],
+            "modelname": data["modelname"],
+            "devicenumber": data["devicenumber"],
+            "latlong": data["latlong"],
+            "aadhar": data["aadhar"],
+            "account": data["account"],
+            "ifsc": data["ifsc"],
+            "service_code": "43",
+            "address_as_per_proof": json.dumps(data["address_as_per_proof"]),
+            "office_address": json.dumps(data["office_address"])
+        }
+
+        files = {
+            "pan_card": data["pan_card"],
+            "aadhar_front": data["aadhar_front"],
+            "aadhar_back": data["aadhar_back"]
+        }
+
+        resp = requests.put(url, headers=headers, data=form_data, files=files)
+        return resp.json()
+
 
