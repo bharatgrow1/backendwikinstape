@@ -72,6 +72,26 @@ class EkoAEPSService:
     
 
 
+    def request_otp(self, mobile):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "content-type": "application/x-www-form-urlencoded",
+            "accept": "application/json"
+        }
+
+        data = f"initiator_id={self.INITIATOR_ID}&mobile={mobile}"
+
+        url = f"{self.BASE_URL}/v1/user/request/otp"
+
+        resp = requests.put(url, headers=headers, data=data)
+        return resp.json()
+
+    
+
     def activate_aeps_service(self, data):
         secret, ts = self.generate_secret()
 

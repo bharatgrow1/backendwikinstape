@@ -50,3 +50,7 @@ class AEPSManager:
         return eko.activate_aeps_service(data)
 
 
+    def request_otp(self, mobile):
+        eko = EkoAEPSService()
+        return eko.request_otp(mobile)
+

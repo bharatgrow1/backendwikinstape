@@ -42,3 +42,7 @@ class AEPSActivationSerializer(serializers.Serializer):
     pan_card = serializers.FileField()
     aadhar_front = serializers.FileField()
     aadhar_back = serializers.FileField()
+
+
+class OTPRequestSerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15)
