@@ -1,6 +1,9 @@
 from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.db import transaction as db_transaction
 from django.utils import timezone
 from users.models import Transaction
@@ -9,6 +12,7 @@ import logging
 from vendorpayment.models import VendorPayment 
 from vendorpayment.serializers import VendorPaymentSerializer
 from vendorpayment.services.vendor_manager import vendor_manager
+from .services.receipt_generator import VendorReceiptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +218,73 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 'message': f'Vendor payment failed: {str(e)}. ₹{total_deduction} refunded.',
                 'payment_id': vendor_payment.id
             })
+        
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def download_vendor_receipt(request, payment_id):
+    """
+    Download vendor payment receipt as PDF
+    """
+    try:
+        # Get vendor payment object
+        vendor_payment = get_object_or_404(VendorPayment, id=payment_id, user=request.user)
+        
+        # Check if receipt already generated
+        if not vendor_payment.is_receipt_generated:
+            vendor_payment.is_receipt_generated = True
+            vendor_payment.receipt_generated_at = timezone.now()
+            vendor_payment.save()
+        
+        # Generate receipt data
+        receipt_data = vendor_payment.generate_receipt_data()
+        
+        # Generate PDF
+        generator = VendorReceiptGenerator(receipt_data)
+        pdf_buffer = generator.generate_pdf()
+        
+        # Create HTTP response
+        filename = f"vendor_receipt_{vendor_payment.receipt_number}.pdf"
+        response = HttpResponse(pdf_buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        
+        logger.info(f"✅ Receipt downloaded: {filename} for payment ID: {payment_id}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Receipt download error: {str(e)}")
+        return Response({
+            'status': 1,
+            'message': f'Failed to generate receipt: {str(e)}'
+        }, status=400)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_vendor_receipt(request, payment_id):
+    """
+    View vendor payment receipt in browser
+    """
+    try:
+        vendor_payment = get_object_or_404(VendorPayment, id=payment_id, user=request.user)
+        
+        # Generate receipt data
+        receipt_data = vendor_payment.generate_receipt_data()
+        
+        # Generate PDF for view
+        generator = VendorReceiptGenerator(receipt_data)
+        pdf_buffer = generator.generate_pdf()
+        
+        filename = f"vendor_receipt_{vendor_payment.receipt_number}.pdf"
+        response = HttpResponse(pdf_buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Receipt view error: {str(e)}")
+        return Response({
+            'status': 1,
+            'message': f'Failed to view receipt: {str(e)}'
+        }, status=400)

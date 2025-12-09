@@ -11,6 +11,7 @@ urlpatterns = [
     path('apis/', include(router.urls)),
     path('apis/dmt/', include('dmt.urls')),
     path('apis/recharge/', include('recharge.urls')),
+    path('apis/vendorpayment/', include('vendorpayment.urls')),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
