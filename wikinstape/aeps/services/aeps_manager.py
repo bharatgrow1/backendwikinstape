@@ -53,4 +53,16 @@ class AEPSManager:
     def request_otp(self, mobile):
         eko = EkoAEPSService()
         return eko.request_otp(mobile)
+    
+
+    def verify_mobile(self, mobile, otp):
+        eko = EkoAEPSService()
+        return eko.verify_user_mobile(mobile, otp)
+    
+
+    def user_services(self, user_code):
+        eko = EkoAEPSService()
+        return eko.user_services_enquiry(user_code)
+
+
 

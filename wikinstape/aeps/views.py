@@ -2,7 +2,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
-from aeps.serializers import AEPSActivationSerializer, OTPRequestSerializer
+from aeps.serializers import (AEPSActivationSerializer, OTPRequestSerializer, OTPVerifySerializer, 
+                              UserServiceEnquirySerializer)
 
 from .serializers import OnboardMerchantSerializer
 from .services.aeps_manager import AEPSManager
@@ -53,4 +54,29 @@ class AEPSMerchantViewSet(viewsets.ViewSet):
         return Response(result)
 
 
+    @action(detail=False, methods=["post"])
+    def verify_otp(self, request):
+        serializer = OTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
+        mobile = serializer.validated_data["mobile"]
+        otp = serializer.validated_data["otp"]
+
+        manager = AEPSManager()
+        result = manager.verify_mobile(mobile, otp)
+
+        return Response(result)
+
+
+
+    @action(detail=False, methods=["post"])
+    def service_status(self, request):
+        serializer = UserServiceEnquirySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user_code = serializer.validated_data["user_code"]
+
+        manager = AEPSManager()
+        result = manager.user_services(user_code)
+
+        return Response(result)

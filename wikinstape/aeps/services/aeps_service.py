@@ -89,9 +89,50 @@ class EkoAEPSService:
 
         resp = requests.put(url, headers=headers, data=data)
         return resp.json()
-
     
 
+
+    def verify_user_mobile(self, mobile, otp):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "content-type": "application/x-www-form-urlencoded",
+            "accept": "application/json"
+        }
+
+        data = f"initiator_id={self.INITIATOR_ID}&mobile={mobile}&otp={otp}"
+
+        url = f"{self.BASE_URL}/v1/user/verify"
+
+        resp = requests.put(url, headers=headers, data=data)
+        return resp.json()
+    
+
+
+
+    def user_services_enquiry(self, user_code):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "accept": "application/json"
+        }
+
+        url = (f"{self.BASE_URL}/v1/user/services/"
+            f"user_code:{user_code}?initiator_id={self.INITIATOR_ID}"
+        )
+
+        resp = requests.get(url, headers=headers)
+        return resp.json()
+
+
+
+    
     def activate_aeps_service(self, data):
         secret, ts = self.generate_secret()
 
