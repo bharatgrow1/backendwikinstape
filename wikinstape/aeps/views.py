@@ -4,7 +4,7 @@ from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from .serializers import OnboardMerchantSerializer
-from .services.manager import AEPSManager
+from .services.aeps_manager import AEPSManager
 
 class AEPSMerchantViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
