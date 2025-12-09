@@ -6,27 +6,30 @@ class AEPSManager:
         eko = EkoAEPSService()
         api = eko.onboard_merchant(data)
 
-        if api.get("response_type_id") == 1290:
+        if api.get("response_type_id") in [1290, 1307]:
             user_code = api["data"]["user_code"]
 
-            AEPSMerchant.objects.create(
-                user_code=user_code,
-                merchant_name=f"{data['first_name']} {data.get('last_name', '')}".strip(),
-                shop_name=data["shop_name"],
-                mobile=data["mobile"],
-                email=data["email"],
-                pan_number=data["pan_number"],
-                address_line=data["address_line"],
-                city=data["city"],
-                state=data["state"],
-                pincode=data["pincode"],
-                district=data.get("district", ""),
-                area=data.get("area", "")
-            )
+            if api.get("response_type_id") == 1290:
+                AEPSMerchant.objects.create(
+                    user_code=user_code,
+                    merchant_name=f"{data['first_name']} {data.get('last_name', '')}".strip(),
+                    shop_name=data["shop_name"],
+                    mobile=data["mobile"],
+                    email=data["email"],
+                    pan_number=data["pan_number"],
+                    address_line=data["address_line"],
+                    city=data["city"],
+                    state=data["state"],
+                    pincode=data["pincode"],
+                    district=data.get("district", ""),
+                    area=data.get("area", "")
+                )
+
+            msg = "Merchant onboarded successfully" if api["response_type_id"] == 1290 else "Merchant already exists"
 
             return {
                 "success": True,
-                "message": "Merchant onboarded successfully",
+                "message": msg,
                 "user_code": user_code
             }
 
