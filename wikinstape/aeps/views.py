@@ -18,3 +18,11 @@ class AEPSMerchantViewSet(viewsets.ViewSet):
         result = manager.onboard_merchant(serializer.validated_data)
 
         return Response(result, status=200 if result["success"] else 400)
+    
+
+    @action(detail=False, methods=["get"])
+    def services(self, request):
+        manager = AEPSManager()
+        response = manager.get_available_services()
+        return Response(response)
+

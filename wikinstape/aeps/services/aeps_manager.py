@@ -38,3 +38,9 @@ class AEPSManager:
             "message": api.get("message", "Onboarding failed"),
             "error": api
         }
+    
+
+    def get_available_services(self):
+        eko = EkoAEPSService()
+        return eko.get_services()
+

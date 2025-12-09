@@ -52,3 +52,21 @@ class EkoAEPSService:
         url = self.BASE_URL + "/v1/user/onboard"
         resp = requests.put(url, headers=headers, data=encoded)
         return resp.json()
+    
+
+
+    def get_services(self):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "accept": "application/json"
+        }
+
+        url = f"{self.BASE_URL}/v1/user/services?initiator_id={self.INITIATOR_ID}"
+
+        resp = requests.get(url, headers=headers)
+        return resp.json()
+
