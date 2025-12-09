@@ -60,4 +60,5 @@ router.register(r'vendor-payment', VendorPaymentViewSet, basename='vendor-paymen
 
 
 # aeps
-router.register(r'merchants', AEPSMerchantViewSet)
+router.register(r'merchants', AEPSMerchantViewSet, basename='aeps-merchant')
+
