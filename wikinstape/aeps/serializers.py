@@ -56,3 +56,9 @@ class OTPVerifySerializer(serializers.Serializer):
 class UserServiceEnquirySerializer(serializers.Serializer):
     user_code = serializers.CharField()
 
+
+class WalletBalanceSerializer(serializers.Serializer):
+    customer_id_type = serializers.CharField()
+    customer_id = serializers.CharField()
+    user_code = serializers.CharField(required=False)
+

@@ -63,6 +63,12 @@ class AEPSManager:
     def user_services(self, user_code):
         eko = EkoAEPSService()
         return eko.user_services_enquiry(user_code)
+    
+
+    def get_wallet_balance(self, customer_id_type, customer_id, user_code=None):
+        eko = EkoAEPSService()
+        return eko.get_wallet_balance(customer_id_type, customer_id, user_code)
+
 
 
 

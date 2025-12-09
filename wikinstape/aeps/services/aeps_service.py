@@ -132,6 +132,30 @@ class EkoAEPSService:
 
 
 
+    def get_wallet_balance(self, customer_id_type, customer_id, user_code=None):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "accept": "application/json"
+        }
+
+        url = (
+            f"{self.BASE_URL}/v2/customers/"
+            f"{customer_id_type}:{customer_id}/balance"
+            f"?initiator_id={self.INITIATOR_ID}"
+        )
+
+        if user_code:
+            url += f"&user_code={user_code}"
+
+        resp = requests.get(url, headers=headers)
+        return resp.json()
+
+
+
     
     def activate_aeps_service(self, data):
         secret, ts = self.generate_secret()

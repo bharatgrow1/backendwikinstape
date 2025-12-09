@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from aeps.serializers import (AEPSActivationSerializer, OTPRequestSerializer, OTPVerifySerializer, 
-                              UserServiceEnquirySerializer)
+                              UserServiceEnquirySerializer, WalletBalanceSerializer)
 
 from .serializers import OnboardMerchantSerializer
 from .services.aeps_manager import AEPSManager
@@ -78,5 +78,21 @@ class AEPSMerchantViewSet(viewsets.ViewSet):
 
         manager = AEPSManager()
         result = manager.user_services(user_code)
+
+        return Response(result)
+
+
+
+    @action(detail=False, methods=["post"])
+    def wallet_balance(self, request):
+        serializer = WalletBalanceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        customer_id_type = serializer.validated_data["customer_id_type"]
+        customer_id = serializer.validated_data["customer_id"]
+        user_code = serializer.validated_data.get("user_code")
+
+        manager = AEPSManager()
+        result = manager.get_wallet_balance(customer_id_type, customer_id, user_code)
 
         return Response(result)
