@@ -11,7 +11,7 @@ from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, C
         CommissionDashboardViewSet)
 from services.views_permissions import ServicePermissionViewSet
 from vendorpayment.views import VendorPaymentViewSet
-from aeps.views import AEPSMerchantViewSet, AEPSTransactionViewSet
+from aeps.views import AEPSMerchantViewSet
 
 router = DefaultRouter()
 
@@ -61,4 +61,3 @@ router.register(r'vendor-payment', VendorPaymentViewSet, basename='vendor-paymen
 
 # aeps
 router.register(r'merchants', AEPSMerchantViewSet)
-router.register(r'transactions', AEPSTransactionViewSet, basename='transaction')
