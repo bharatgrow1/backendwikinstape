@@ -194,3 +194,42 @@ class EkoAEPSService:
         return resp.json()
 
 
+
+    def get_mcc_category(self, user_code):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "accept": "application/json"
+        }
+
+        url = (
+            f"{self.BASE_URL}/v1/aeps/get-Mcc-Category"
+            f"?initiator_id={self.INITIATOR_ID}&user_code={user_code}"
+        )
+
+        resp = requests.get(url, headers=headers)
+        return resp.json()
+
+
+
+    def get_states(self, user_code):
+        secret, ts = self.generate_secret()
+
+        headers = {
+            "developer_key": self.DEVELOPER_KEY,
+            "secret-key": secret,
+            "secret-key-timestamp": ts,
+            "accept": "application/json"
+        }
+
+        url = (
+            f"{self.BASE_URL}/v1/aeps/get-states"
+            f"?initiator_id={self.INITIATOR_ID}&user_code={user_code}"
+        )
+
+        resp = requests.get(url, headers=headers)
+        return resp.json()
+        

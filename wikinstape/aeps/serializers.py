@@ -62,3 +62,12 @@ class WalletBalanceSerializer(serializers.Serializer):
     customer_id = serializers.CharField()
     user_code = serializers.CharField(required=False)
 
+
+class MCCCategorySerializer(serializers.Serializer):
+    user_code = serializers.CharField()
+
+
+class StateRequestSerializer(serializers.Serializer):
+    user_code = serializers.CharField()
+
+

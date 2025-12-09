@@ -71,4 +71,15 @@ class AEPSManager:
 
 
 
+    def get_mcc_category(self, user_code):
+        eko = EkoAEPSService()
+        return eko.get_mcc_category(user_code)
+    
+
+    def get_states(self, user_code):
+        eko = EkoAEPSService()
+        return eko.get_states(user_code)
+    
+
+
 
