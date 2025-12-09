@@ -126,19 +126,33 @@ class EkoRechargeService:
     
     def fetch_operators(self, category="prepaid"):
         """Fetch operators by category"""
-        # Map category names to EKO category IDs
         category_map = {
-            "prepaid": 5,      # Mobile prepaid
-            "postpaid": 10,    # Mobile postpaid
-            "dth": 4,          # DTH
-            "broadband": 1,    # Broadband
-            "electricity": 8,  # Electricity
-            "gas": 2,          # Gas
-            "water": 3,        # Water
-            "loan": 21,        # Loan
-            "credit": 7,       # Credit Card
+            "broadband": 1,     
+            "gas": 2,            
+            "dth": 4,               
+            "prepaid": 5,       
+            "tax": 6,        
+            "credit": 7,         
+            "electricity": 8,        
+            "landline": 9,            
+            "postpaid": 10,         
+            "water": 11,     
+            "society": 12,          
+            "ott": 13,            
+            "education": 14,    
+            "municipal_tax": 15,    
+            "clubs": 16,           
+            "cable": 17,       
+            "lpg": 18,          
+            "hospital": 19,          
+            "insurance": 20,      
+            "loan": 21,   
+            "fastag": 22,         
+            "municipal_services": 23, 
+            "subscription_2": 24,  
         }
-        
+
+
         category_id = category_map.get(category.lower(), 5)
         endpoint = f"/billpayments/operators?category={category_id}"
         

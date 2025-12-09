@@ -13,15 +13,31 @@ class RechargeTransaction(models.Model):
     ]
     
     OPERATOR_TYPES = [
-        ('prepaid', 'Prepaid'),
-        ('postpaid', 'Postpaid'),
+        ('prepaid', 'Mobile Prepaid'),
+        ('postpaid', 'Mobile Postpaid'),
         ('dth', 'DTH'),
         ('broadband', 'Broadband'),
         ('electricity', 'Electricity'),
         ('gas', 'Gas'),
         ('water', 'Water'),
         ('landline', 'Landline'),
+        ('tax', 'Tax'),
+        ('credit', 'Credit Card'),
+        ('society', 'Housing Society'),
+        ('ott', 'OTT Subscription'),
+        ('education', 'Education Fees'),
+        ('municipal_tax', 'Municipal Tax'),
+        ('clubs', 'Clubs & Associations'),
+        ('cable', 'Cable TV'),
+        ('lpg', 'LPG Cylinder'),
+        ('hospital', 'Hospital'),
+        ('insurance', 'Insurance'),
+        ('loan', 'Loan EMI'),
+        ('fastag', 'FASTag'),
+        ('municipal_services', 'Municipal Services'),
+        ('subscription_2', 'Subscription 2'),
     ]
+
     
     # Transaction Information
     transaction_id = models.CharField(max_length=100, unique=True, blank=True)

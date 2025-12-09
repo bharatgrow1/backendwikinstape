@@ -10,14 +10,31 @@ class Command(BaseCommand):
     
     def handle(self, *args, **options):
         categories = [
-            ('prepaid', 'Mobile Prepaid'),
-            ('postpaid', 'Mobile Postpaid'), 
-            ('dth', 'DTH'),
-            ('electricity', 'Electricity'),
+            ('broadband', 'Broadband Postpaid'),
             ('gas', 'Gas'),
+            ('dth', 'DTH'),
+            ('prepaid', 'Mobile Prepaid'),
+            ('tax', 'Tax'),
+            ('credit', 'Credit Card'),
+            ('electricity', 'Electricity'),
+            ('landline', 'Landline'),
+            ('postpaid', 'Mobile Postpaid'),
             ('water', 'Water'),
-            ('broadband', 'Broadband'),
+            ('society', 'Housing Society'),
+            ('ott', 'Subscription / OTT'),
+            ('education', 'Education'),
+            ('municipal_tax', 'Municipal Taxes'),
+            ('clubs', 'Clubs & Associations'),
+            ('cable', 'Cable TV'),
+            ('lpg', 'LPG Cylinder'),
+            ('hospital', 'Hospital'),
+            ('insurance', 'Insurance'),
+            ('loan', 'Loan EMI'),
+            ('fastag', 'FASTag'),
+            ('municipal_services', 'Municipal Services'),
+            ('subscription_2', 'Subscription2'),
         ]
+
         
         for category_key, category_name in categories:
             self.stdout.write(f"Syncing {category_name} operators...")

@@ -24,7 +24,6 @@ class Command(BaseCommand):
                 'is_active': True,
                 'created_by': superadmin,
                 'allow_direct_service': False,
-                # Set required fields for recharge
                 'require_mobile_number': True,
                 'require_amount': True,
                 'require_operator': True,
@@ -46,7 +45,6 @@ class Command(BaseCommand):
             }
         )
         
-        # Create additional recharge subcategories
         recharge_types = [
             ('DTH Recharge', 'DTH and cable TV recharge'),
             ('Electricity Bill', 'Electricity bill payment'),
@@ -54,7 +52,22 @@ class Command(BaseCommand):
             ('Gas Bill', 'Gas bill payment'),
             ('Broadband Bill', 'Broadband bill payment'),
             ('Landline Bill', 'Landline bill payment'),
+            ('Loan EMI Payment', 'Loan EMI bill payment'),
+            ('Fastag Recharge', 'FASTag recharging service'),
+            ('Credit Card Bill Payment', 'Credit card bill payment'),
+            ('Municipal Tax Payment', 'Municipal corporation tax payment'),
+            ('Housing Society Maintenance', 'Housing society maintenance charges'),
+            ('OTT Subscription Payment', 'OTT subscription renewal'),
+            ('Education Fee Payment', 'School or college fee payment'),
+            ('Clubs and Associations Payment', 'Club membership fees'),
+            ('Cable TV Payment', 'Cable TV service payment'),
+            ('LPG Cylinder Payment', 'LPG gas cylinder booking payment'),
+            ('Hospital Bill Payment', 'Hospital bill payment'),
+            ('Insurance Premium Payment', 'Insurance premium bill'),
+            ('Municipal Service Payment', 'Municipal service payment'),
+            ('Subscription2 Payment', 'Subscription type 2'),
         ]
+
         
         for name, description in recharge_types:
             ServiceSubCategory.objects.update_or_create(
