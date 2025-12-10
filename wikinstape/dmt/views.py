@@ -135,20 +135,26 @@ class DMTProfileViewSet(viewsets.ViewSet):
 class DMTKYCViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
     
-    @action(detail=False, methods=['post'])
-    def biometric_kyc(self, request):
+    @action(detail=True, methods=['post'], url_path='biometric_kyc')
+    def biometric_kyc(self, request, pk=None):
         """
-        Biometric KYC
-        POST /api/dmt/kyc/biometric_kyc/
+        POST /api/dmt/kyc/<customer_id>/biometric_kyc/
         """
-        serializer = DMTBiometricKycSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
+        aadhar = request.data.get("aadhar")
+        piddata = request.data.get("piddata")
+
+        if not aadhar or not piddata:
+            return Response({
+                "status": 0,
+                "message": "Missing Data"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         response = dmt_manager.customer_ekyc_biometric(
-            serializer.validated_data['customer_id'],
-            serializer.validated_data['aadhar'],
-            serializer.validated_data['piddata']
+            pk,
+            aadhar,
+            piddata
         )
+
         return Response(response)
     
     @action(detail=False, methods=['post'])
