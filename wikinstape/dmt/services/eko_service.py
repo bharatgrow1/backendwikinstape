@@ -49,9 +49,15 @@ class EkoAPIService:
 
         return headers
 
-    def make_request(self, method, endpoint, data=None, concat_string=None):
+    def make_request(self, method, endpoint, data=None, concat_string=None, force_json=False):
         url = f"{self.base_url}{endpoint}"
+
+        # Default headers (form)
         headers = self.get_headers(concat_string)
+
+        # If JSON forced (biometric case)
+        if force_json:
+            headers["content-type"] = "application/json"
 
         logger.info(f"EKO API Request: {method} {url}")
         logger.info(f"Headers: {headers}")
@@ -59,11 +65,20 @@ class EkoAPIService:
 
         try:
             if method.upper() == "PUT":
-                response = requests.put(url, data=data, headers=headers, timeout=self.timeout)
+                if force_json:
+                    response = requests.put(url, json=data, headers=headers, timeout=self.timeout)
+                else:
+                    response = requests.put(url, data=data, headers=headers, timeout=self.timeout)
+
             elif method.upper() == "POST":
-                response = requests.post(url, data=data, headers=headers, timeout=self.timeout)
+                if force_json:
+                    response = requests.post(url, json=data, headers=headers, timeout=self.timeout)
+                else:
+                    response = requests.post(url, data=data, headers=headers, timeout=self.timeout)
+
             elif method.upper() == "GET":
                 response = requests.get(url, params=data, headers=headers, timeout=self.timeout)
+
             else:
                 return {"status": 1, "message": "Invalid method"}
 
@@ -73,17 +88,16 @@ class EkoAPIService:
             try:
                 return response.json()
             except json.JSONDecodeError:
-                return {"status": 1, "message": "Invalid JSON response", "raw_response": response.text}
+                return {
+                    "status": 1,
+                    "message": "Invalid JSON response",
+                    "raw_response": response.text
+                }
 
-        except requests.exceptions.Timeout:
-            logger.error("EKO API request timeout")
-            return {"status": 1, "message": "Request timeout"}
-        except requests.exceptions.ConnectionError:
-            logger.error("EKO API connection error")
-            return {"status": 1, "message": "Connection error"}
         except Exception as e:
-            logger.error(f"EKO API request error: {str(e)}")
+            logger.error(str(e))
             return {"status": 1, "message": str(e)}
+
 
     def onboard_user(self, user_data):
         """User Onboarding - PUT /v1/user/onboard"""
@@ -186,23 +200,20 @@ class EkoAPIService:
 
 
 
-    
-    
-    
-
     def customer_ekyc_biometric(self, customer_id, aadhar, piddata):
-        """DMT FINO BIOMETRIC KYC - POST /v3/customer/account/{customer_id}/dmt-fino/ekyc"""
         endpoint = f"/v3/customer/account/{customer_id}/dmt-fino/ekyc"
 
         payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
             "aadhar": aadhar,
-            "customer_id": customer_id,
             "piddata": piddata
         }
 
-        return self.make_request("POST", endpoint, data=payload)
+        return self.make_request("POST", endpoint, data=payload, force_json=True)
+
+
+
 
     def verify_ekyc_otp(self, customer_id, otp, otp_ref_id, kyc_request_id):
         """Validate Customer eKYC OTP - POST /v3/customer/account/{customer_id}/dmt-fino/otp/verify"""
