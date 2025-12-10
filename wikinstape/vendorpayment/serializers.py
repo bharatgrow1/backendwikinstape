@@ -20,13 +20,34 @@ class VendorPaymentSerializer(serializers.Serializer):
 
 class VendorPaymentResponseSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField()
-    
+
     class Meta:
         model = VendorPayment
         fields = [
-            'id', 'receipt_number', 'user', 'recipient_name', 
-            'recipient_account', 'recipient_ifsc', 'amount',
-            'processing_fee', 'gst', 'total_fee', 'total_deduction',
-            'status', 'bank_ref_num', 'utr_number', 'payment_date',
-            'purpose', 'payment_mode', 'created_at'
+            'id', 
+            'receipt_number',
+            'user',
+            'recipient_name',
+            'recipient_account',
+            'recipient_ifsc',
+            'amount',
+            'processing_fee',
+            'gst',
+            'total_fee',
+            'total_deduction',
+            'status',
+
+            # 🔥 REAL EKO DATA HERE
+            'eko_tid',
+            'client_ref_id',
+            'bank_ref_num',
+            'utr_number',
+            'transaction_reference',  # tracking number
+            'timestamp',
+            'status_message',  # narration
+
+            'payment_date',
+            'purpose',
+            'payment_mode',
+            'created_at',
         ]
