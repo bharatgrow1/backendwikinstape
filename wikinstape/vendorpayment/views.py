@@ -154,7 +154,7 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             vendor_payment.save()
 
             
-            if eko_status != 0:
+            if eko_status != 0 or vendor_payment.status == "failed":
                 vendor_payment.status = 'failed'
                 vendor_payment.status_message = eko_message
                 vendor_payment.save()
@@ -176,10 +176,6 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                     'message': f'Vendor payment failed: {eko_message}. ₹{total_deduction} refunded to wallet.',
                     'payment_id': vendor_payment.id
                 })
-            
-            vendor_payment.status = 'success'
-            vendor_payment.status_message = 'Payment initiated successfully'
-            vendor_payment.save()
             
             if not vendor_payment.receipt_number:
                 vendor_payment.receipt_number = f"VP{vendor_payment.id:08d}"
