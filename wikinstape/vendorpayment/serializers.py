@@ -25,7 +25,6 @@ class VendorPaymentResponseSerializer(serializers.ModelSerializer):
         model = VendorPayment
         fields = [
             'id', 
-            'receipt_number',
             'user',
             'recipient_name',
             'recipient_account',
@@ -36,16 +35,13 @@ class VendorPaymentResponseSerializer(serializers.ModelSerializer):
             'total_fee',
             'total_deduction',
             'status',
-
-            # 🔥 REAL EKO DATA HERE
             'eko_tid',
             'client_ref_id',
             'bank_ref_num',
             'utr_number',
-            'transaction_reference',  # tracking number
+            'transaction_reference',
             'timestamp',
-            'status_message',  # narration
-
+            'status_message',
             'payment_date',
             'purpose',
             'payment_mode',
