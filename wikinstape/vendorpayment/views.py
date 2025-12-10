@@ -10,9 +10,12 @@ from users.models import Transaction
 from decimal import Decimal
 import logging
 from vendorpayment.models import VendorPayment 
-from vendorpayment.serializers import VendorPaymentSerializer
+from vendorpayment.serializers import VendorPaymentSerializer, VendorPaymentResponseSerializer
 from vendorpayment.services.vendor_manager import vendor_manager
 from .services.receipt_generator import VendorReceiptGenerator
+from rest_framework.pagination import PageNumberPagination
+from django.db.models import Q
+
 
 logger = logging.getLogger(__name__)
 
@@ -218,379 +221,52 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 'message': f'Vendor payment failed: {str(e)}. ₹{total_deduction} refunded.',
                 'payment_id': vendor_payment.id
             })
-        
-
-
-    @action(detail=False, methods=['get'])
-    def my_payments(self, request):
-        """Get current user's payment history"""
-        try:
-            # Get query parameters
-            status_filter = request.query_params.get('status', '')
-            start_date = request.query_params.get('start_date', '')
-            end_date = request.query_params.get('end_date', '')
-            search = request.query_params.get('search', '')
-            page = int(request.query_params.get('page', 1))
-            limit = int(request.query_params.get('limit', 20))
-            
-            # Calculate offset
-            offset = (page - 1) * limit
-            
-            # Base queryset
-            payments = VendorPayment.objects.filter(user=request.user)
-            
-            # Apply filters
-            if status_filter:
-                payments = payments.filter(status=status_filter)
-            
-            if start_date:
-                try:
-                    start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
-                    payments = payments.filter(created_at__date__gte=start_date_obj)
-                except ValueError:
-                    pass
-            
-            if end_date:
-                try:
-                    end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
-                    payments = payments.filter(created_at__date__lte=end_date_obj)
-                except ValueError:
-                    pass
-            
-            if search:
-                payments = payments.filter(
-                    Q(recipient_name__icontains=search) |
-                    Q(recipient_account__icontains=search) |
-                    Q(client_ref_id__icontains=search) |
-                    Q(receipt_number__icontains=search)
-                )
-            
-            # Get total count
-            total_count = payments.count()
-            
-            # Apply pagination
-            payments = payments.order_by('-created_at')[offset:offset + limit]
-            
-            # Calculate summary
-            summary = payments.aggregate(
-                total_amount=Sum('amount'),
-                total_fees=Sum('total_fee'),
-                total_deductions=Sum('total_deduction'),
-                total_count=Count('id')
-            )
-            
-            # Serialize data
-            serializer = VendorPaymentResponseSerializer(payments, many=True)
-            
-            response_data = {
-                'status': 0,
-                'message': 'Payment history retrieved successfully',
-                'data': serializer.data,
-                'pagination': {
-                    'page': page,
-                    'limit': limit,
-                    'total': total_count,
-                    'pages': (total_count + limit - 1) // limit,
-                    'has_next': offset + limit < total_count,
-                    'has_prev': page > 1
-                },
-                'summary': {
-                    'total_amount': float(summary['total_amount'] or 0),
-                    'total_fees': float(summary['total_fees'] or 0),
-                    'total_deductions': float(summary['total_deductions'] or 0),
-                    'total_count': summary['total_count']
-                }
-            }
-            
-            return Response(response_data)
-            
-        except Exception as e:
-            logger.error(f"❌ Error fetching payment history: {str(e)}")
-            return Response({
-                'status': 1,
-                'message': f'Failed to fetch payment history: {str(e)}'
-            }, status=400)
     
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
-    def payment_details(self, request, pk=None):
-        """Get detailed payment information by ID"""
-        try:
-            payment = get_object_or_404(
-                VendorPayment, 
-                Q(id=pk) | Q(client_ref_id=pk) | Q(receipt_number=pk),
-                user=request.user
-            )
-            
-            serializer = VendorPaymentResponseSerializer(payment)
-            
-            # Get related transaction
-            transaction = Transaction.objects.filter(
-                metadata__vendor_payment_id=payment.id
-            ).first()
-            
-            response_data = {
-                'status': 0,
-                'message': 'Payment details retrieved successfully',
-                'data': {
-                    **serializer.data,
-                    'transaction': {
-                        'id': transaction.id if transaction else None,
-                        'amount': float(transaction.amount) if transaction else None,
-                        'status': transaction.status if transaction else None,
-                        'created_at': transaction.created_at if transaction else None
-                    } if transaction else None,
-                    'wallet_balance': float(request.user.wallet.balance) if hasattr(request.user, 'wallet') else None
-                }
-            }
-            
-            return Response(response_data)
-            
-        except Exception as e:
-            logger.error(f"❌ Error fetching payment details: {str(e)}")
-            return Response({
-                'status': 1,
-                'message': f'Failed to fetch payment details: {str(e)}'
-            }, status=400)
+    @action(detail=False, methods=["get"])
+    def history(self, request):
+        """
+        Get full vendor payment history with filters + pagination
+        """
+        user = request.user
+        queryset = VendorPayment.objects.filter(user=user).order_by('-created_at')
 
-# Admin/Management Views
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def admin_payment_report(request):
-    """
-    Admin endpoint to get all vendor payments (requires admin permissions)
-    """
-    try:
-        # Check if user is admin/superuser
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response({
-                'status': 1,
-                'message': 'Permission denied. Admin access required.'
-            }, status=403)
-        
-        # Get query parameters
-        user_id = request.query_params.get('user_id', '')
-        status_filter = request.query_params.get('status', '')
-        start_date = request.query_params.get('start_date', '')
-        end_date = request.query_params.get('end_date', '')
-        search = request.query_params.get('search', '')
-        page = int(request.query_params.get('page', 1))
-        limit = int(request.query_params.get('limit', 50))
-        
-        # Calculate offset
-        offset = (page - 1) * limit
-        
-        # Base queryset
-        payments = VendorPayment.objects.select_related('user').all()
-        
-        # Apply filters
-        if user_id:
-            payments = payments.filter(user_id=user_id)
-        
-        if status_filter:
-            payments = payments.filter(status=status_filter)
-        
+        # --- Filters ---
+        status = request.GET.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+
+        start_date = request.GET.get('start_date')   # format: YYYY-MM-DD
+        end_date = request.GET.get('end_date')
         if start_date:
-            try:
-                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
-                payments = payments.filter(created_at__date__gte=start_date_obj)
-            except ValueError:
-                pass
-        
+            queryset = queryset.filter(created_at__date__gte=start_date)
         if end_date:
-            try:
-                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
-                payments = payments.filter(created_at__date__lte=end_date_obj)
-            except ValueError:
-                pass
-        
+            queryset = queryset.filter(created_at__date__lte=end_date)
+
+        min_amount = request.GET.get('min_amount')
+        max_amount = request.GET.get('max_amount')
+        if min_amount:
+            queryset = queryset.filter(amount__gte=min_amount)
+        if max_amount:
+            queryset = queryset.filter(amount__lte=max_amount)
+
+        search = request.GET.get('search')
         if search:
-            payments = payments.filter(
+            queryset = queryset.filter(
                 Q(recipient_name__icontains=search) |
                 Q(recipient_account__icontains=search) |
-                Q(client_ref_id__icontains=search) |
-                Q(receipt_number__icontains=search) |
-                Q(user__username__icontains=search) |
-                Q(user__phone_number__icontains=search)
+                Q(recipient_ifsc__icontains=search) |
+                Q(receipt_number__icontains=search)
             )
-        
-        # Get total count
-        total_count = payments.count()
-        
-        # Apply pagination
-        payments = payments.order_by('-created_at')[offset:offset + limit]
-        
-        # Prepare data with user info
-        payment_data = []
-        for payment in payments:
-            payment_data.append({
-                'id': payment.id,
-                'receipt_number': payment.receipt_number,
-                'client_ref_id': payment.client_ref_id,
-                'user': {
-                    'id': payment.user.id,
-                    'username': payment.user.username,
-                    'phone': payment.user.phone_number,
-                    'full_name': payment.user.get_full_name()
-                },
-                'recipient': {
-                    'name': payment.recipient_name,
-                    'account': payment.recipient_account[-4:],
-                    'ifsc': payment.recipient_ifsc
-                },
-                'amount': float(payment.amount),
-                'total_fee': float(payment.total_fee),
-                'total_deduction': float(payment.total_deduction),
-                'status': payment.status,
-                'status_message': payment.status_message,
-                'payment_mode': payment.payment_mode,
-                'bank_ref_num': payment.bank_ref_num,
-                'utr_number': payment.utr_number,
-                'payment_date': payment.payment_date,
-                'created_at': payment.created_at,
-                'purpose': payment.purpose,
-                'remarks': payment.remarks,
-                'is_receipt_generated': payment.is_receipt_generated,
-                'receipt_generated_at': payment.receipt_generated_at
-            })
-        
-        # Calculate summary statistics
-        summary = VendorPayment.objects.aggregate(
-            total_amount=Sum('amount'),
-            total_fees=Sum('total_fee'),
-            total_deductions=Sum('total_deduction'),
-            total_count=Count('id'),
-            success_count=Count('id', filter=Q(status='success')),
-            failed_count=Count('id', filter=Q(status='failed')),
-            processing_count=Count('id', filter=Q(status='processing'))
-        )
-        
-        response_data = {
-            'status': 0,
-            'message': 'Payment report retrieved successfully',
-            'data': payment_data,
-            'pagination': {
-                'page': page,
-                'limit': limit,
-                'total': total_count,
-                'pages': (total_count + limit - 1) // limit,
-                'has_next': offset + limit < total_count,
-                'has_prev': page > 1
-            },
-            'summary': {
-                'total_amount': float(summary['total_amount'] or 0),
-                'total_fees': float(summary['total_fees'] or 0),
-                'total_deductions': float(summary['total_deductions'] or 0),
-                'total_count': summary['total_count'],
-                'success_count': summary['success_count'],
-                'failed_count': summary['failed_count'],
-                'processing_count': summary['processing_count']
-            }
-        }
-        
-        return Response(response_data)
-        
-    except Exception as e:
-        logger.error(f"❌ Error generating admin report: {str(e)}")
-        return Response({
-            'status': 1,
-            'message': f'Failed to generate report: {str(e)}'
-        }, status=400)
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def user_payment_summary(request):
-    """
-    Get payment summary for a specific user or current user
-    """
-    try:
-        user_id = request.query_params.get('user_id', '')
-        
-        # Check if requesting other user's data (admin only)
-        if user_id and str(user_id) != str(request.user.id):
-            if not request.user.is_staff and not request.user.is_superuser:
-                return Response({
-                    'status': 1,
-                    'message': 'Permission denied. Admin access required.'
-                }, status=403)
-            target_user_id = user_id
-        else:
-            target_user_id = request.user.id
-        
-        # Get date range
-        today = timezone.now().date()
-        week_ago = today - timedelta(days=7)
-        month_ago = today - timedelta(days=30)
-        
-        # Calculate statistics
-        all_time_stats = VendorPayment.objects.filter(user_id=target_user_id).aggregate(
-            total_amount=Sum('amount'),
-            total_fees=Sum('total_fee'),
-            total_count=Count('id')
-        )
-        
-        monthly_stats = VendorPayment.objects.filter(
-            user_id=target_user_id,
-            created_at__date__gte=month_ago
-        ).aggregate(
-            monthly_amount=Sum('amount'),
-            monthly_fees=Sum('total_fee'),
-            monthly_count=Count('id')
-        )
-        
-        weekly_stats = VendorPayment.objects.filter(
-            user_id=target_user_id,
-            created_at__date__gte=week_ago
-        ).aggregate(
-            weekly_amount=Sum('amount'),
-            weekly_fees=Sum('total_fee'),
-            weekly_count=Count('id')
-        )
-        
-        # Status breakdown
-        status_counts = VendorPayment.objects.filter(
-            user_id=target_user_id
-        ).values('status').annotate(count=Count('id')).order_by('status')
-        
-        response_data = {
-            'status': 0,
-            'message': 'Payment summary retrieved successfully',
-            'data': {
-                'user_id': target_user_id,
-                'all_time': {
-                    'total_amount': float(all_time_stats['total_amount'] or 0),
-                    'total_fees': float(all_time_stats['total_fees'] or 0),
-                    'total_count': all_time_stats['total_count']
-                },
-                'monthly': {
-                    'amount': float(monthly_stats['monthly_amount'] or 0),
-                    'fees': float(monthly_stats['monthly_fees'] or 0),
-                    'count': monthly_stats['monthly_count']
-                },
-                'weekly': {
-                    'amount': float(weekly_stats['weekly_amount'] or 0),
-                    'fees': float(weekly_stats['weekly_fees'] or 0),
-                    'count': weekly_stats['weekly_count']
-                },
-                'status_breakdown': [
-                    {'status': item['status'], 'count': item['count']}
-                    for item in status_counts
-                ],
-                'last_5_payments': VendorPaymentResponseSerializer(
-                    VendorPayment.objects.filter(user_id=target_user_id)
-                    .order_by('-created_at')[:5],
-                    many=True
-                ).data
-            }
-        }
-        
-        return Response(response_data)
-        
-    except Exception as e:
-        logger.error(f"❌ Error fetching payment summary: {str(e)}")
-        return Response({
-            'status': 1,
-            'message': f'Failed to fetch payment summary: {str(e)}'
-        }, status=400)
+        # --- Pagination ---
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        paginated_qs = paginator.paginate_queryset(queryset, request)
+
+        # Serializer
+        serializer = VendorPaymentResponseSerializer(paginated_qs, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
         
 
 @api_view(['GET'])
