@@ -15,6 +15,7 @@ from vendorpayment.services.vendor_manager import vendor_manager
 from .services.receipt_generator import VendorReceiptGenerator
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
+from users.models import User
 
 
 logger = logging.getLogger(__name__)
@@ -221,21 +222,55 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 'message': f'Vendor payment failed: {str(e)}. ₹{total_deduction} refunded.',
                 'payment_id': vendor_payment.id
             })
+        
+
+
+    @staticmethod
+    def get_all_child_users(user):
+        role = user.role
+
+        if role == "superadmin":
+            return User.objects.all()
+
+        if role == "admin":
+            return User.objects.filter(
+                Q(created_by=user) |
+                Q(created_by__created_by=user) |
+                Q(created_by__created_by__created_by=user) |
+                Q(id=user.id)
+            )
+
+        if role == "master":
+            return User.objects.filter(
+                Q(created_by=user) |
+                Q(created_by__created_by=user) |
+                Q(id=user.id)
+            )
+
+        if role == "dealer":
+            return User.objects.filter(
+                Q(created_by=user) |
+                Q(id=user.id)
+            )
+
+        return User.objects.filter(id=user.id)
+        
     
     @action(detail=False, methods=["get"])
     def history(self, request):
-        """
-        Get full vendor payment history with filters + pagination
-        """
-        user = request.user
-        queryset = VendorPayment.objects.filter(user=user).order_by('-created_at')
 
-        # --- Filters ---
+        allowed_users = self.get_all_child_users(request.user)
+
+        queryset = VendorPayment.objects.filter(
+            user__in=allowed_users
+        ).order_by('-created_at')
+
+        # ----- filters remain same -----
         status = request.GET.get('status')
         if status:
             queryset = queryset.filter(status=status)
 
-        start_date = request.GET.get('start_date')   # format: YYYY-MM-DD
+        start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
         if start_date:
             queryset = queryset.filter(created_at__date__gte=start_date)
@@ -258,15 +293,13 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 Q(receipt_number__icontains=search)
             )
 
-        # --- Pagination ---
         paginator = PageNumberPagination()
         paginator.page_size = 20
         paginated_qs = paginator.paginate_queryset(queryset, request)
 
-        # Serializer
         serializer = VendorPaymentResponseSerializer(paginated_qs, many=True)
-
         return paginator.get_paginated_response(serializer.data)
+
         
 
 @api_view(['GET'])
