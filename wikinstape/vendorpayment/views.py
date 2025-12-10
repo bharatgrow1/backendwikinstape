@@ -133,10 +133,26 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             eko_data_response = eko_result.get('data', {})
             
             vendor_payment.refresh_from_db()
-            vendor_payment.eko_tid = eko_data_response.get('tid')
-            vendor_payment.client_ref_id = eko_data_response.get('client_ref_id', vendor_payment.client_ref_id)
-            vendor_payment.bank_ref_num = eko_data_response.get('bank_ref_num', '')
-            vendor_payment.timestamp = eko_data_response.get('timestamp', '')
+            eko_data = eko_result.get("data", {})
+
+            vendor_payment.eko_tid = eko_data.get("tid")
+            vendor_payment.client_ref_id = eko_data.get("client_ref_id", vendor_payment.client_ref_id)
+            vendor_payment.bank_ref_num = eko_data.get("bank_ref_num")
+            vendor_payment.utr_number = eko_data.get("utr")
+            vendor_payment.transaction_reference = eko_data.get("tracking_number")
+            vendor_payment.timestamp = eko_data.get("timestamp")
+            vendor_payment.status_message = eko_data.get("txstatus_desc")
+
+            # Status update from EKO
+            if eko_data.get("tx_status") == "SUCCESS":
+                vendor_payment.status = "success"
+            elif eko_data.get("tx_status") == "FAILED":
+                vendor_payment.status = "failed"
+            else:
+                vendor_payment.status = "processing"
+
+            vendor_payment.save()
+
             
             if eko_status != 0:
                 vendor_payment.status = 'failed'
