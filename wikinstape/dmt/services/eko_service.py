@@ -105,34 +105,20 @@ class EkoAPIService:
         }
 
         return self.make_request("PUT", endpoint, payload)
+    
 
 
-    def verify_customer_identity(self, customer_mobile, otp, otp_ref_id):
-        """Verify Customer OTP - CORRECT PAYLOAD FORMAT"""
-        endpoint = "/v3/customer/account/otp/verify"
+    def get_sender_profile(self, customer_mobile):
+        """GET SENDER PROFILE - GET /v3/customer/profile/{customer_mobile}/dmt-fino"""
+        endpoint = f"/v3/customer/profile/{customer_mobile}"
         
-        payload = {
-            "initiator_id": self.initiator_id,
-            "user_code": self.EKO_USER_CODE,
-            "customer_id": customer_mobile,
-            "otp": str(otp),
-            "otp_ref_id": otp_ref_id,
-            "service_code": "80"
-        }
-        
-        return self.make_request("POST", endpoint, payload)
-
-    def resend_otp(self, customer_mobile):
-        """Resend OTP - CORRECT ENDPOINT"""
-        endpoint = f"/v2/customers/mobile_number:{customer_mobile}/otp"
-        
-        payload = {
+        params = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE
         }
-        
-        return self.make_request("POST", endpoint, payload)
 
+        return self.make_request("GET", endpoint, data=params)
+    
 
 
     def create_customer(self, customer_data):
@@ -170,19 +156,39 @@ class EkoAPIService:
             payload["skip_verification"] = "true" 
         
         return self.make_request("POST", endpoint, payload)
-    
-    
 
-    def get_sender_profile(self, customer_mobile):
-        """GET SENDER PROFILE - GET /v3/customer/profile/{customer_mobile}/dmt-fino"""
-        endpoint = f"/v3/customer/profile/{customer_mobile}"
+
+    def verify_customer_identity(self, customer_mobile, otp, otp_ref_id):
+        """Verify Customer OTP - CORRECT PAYLOAD FORMAT"""
+        endpoint = "/v3/customer/account/otp/verify"
         
-        params = {
+        payload = {
+            "initiator_id": self.initiator_id,
+            "user_code": self.EKO_USER_CODE,
+            "customer_id": customer_mobile,
+            "otp": str(otp),
+            "otp_ref_id": otp_ref_id,
+            "service_code": "80"
+        }
+        
+        return self.make_request("POST", endpoint, payload)
+
+    def resend_otp(self, customer_mobile):
+        """Resend OTP - CORRECT ENDPOINT"""
+        endpoint = f"/v2/customers/mobile_number:{customer_mobile}/otp"
+        
+        payload = {
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE
         }
+        
+        return self.make_request("POST", endpoint, payload)
 
-        return self.make_request("GET", endpoint, data=params)
+
+
+    
+    
+    
 
     def customer_ekyc_biometric(self, customer_id, aadhar, piddata):
         """DMT FINO BIOMETRIC KYC - POST /v3/customer/account/{customer_id}/dmt-fino/ekyc"""
@@ -192,6 +198,7 @@ class EkoAPIService:
             "initiator_id": self.initiator_id,
             "user_code": self.EKO_USER_CODE,
             "aadhar": aadhar,
+            "customer_id": customer_id,
             "piddata": piddata
         }
 
