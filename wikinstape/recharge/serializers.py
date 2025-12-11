@@ -24,7 +24,7 @@ class PlanSerializer(serializers.ModelSerializer):
 
 class RechargeTransactionSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
-    # operator_name = serializers.CharField(source='operator.operator_name', read_only=True)
+    operator_name = serializers.CharField(source='operator.operator_name', read_only=True)
     
     class Meta:
         model = RechargeTransaction
@@ -94,30 +94,3 @@ class EKORechargeResponseSerializer(serializers.Serializer):
     eko_transaction_ref = serializers.CharField(allow_null=True)
     txstatus_desc = serializers.CharField(allow_null=True)
     eko_response = serializers.DictField()
-
-
-
-class BBPSBillReportSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = RechargeTransaction
-        fields = [
-            'id',
-            'transaction_id',
-            'client_ref_id',
-            'mobile_number',
-            'consumer_number',
-            'operator_id',
-            'operator_name',
-            'operator_type',
-            'amount',
-            'service_charge',
-            'total_amount',
-            'status',
-            'status_message',
-            'initiated_at',
-            'completed_at',
-            'eko_transaction_ref',
-            'eko_message',
-            'eko_txstatus_desc'
-        ]
