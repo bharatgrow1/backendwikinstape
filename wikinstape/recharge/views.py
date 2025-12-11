@@ -453,8 +453,6 @@ class RechargeViewSet(viewsets.ViewSet):
         operator_filter = request.query_params.get('operator_id')
         date_from = request.query_params.get('from')
         date_to = request.query_params.get('to')
-        category = request.query_params.get('category')
-
 
         if status_filter:
             queryset = queryset.filter(status=status_filter)
@@ -467,10 +465,6 @@ class RechargeViewSet(viewsets.ViewSet):
 
         if date_from and date_to:
             queryset = queryset.filter(initiated_at__date__range=[date_from, date_to])
-
-        if category:
-            queryset = queryset.filter(operator_type=category)
-
 
         queryset = queryset.order_by('-initiated_at')
 
