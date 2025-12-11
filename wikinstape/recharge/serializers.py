@@ -24,7 +24,7 @@ class PlanSerializer(serializers.ModelSerializer):
 
 class RechargeTransactionSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
-    operator_name = serializers.CharField(source='operator.operator_name', read_only=True)
+    # operator_name = serializers.CharField(source='operator.operator_name', read_only=True)
     
     class Meta:
         model = RechargeTransaction
@@ -98,6 +98,7 @@ class EKORechargeResponseSerializer(serializers.Serializer):
 
 
 class BBPSBillReportSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = RechargeTransaction
         fields = [
