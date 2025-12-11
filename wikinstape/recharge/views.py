@@ -15,7 +15,7 @@ from .serializers import (
     RechargeTransactionSerializer, OperatorSerializer, PlanSerializer,
     RechargeRequestSerializer, BillFetchRequestSerializer,
     EKOOperatorResponseSerializer, EKOBillFetchResponseSerializer,
-    EKORechargeResponseSerializer
+    EKORechargeResponseSerializer, BBPSBillReportSerializer
 )
 from .services.eko_service import recharge_manager
 
@@ -433,6 +433,54 @@ class RechargeViewSet(viewsets.ViewSet):
                 'success': False,
                 'message': f"Failed to check status: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+    @action(detail=False, methods=['get'])
+    def bill_reports_history(self, request):
+
+        user = request.user
+
+        from users.utils import get_downline_users
+        downline_users = get_downline_users(user)
+
+        # 🔥 fetch only those recharge/bill records belonging to downline
+        queryset = RechargeTransaction.objects.filter(user__in=downline_users)
+
+        # OPTIONAL FILTERS (same as vendor payment)
+        status_filter = request.query_params.get('status')
+        mobile_filter = request.query_params.get('mobile')
+        operator_filter = request.query_params.get('operator_id')
+        date_from = request.query_params.get('from')
+        date_to = request.query_params.get('to')
+        category = request.query_params.get('category')
+
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        if mobile_filter:
+            queryset = queryset.filter(mobile_number__icontains=mobile_filter)
+
+        if operator_filter:
+            queryset = queryset.filter(operator_id=operator_filter)
+
+        if date_from and date_to:
+            queryset = queryset.filter(initiated_at__date__range=[date_from, date_to])
+
+        if category:
+            queryset = queryset.filter(operator_type=category)
+
+
+        queryset = queryset.order_by('-initiated_at')
+
+        serializer = BBPSBillReportSerializer(queryset, many=True)
+
+        return Response({
+            "success": True,
+            "count": queryset.count(),
+            "reports": serializer.data
+        })
 
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
     """Operator management"""
