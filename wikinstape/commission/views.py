@@ -11,13 +11,16 @@ import random
 from decimal import InvalidOperation
 from django.db.models.functions import ExtractMonth, ExtractYear
 from rest_framework.exceptions import PermissionDenied
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-from commission.models import (CommissionPlan, ServiceCommission, UserCommissionPlan, CommissionPayout,  CommissionTransaction)
+from commission.models import (CommissionPlan, ServiceCommission, UserCommissionPlan, CommissionPayout,  CommissionTransaction, OperatorCommission)
 from commission.serializers import (CommissionPlanSerializer, ServiceCommissionSerializer, RoleFilteredServiceCommissionSerializer,
         BulkServiceCommissionCreateSerializer, CommissionTransactionSerializer, UserCommissionPlanSerializer,
         CommissionPayoutSerializer, DealerRetailerServiceCommissionSerializer, 
-        AssignCommissionPlanSerializer, CommissionCalculatorSerializer, RoleBasedServiceCommissionSerializer)
+        AssignCommissionPlanSerializer, CommissionCalculatorSerializer, RoleBasedServiceCommissionSerializer, OperatorCommissionSerializer)
 
 from users.models import (User, Wallet, Transaction)
 from services.models import (ServiceCategory, ServiceSubCategory, ServiceSubmission)
@@ -876,53 +879,49 @@ class CommissionStatsViewSet(viewsets.ViewSet):
             'user_distribution': list(user_count_by_role)
         })
 
-# In commission/views.py - CommissionManager
 
 class CommissionManager:
     @staticmethod
-    def process_service_commission(service_submission, main_transaction):
-        """Process commission for a service submission including superadmin"""
+    def process_operator_commission(recharge_txn, wallet_transaction, operator_id):
+        """Process commission for a recharge transaction based on operator"""
         try:
             with db_transaction.atomic():
-                retailer_user = service_submission.submitted_by
-                transaction_amount = service_submission.amount
-                
-                print(f"🔄 COMMISSION DEBUG: Starting for submission {service_submission.id}")
-                print(f"🔄 COMMISSION DEBUG: Retailer: {retailer_user.username if retailer_user else 'None'}")
-                print(f"🔄 COMMISSION DEBUG: Amount: {transaction_amount}")
-                
-                if not retailer_user:
-                    print("❌ COMMISSION DEBUG: No retailer user found")
-                    return False, "No retailer user found for this submission"
+                retailer_user = recharge_txn.user
+                transaction_amount = recharge_txn.amount
                 
                 # Get retailer's commission plan
                 try:
                     user_plan = UserCommissionPlan.objects.get(user=retailer_user, is_active=True)
                     commission_plan = user_plan.commission_plan
-                    print(f"✅ COMMISSION DEBUG: Commission plan found: {commission_plan.name}")
                 except UserCommissionPlan.DoesNotExist:
-                    print(f"❌ COMMISSION DEBUG: No active commission plan for {retailer_user.username}")
                     return False, "No active commission plan for user"
                 
-                # Find commission configuration
-                commission_config = None
+                # Find operator commission configuration
+                operator_commission = None
                 try:
-                    commission_config = ServiceCommission.objects.get(
-                        service_subcategory=service_submission.service_subcategory,
+                    # First try with specific circle
+                    operator_commission = OperatorCommission.objects.get(
+                        operator__operator_id=operator_id,
                         commission_plan=commission_plan,
+                        operator_circle=recharge_txn.circle,  # recharge_txn से circle लें
                         is_active=True
                     )
-                    print(f"✅ COMMISSION DEBUG: Commission config found")
-                except ServiceCommission.DoesNotExist:
-                    print(f"❌ COMMISSION DEBUG: No commission config found")
-                    return False, "No commission configuration found for this service"
+                except OperatorCommission.DoesNotExist:
+                    # Try without circle (generic)
+                    try:
+                        operator_commission = OperatorCommission.objects.get(
+                            operator__operator_id=operator_id,
+                            commission_plan=commission_plan,
+                            operator_circle__isnull=True,
+                            is_active=True
+                        )
+                    except OperatorCommission.DoesNotExist:
+                        return False, "No commission configuration found for this operator"
                 
                 # Calculate distribution
-                distribution, hierarchy_users = commission_config.distribute_commission(
+                distribution, hierarchy_users = operator_commission.distribute_commission(
                     transaction_amount, retailer_user
                 )
-                
-                print(f"💰 COMMISSION DEBUG: Distribution: {distribution}")
                 
                 total_commission_distributed = 0
                 
@@ -930,33 +929,25 @@ class CommissionManager:
                     if amount > 0 and hierarchy_users[role]:
                         recipient_user = hierarchy_users[role]
                         
-                        print(f"🎯 COMMISSION DEBUG: Processing {role}: {recipient_user.username} - Amount: {amount}")
-                        
                         # Ensure wallet exists
                         recipient_wallet, created = Wallet.objects.get_or_create(user=recipient_user)
-                        if created:
-                            print(f"✅ COMMISSION DEBUG: Created wallet for {recipient_user.username}")
-                        
-                        # Get current balance before adding commission
-                        old_balance = recipient_wallet.balance
                         
                         # Create commission transaction
                         commission_txn = CommissionTransaction.objects.create(
-                            main_transaction=main_transaction,
-                            service_submission=service_submission,
-                            commission_config=commission_config,
+                            main_transaction=wallet_transaction,  # wallet transaction use करें
+                            operator_commission=operator_commission,
                             commission_plan=commission_plan,
                             user=recipient_user,
                             role=role,
                             commission_amount=amount,
                             transaction_type='credit',
                             status='success',
-                            description=f"Commission for {service_submission.service_form.name} - {role}",
+                            description=f"Commission for {operator_commission.operator_name} recharge - {role}",
                             retailer_user=retailer_user,
                             original_transaction_amount=transaction_amount
                         )
                         
-                        # ✅ CRITICAL: Add to wallet balance
+                        # Add to wallet balance
                         recipient_wallet.balance += amount
                         recipient_wallet.save()
                         
@@ -968,25 +959,19 @@ class CommissionManager:
                             service_charge=0,
                             transaction_type='credit',
                             transaction_category='commission',
-                            description=f"Commission from {service_submission.service_form.name} as {role}",
+                            description=f"Commission from {operator_commission.operator_name} recharge as {role}",
                             created_by=recipient_user,
                             status='success'
                         )
                         
                         total_commission_distributed += amount
-                        
-                        print(f"✅ COMMISSION DEBUG: Added {amount} to {recipient_user.username} | Old: {old_balance} | New: {recipient_wallet.balance}")
                 
-                print(f"🎉 COMMISSION DEBUG: Total distributed: {total_commission_distributed}")
-                
-                return True, f"Commission processed successfully. Total: ₹{total_commission_distributed}"
+                return True, f"Operator commission processed successfully. Total: ₹{total_commission_distributed}"
                 
         except Exception as e:
-            print(f"❌ COMMISSION DEBUG: Error: {str(e)}")
             import traceback
-            print(f"🔍 COMMISSION DEBUG: Stack trace: {traceback.format_exc()}")
-            return False, f"Commission processing failed: {str(e)}"
-        
+            logger.error(f"Commission processing error: {str(e)}\n{traceback.format_exc()}")
+            return False, f"Operator commission processing failed: {str(e)}"
 
 
 class DealerRetailerCommissionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1171,4 +1156,182 @@ class CommissionDashboardViewSet(viewsets.ViewSet):
             'recent_commissions': CommissionTransactionSerializer(
                 recent_commissions, many=True
             ).data
+        })
+    
+
+
+class OperatorCommissionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    queryset = OperatorCommission.objects.all()
+    serializer_class = OperatorCommissionSerializer
+    
+    def get_queryset(self):
+        """Filter operators based on various parameters"""
+        queryset = super().get_queryset()
+        
+        # Filter by operator type
+        operator_type = self.request.query_params.get('operator_type')
+        if operator_type:
+            queryset = queryset.filter(operator__operator_type=operator_type)
+        
+        # Filter by operator
+        operator_id = self.request.query_params.get('operator_id')
+        if operator_id:
+            queryset = queryset.filter(operator_id=operator_id)
+        
+        # Filter by circle
+        circle = self.request.query_params.get('circle')
+        if circle:
+            queryset = queryset.filter(operator_circle=circle)
+        
+        # Filter by commission plan
+        commission_plan = self.request.query_params.get('commission_plan')
+        if commission_plan:
+            queryset = queryset.filter(commission_plan_id=commission_plan)
+        
+        # Filter by status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        return queryset
+    
+    def perform_create(self, serializer):
+        """Save with operator information"""
+        operator = serializer.validated_data.get('operator')
+        serializer.save(
+            operator_name=operator.operator_name,
+            operator_type=operator.operator_type,
+            created_by=self.request.user
+        )
+    
+    @action(detail=False, methods=['get'])
+    def operator_types(self, request):
+        """Get all unique operator types"""
+        from recharge.models import Operator
+        
+        operator_types = Operator.objects.values_list(
+            'operator_type', flat=True
+        ).distinct().order_by('operator_type')
+        
+        return Response({
+            'operator_types': list(operator_types)
+        })
+    
+    @action(detail=False, methods=['get'])
+    def available_operators(self, request):
+        """Get all operators for commission setup"""
+        from recharge.models import Operator
+        from recharge.serializers import OperatorSerializer
+        
+        operator_type = request.query_params.get('operator_type')
+        
+        queryset = Operator.objects.filter(is_active=True)
+        
+        if operator_type:
+            queryset = queryset.filter(operator_type=operator_type)
+        
+        serializer = OperatorSerializer(queryset, many=True)
+        
+        return Response({
+            'operators': serializer.data,
+            'count': queryset.count()
+        })
+    
+    @action(detail=False, methods=['post'])
+    def bulk_create_operator_commissions(self, request):
+        """Create multiple operator commissions at once"""
+        user = request.user
+        
+        serializer = BulkServiceCommissionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        created_count = 0
+        errors = []
+        
+        for commission_data in serializer.validated_data['commissions']:
+            try:
+                # Convert service_subcategory to operator
+                operator_id = commission_data.get('operator')
+                commission_plan_id = commission_data.get('commission_plan')
+                operator_circle = commission_data.get('operator_circle')
+                
+                # Check if commission already exists
+                existing_commission = OperatorCommission.objects.filter(
+                    operator_id=operator_id,
+                    commission_plan_id=commission_plan_id,
+                    operator_circle=operator_circle
+                ).first()
+                
+                if existing_commission:
+                    # Update existing commission
+                    commission_serializer = OperatorCommissionSerializer(
+                        existing_commission, 
+                        data=commission_data,
+                        partial=True
+                    )
+                else:
+                    # Create new commission
+                    commission_serializer = OperatorCommissionSerializer(
+                        data=commission_data
+                    )
+                
+                if commission_serializer.is_valid():
+                    commission_serializer.save(created_by=user)
+                    created_count += 1
+                else:
+                    errors.append(f"Validation error for operator {operator_id}: {commission_serializer.errors}")
+                    
+            except Exception as e:
+                errors.append(f"Error creating commission for operator {commission_data.get('operator')}: {str(e)}")
+        
+        response_data = {
+            'message': f'Successfully processed {created_count} operator commissions',
+            'created_count': created_count,
+            'errors': errors
+        }
+        
+        if errors:
+            response_data['has_errors'] = True
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'])
+    def commission_by_operator_type(self, request):
+        """Get commissions grouped by operator type"""
+        operator_type = request.query_params.get('operator_type', 'prepaid')
+        
+        commissions = self.get_queryset().filter(
+            operator__operator_type=operator_type
+        ).select_related('operator', 'commission_plan')
+        
+        # Group by operator
+        operators = {}
+        for commission in commissions:
+            operator_key = f"{commission.operator.operator_id}_{commission.operator_circle or 'all'}"
+            
+            if operator_key not in operators:
+                operators[operator_key] = {
+                    'operator_id': commission.operator.operator_id,
+                    'operator_name': commission.operator.operator_name,
+                    'operator_type': commission.operator.operator_type,
+                    'circle': commission.operator_circle,
+                    'commissions': []
+                }
+            
+            operators[operator_key]['commissions'].append({
+                'id': commission.id,
+                'commission_plan': commission.commission_plan.name,
+                'commission_type': commission.commission_type,
+                'commission_value': commission.commission_value,
+                'admin_commission': commission.admin_commission,
+                'master_commission': commission.master_commission,
+                'dealer_commission': commission.dealer_commission,
+                'retailer_commission': commission.retailer_commission,
+                'is_active': commission.is_active
+            })
+        
+        return Response({
+            'operator_type': operator_type,
+            'operators': list(operators.values())
         })

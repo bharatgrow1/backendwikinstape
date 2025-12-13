@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from commission.models import (CommissionPlan, UserCommissionPlan, ServiceCommission, CommissionTransaction,
-                               CommissionPayout,)
+                               CommissionPayout, OperatorCommission)
 from users.models import User
 from services.models import ServiceCategory, ServiceSubCategory
 
@@ -149,11 +149,13 @@ class RoleBasedServiceCommissionSerializer(serializers.ModelSerializer):
         return 100 - total_distributed
 
 
+
 class CommissionTransactionSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
     retailer_username = serializers.CharField(source='retailer_user.username', read_only=True)
     service_name = serializers.SerializerMethodField()
     transaction_reference = serializers.CharField(source='main_transaction.reference_number', read_only=True)
+    operator_name = serializers.SerializerMethodField() 
     
     class Meta:
         model = CommissionTransaction
@@ -162,13 +164,21 @@ class CommissionTransactionSerializer(serializers.ModelSerializer):
             'commission_amount', 'retailer_user', 'retailer_username',
             'original_transaction_amount', 'main_transaction', 'transaction_reference',
             'service_submission', 'service_name', 'commission_config', 'commission_plan',
+            'operator_commission', 'operator_name',
             'transaction_type', 'status', 'description', 'created_at'
         ]
     
     def get_service_name(self, obj):
         if obj.service_submission:
             return obj.service_submission.service_form.name
+        elif obj.operator_commission:
+            return obj.operator_commission.operator_name
         return "N/A"
+    
+    def get_operator_name(self, obj):
+        if obj.operator_commission:
+            return obj.operator_commission.operator_name
+        return None
 
 class UserCommissionPlanSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
@@ -317,3 +327,47 @@ class BulkServiceCommissionCreateSerializer(serializers.Serializer):
                         f"Total commission distribution cannot exceed 100% for service {commission_data.get('service_subcategory')}"
                     )
         return data
+    
+
+
+class OperatorCommissionSerializer(serializers.ModelSerializer):
+    operator_name = serializers.CharField(source='operator.operator_name', read_only=True)
+    operator_type = serializers.CharField(source='operator.operator_type', read_only=True)
+    operator_id = serializers.CharField(source='operator.operator_id', read_only=True)
+    commission_plan_name = serializers.CharField(source='commission_plan.name', read_only=True)
+    superadmin_commission = serializers.SerializerMethodField()
+    total_distributed = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = OperatorCommission
+        fields = [
+            'id', 'operator', 'operator_id', 'operator_name', 'operator_type',
+            'operator_circle', 'commission_plan', 'commission_plan_name',
+            'commission_type', 'commission_value', 'admin_commission', 
+            'master_commission', 'dealer_commission', 'retailer_commission',
+            'superadmin_commission', 'total_distributed', 'min_amount',
+            'max_amount', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'operator_id', 'operator_name', 'operator_type', 
+            'commission_plan_name', 'superadmin_commission', 'total_distributed'
+        ]  # इसे update करें
+    
+    def get_superadmin_commission(self, obj):
+        """Calculate superadmin commission percentage"""
+        total_distributed = (
+            (obj.admin_commission or 0) + 
+            (obj.master_commission or 0) + 
+            (obj.dealer_commission or 0) + 
+            (obj.retailer_commission or 0)
+        )
+        return 100 - total_distributed
+    
+    def get_total_distributed(self, obj):
+        """Get total distributed percentage"""
+        return (
+            (obj.admin_commission or 0) + 
+            (obj.master_commission or 0) + 
+            (obj.dealer_commission or 0) + 
+            (obj.retailer_commission or 0)
+        )
