@@ -5,7 +5,7 @@ from services.views import (ServiceCategoryViewSet, ServiceSubCategoryViewSet, S
     ServiceSubmissionViewSet, ServiceImageViewSet, get_subcategory_form_config, get_category_form_config, 
     create_form_from_boolean_fields, create_direct_category_form, copy_category_fields_to_subcategory,
     get_categories_with_direct_services, create_service_submission_direct, fetch_bill_details, 
-    fetch_bill_details_enhanced)
+    fetch_bill_details_enhanced, get_operators_for_subcategory)
 
 router = DefaultRouter()
 router.register(r'categories', ServiceCategoryViewSet)
@@ -28,4 +28,5 @@ urlpatterns = [
     path('fetch-bill-details/', fetch_bill_details, name='fetch-bill-details'),
     path('fetch-bill-details-enhanced/', fetch_bill_details_enhanced, name='fetch-bill-details-enhanced'),
     path('service-permissions/available_services_detailed/', ServicePermissionViewSet.as_view({'get': 'available_services_detailed'})),
+    path('operators/by-subcategory/<int:subcategory_id>/', get_operators_for_subcategory, name='operators-by-subcategory'),
 ]
