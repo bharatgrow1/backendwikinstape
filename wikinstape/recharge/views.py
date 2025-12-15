@@ -469,7 +469,7 @@ class RechargeViewSet(viewsets.ViewSet):
     
 
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='bill_reports_history')
     def bill_reports_history(self, request):
 
         allowed_users = self.get_all_child_users(request.user)
