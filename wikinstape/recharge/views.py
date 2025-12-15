@@ -9,7 +9,8 @@ import logging
 from decimal import Decimal
 from users.models import Transaction
 from django.db.models import Q
-from users.models import User
+# from users.models import User
+from django.contrib.auth import get_user_model
 from .models import RechargeTransaction, Operator, Plan, RechargeServiceCharge
 from .serializers import (
     RechargeTransactionSerializer, OperatorSerializer, PlanSerializer,
@@ -20,6 +21,8 @@ from .serializers import (
 from .services.eko_service import recharge_manager
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
 
 class RechargeViewSet(viewsets.ViewSet):
     """Recharge API endpoints"""
