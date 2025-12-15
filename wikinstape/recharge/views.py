@@ -171,7 +171,7 @@ class RechargeViewSet(viewsets.ViewSet):
         
         data = serializer.validated_data
         user = request.user
-        pin = request.data.get('pin')  # Get PIN from request
+        pin = request.data.get('pin')
         
         try:
             # Calculate service charge
@@ -263,6 +263,9 @@ class RechargeViewSet(viewsets.ViewSet):
             recharge_txn.eko_txstatus_desc = result.get('txstatus_desc')
             recharge_txn.eko_response_status = result.get('response_status')
             recharge_txn.api_response = result.get('eko_response')
+
+
+            message = ""
             
             if result['success']:
                 recharge_txn.status = 'success'
