@@ -1,10 +1,12 @@
+from django.db import transaction as db_transaction
+from decimal import Decimal
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 import logging
 import json
-
+from users.models import Transaction
 from .services.dmt_manager import dmt_manager
 from .serializers import (
     DMTOnboardSerializer, DMTGetProfileSerializer, DMTBiometricKycSerializer,
@@ -12,6 +14,11 @@ from .serializers import (
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
     DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, 
     DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer
+)
+from .models import (
+    DMTTransaction,
+    DMTRecipient,
+    DMTServiceCharge
 )
 
 from .models import EkoBank
@@ -226,22 +233,127 @@ class DMTTransactionViewSet(viewsets.ViewSet):
         return Response(response)
     
     @action(detail=False, methods=['post'])
+    @db_transaction.atomic
     def initiate_transaction(self, request):
         """
-        Initiate Transaction
+        Initiate Transaction WITH WALLET DEDUCTION
         POST /api/dmt/transaction/initiate_transaction/
         """
+
         serializer = DMTInitiateTransactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        response = dmt_manager.initiate_transaction(
-            serializer.validated_data['customer_id'],
-            serializer.validated_data['recipient_id'],
-            serializer.validated_data['amount'],
-            serializer.validated_data['otp'],
-            serializer.validated_data['otp_ref_id']
+        data = serializer.validated_data
+
+        user = request.user
+        wallet = user.wallet
+
+        # ---------- STEP 1: PIN VERIFY ----------
+        pin = data['pin']
+        if not wallet.verify_pin(pin):
+            return Response({
+                "status": 1,
+                "message": "Invalid wallet PIN"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------- STEP 2: AMOUNT + CHARGE ----------
+        amount = Decimal(data['amount'])
+        service_charge = DMTServiceCharge.calculate_charge(amount)
+        total_deduction = amount + service_charge
+
+        # ---------- STEP 3: BALANCE CHECK ----------
+        if wallet.balance < total_deduction:
+            return Response({
+                "status": 1,
+                "message": f"Insufficient balance. Required ₹{total_deduction}"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------- STEP 4: WALLET DEDUCT ----------
+        wallet.deduct_amount(amount, service_charge, pin)
+
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=amount,
+            service_charge=service_charge,
+            net_amount=amount,
+            transaction_type='debit',
+            transaction_category='dmt',
+            description=f"DMT transfer ₹{amount}",
+            created_by=user,
+            status='success'
         )
-        return Response(response)
+
+        # ---------- STEP 5: RECIPIENT ----------
+        try:
+            recipient = DMTRecipient.objects.get(
+                eko_recipient_id=data['recipient_id'],
+                user=user
+            )
+        except DMTRecipient.DoesNotExist:
+            return Response({
+                "status": 1,
+                "message": "Recipient not found"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------- STEP 6: CREATE DMT TRANSACTION ----------
+        dmt_txn = DMTTransaction.objects.create(
+            user=user,
+            amount=amount,
+            service_charge=service_charge,
+            total_amount=total_deduction,
+            sender_mobile=data['customer_id'],
+            recipient=recipient,
+            recipient_name=recipient.name,
+            recipient_account=recipient.account_number,
+            recipient_ifsc=recipient.ifsc_code,
+            status='processing'
+        )
+
+        # ---------- STEP 7: EKO API CALL ----------
+        eko_response = dmt_manager.initiate_transaction(
+            data['customer_id'],
+            data['recipient_id'],
+            amount,
+            data['otp'],
+            data['otp_ref_id']
+        )
+
+        # ---------- STEP 8: FAIL → REFUND ----------
+        if eko_response.get("status") != 0:
+            dmt_txn.status = "failed"
+            dmt_txn.status_message = eko_response.get("message")
+            dmt_txn.save()
+
+            wallet.add_amount(total_deduction)
+
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=total_deduction,
+                transaction_type='credit',
+                transaction_category='refund',
+                description="DMT failed refund",
+                created_by=user,
+                status='success'
+            )
+
+            return Response({
+                "status": 1,
+                "message": "DMT failed, amount refunded"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------- STEP 9: SUCCESS ----------
+        dmt_txn.status = "success"
+        dmt_txn.eko_tid = eko_response.get("data", {}).get("tid")
+        dmt_txn.save()
+
+        return Response({
+            "status": 0,
+            "message": "Money transferred successfully",
+            "transaction_id": dmt_txn.transaction_id,
+            "amount": str(amount),
+            "service_charge": str(service_charge),
+            "total_deduction": str(total_deduction),
+            "wallet_balance": str(wallet.balance)
+        })
     
 
 class BankViewSet(viewsets.ModelViewSet):
