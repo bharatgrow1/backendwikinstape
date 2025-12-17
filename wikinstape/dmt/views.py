@@ -285,9 +285,10 @@ class DMTTransactionViewSet(viewsets.ViewSet):
         # ---------- STEP 5: RECIPIENT ----------
         try:
             recipient = DMTRecipient.objects.get(
-                eko_recipient_id=data['recipient_id'],
+                bank_recipient_id=data['recipient_id'],
                 user=user
             )
+
         except DMTRecipient.DoesNotExist:
             return Response({
                 "status": 1,
