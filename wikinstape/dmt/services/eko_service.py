@@ -216,15 +216,14 @@ class EkoAPIService:
 
 
     def verify_ekyc_otp(self, customer_id, otp, otp_ref_id, kyc_request_id):
-        """Validate Customer eKYC OTP - POST /v3/customer/account/{customer_id}/dmt-fino/otp/verify"""
         endpoint = f"/v3/customer/account/{customer_id}/dmt-fino/otp/verify"
 
         payload = {
-            "initiator_id": self.initiator_id,
-            "user_code": self.EKO_USER_CODE,
             "otp": otp,
             "otp_ref_id": otp_ref_id,
-            "kyc_request_id": kyc_request_id
+            "kyc_request_id": kyc_request_id,
+            "user_code": self.EKO_USER_CODE,
+            "initiator_id": self.initiator_id
         }
 
         return self.make_request("POST", endpoint, data=payload)

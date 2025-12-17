@@ -9,7 +9,8 @@ import logging
 from decimal import Decimal
 from users.models import Transaction
 from django.db.models import Q
-
+# from users.models import User
+from django.contrib.auth import get_user_model
 from .models import RechargeTransaction, Operator, Plan, RechargeServiceCharge
 from .serializers import (
     RechargeTransactionSerializer, OperatorSerializer, PlanSerializer,
@@ -20,6 +21,8 @@ from .serializers import (
 from .services.eko_service import recharge_manager
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
 
 class RechargeViewSet(viewsets.ViewSet):
     """Recharge API endpoints"""
@@ -152,7 +155,7 @@ class RechargeViewSet(viewsets.ViewSet):
         
         data = serializer.validated_data
         user = request.user
-        pin = request.data.get('pin') 
+        pin = request.data.get('pin')
         
         try:
             service_charge = RechargeServiceCharge.calculate_charge(data['amount'])
@@ -237,6 +240,9 @@ class RechargeViewSet(viewsets.ViewSet):
             recharge_txn.eko_txstatus_desc = result.get('txstatus_desc')
             recharge_txn.eko_response_status = result.get('response_status')
             recharge_txn.api_response = result.get('eko_response')
+
+
+            message = ""
             
             if result['success']:
                 recharge_txn.status = 'success'
@@ -373,6 +379,84 @@ class RechargeViewSet(viewsets.ViewSet):
                 'success': False,
                 'message': f"Failed to check status: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+
+    @staticmethod
+    def get_all_child_users(user):
+        role = user.role
+
+        if role == "superadmin":
+            return User.objects.all()
+
+        if role == "admin":
+            return User.objects.filter(
+                Q(created_by=user) |
+                Q(created_by__created_by=user) |
+                Q(created_by__created_by__created_by=user) |
+                Q(id=user.id)
+            )
+
+        if role == "master":
+            return User.objects.filter(
+                Q(created_by=user) |
+                Q(created_by__created_by=user) |
+                Q(id=user.id)
+            )
+
+        if role == "dealer":
+            return User.objects.filter(
+                Q(created_by=user) |
+                Q(id=user.id)
+            )
+
+        return User.objects.filter(id=user.id)
+    
+
+
+    @action(detail=False, methods=['get'], url_path='bill_reports_history')
+    def bill_reports_history(self, request):
+
+        allowed_users = self.get_all_child_users(request.user)
+
+        queryset = RechargeTransaction.objects.filter(
+            user__in=allowed_users
+        ).order_by('-initiated_at')
+
+        # ----- Filters -----
+        status_filter = request.GET.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        mobile_filter = request.GET.get('mobile')
+        if mobile_filter:
+            queryset = queryset.filter(mobile_number__icontains=mobile_filter)
+
+        operator_filter = request.GET.get('operator_id')
+        if operator_filter:
+            queryset = queryset.filter(operator_id=operator_filter)
+
+        date_from = request.GET.get('from')
+        date_to = request.GET.get('to')
+        if date_from:
+            queryset = queryset.filter(initiated_at__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(initiated_at__date__lte=date_to)
+
+        category = request.GET.get('category')
+        if category:
+            queryset = queryset.filter(operator_type=category)
+
+        serializer = RechargeTransactionSerializer(queryset, many=True)
+
+        return Response({
+            "success": True,
+            "count": queryset.count(),
+            "reports": serializer.data
+        })
+
+
 
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
     """Operator management"""
