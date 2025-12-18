@@ -196,7 +196,7 @@ class DMTManager:
                         "message": f"Insufficient wallet balance. Required: ₹{total_deduction}, Available: ₹{wallet_balance}"
                     }
                 
-                wallet.balance = Decimal(str(wallet.balance)) + Decimal(str(total_deduction))
+                wallet.balance = Decimal(str(wallet.balance)) - Decimal(str(total_deduction))
                 wallet.save(update_fields=["balance"])
 
                 
