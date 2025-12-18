@@ -193,19 +193,12 @@ class DMTManager:
                 dmt_transaction = DMTTransaction.objects.create(
                     user=user,
                     amount=transfer_amount,
-
-                    service_charge=total_fee,
-                    total_amount=total_deduction,
-
-                    sender_mobile=transaction_data.get('customer_id'),
-
                     recipient_name=transaction_data.get('recipient_name'),
                     recipient_account=transaction_data.get('account'),
                     recipient_ifsc=transaction_data.get('ifsc'),
-
+                    sender_mobile=transaction_data.get('customer_id'),
                     status='initiated'
                 )
-
                 
                 from users.models import Transaction
                 Transaction.objects.create(
