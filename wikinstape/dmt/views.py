@@ -207,34 +207,17 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTTransactionViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     
     @action(detail=False, methods=['post'])
     def send_transaction_otp(self, request):
         """
-        Send Transaction OTP with wallet balance check
+        Send Transaction OTP
+        POST /api/dmt/transaction/send_transaction_otp/
         """
         serializer = DMTSendTxnOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        data = serializer.validated_data
-        user = request.user
-        amount = data['amount']
-        
-        # Check wallet balance before sending OTP
-        from .services.dmt_manager import dmt_manager
-        
-        # Calculate charges
-        charges = dmt_manager.calculate_dmt_charges(Decimal(str(amount)))
-        total_required = charges['total_amount']
-        
-        if not user.wallet.has_sufficient_balance(amount, charges['total_fee']):
-            return Response({
-                "status": 1,
-                "message": f"Insufficient wallet balance. Required: ₹{total_required} (₹{amount} transfer + ₹{charges['total_fee']} fees)"
-            })
-        
-        # Send OTP if balance is sufficient
         response = dmt_manager.send_transaction_otp(
             serializer.validated_data['customer_id'],
             serializer.validated_data['recipient_id'],
