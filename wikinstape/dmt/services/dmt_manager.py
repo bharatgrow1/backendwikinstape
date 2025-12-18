@@ -4,12 +4,55 @@ from decimal import Decimal
 import logging
 from .eko_service import eko_service
 from dmt.models import DMTTransaction
+from users.models import Transaction
 
 logger = logging.getLogger(__name__)
 
 class DMTManager:
     def __init__(self):
         self.eko_service = eko_service
+
+
+    def calculate_dmt_charges(self, amount):
+        """Calculate DMT service charges"""
+        if amount <= 10000:
+            base_fee = Decimal('10.00')
+        else:
+            base_fee = Decimal('15.00')
+        
+        gst = (base_fee * Decimal('0.18')).quantize(Decimal('0.01'))
+        
+        total_fee = base_fee + gst
+        
+        return {
+            'base_fee': base_fee,
+            'gst': gst,
+            'total_fee': total_fee,
+            'total_amount': amount + total_fee
+        }
+    
+
+
+    def verify_wallet_for_dmt(self, user, amount, pin):
+        """Verify wallet has sufficient balance for DMT"""
+        try:
+            wallet = user.wallet
+            
+            charges = self.calculate_dmt_charges(amount)
+            total_deduction = charges['total_amount']
+            
+            if not wallet.verify_pin(pin):
+                return False, "Invalid wallet PIN", None
+            
+            if not wallet.has_sufficient_balance(amount, charges['total_fee']):
+                return False, f"Insufficient wallet balance. Required: ₹{total_deduction} (₹{amount} transfer + ₹{charges['total_fee']} fees)", None
+            
+            return True, "OK", charges
+            
+        except Exception as e:
+            logger.error(f"Wallet verification error: {str(e)}")
+            return False, f"Wallet verification failed: {str(e)}", None
+    
 
     def onboard_user(self, user_data):
         """Onboard user to EKO system"""
@@ -64,15 +107,197 @@ class DMTManager:
         """Send transaction OTP"""
         return self.eko_service.send_transaction_otp(customer_id, recipient_id, amount)
 
-    def initiate_transaction(self, customer_id, recipient_id, amount, otp, otp_ref_id):
-        """Initiate transaction"""
-        return self.eko_service.initiate_transaction(
-            customer_id=customer_id,
-            recipient_id=recipient_id,
-            amount=amount,
-            otp=otp,
-            otp_ref_id=otp_ref_id
-        )
+    @db_transaction.atomic
+    def initiate_transaction(self, customer_id, recipient_id, amount, otp, otp_ref_id, user, pin):
+        """Initiate transaction with wallet deduction"""
+        try:
+            wallet_ok, wallet_msg, charges = self.verify_wallet_for_dmt(user, Decimal(str(amount)), pin)
+            if not wallet_ok:
+                return {"status": 1, "message": wallet_msg}
+            
+            wallet = user.wallet
+            total_deduction = charges['total_amount']
+            
+            try:
+                wallet.deduct_amount(Decimal(str(amount)), charges['total_fee'], pin)
+                
+                wallet_transaction = Transaction.objects.create(
+                    wallet=wallet,
+                    amount=Decimal(str(amount)),
+                    service_charge=charges['total_fee'],
+                    net_amount=Decimal(str(amount)),
+                    transaction_type='debit',
+                    transaction_category='dmt_transfer',
+                    description=f"DMT to recipient {recipient_id}",
+                    created_by=user,
+                    status='processing',
+                    metadata={
+                        'customer_id': customer_id,
+                        'recipient_id': recipient_id,
+                        'otp_ref_id': otp_ref_id,
+                        'base_fee': str(charges['base_fee']),
+                        'gst': str(charges['gst']),
+                        'total_fee': str(charges['total_fee'])
+                    }
+                )
+                
+                logger.info(f"✅ Wallet deduction successful: ₹{total_deduction} from {user.username}")
+                
+            except ValueError as e:
+                return {"status": 1, "message": f"Payment failed: {str(e)}"}
+            
+            eko_response = self.eko_service.initiate_transaction(
+                customer_id=customer_id,
+                recipient_id=recipient_id,
+                amount=amount,
+                otp=otp,
+                otp_ref_id=otp_ref_id
+            )
+            
+            dmt_transaction = DMTTransaction.objects.create(
+                user=user,
+                amount=Decimal(str(amount)),
+                service_charge=charges['total_fee'],
+                total_amount=total_deduction,
+                sender_mobile=customer_id,
+                eko_recipient_id=recipient_id,
+                status='processing',
+                wallet_transaction=wallet_transaction,
+                api_response=eko_response
+            )
+            
+            if eko_response.get('status') == 0:
+                data = eko_response.get('data', {})
+                
+                dmt_transaction.eko_tid = data.get('tid')
+                dmt_transaction.client_ref_id = data.get('client_ref_id')
+                dmt_transaction.eko_tx_status = data.get('tx_status')
+                dmt_transaction.eko_txstatus_desc = data.get('txstatus_desc')
+                dmt_transaction.eko_bank_ref_num = data.get('bank_ref_num')
+                
+                if data.get('tx_status') == '0':
+                    dmt_transaction.status = 'success'
+                    wallet_transaction.status = 'success'
+                    wallet_transaction.save()
+                    
+                    self.process_dmt_commission(user, Decimal(str(amount)), dmt_transaction)
+                    
+                    return {
+                        "status": 0,
+                        "message": "Transaction successful",
+                        "transaction_id": dmt_transaction.transaction_id,
+                        "eko_tid": dmt_transaction.eko_tid,
+                        "bank_ref_num": dmt_transaction.eko_bank_ref_num,
+                        "wallet_balance": wallet.balance
+                    }
+                else:
+                    dmt_transaction.status = 'failed'
+                    dmt_transaction.status_message = data.get('txstatus_desc', 'Transaction failed')
+                    dmt_transaction.save()
+                    
+                    wallet.add_amount(total_deduction)
+                    wallet_transaction.status = 'failed'
+                    wallet_transaction.description = f"Refund: {wallet_transaction.description}"
+                    wallet_transaction.save()
+                    
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=total_deduction,
+                        transaction_type='credit',
+                        transaction_category='refund',
+                        description=f"Refund for failed DMT transaction {dmt_transaction.transaction_id}",
+                        created_by=user,
+                        status='success'
+                    )
+                    
+                    return {
+                        "status": 1,
+                        "message": f"Transaction failed: {data.get('txstatus_desc', 'Unknown error')}. Amount refunded.",
+                        "wallet_balance": wallet.balance
+                    }
+            else:
+                # EKO API call failed
+                dmt_transaction.status = 'failed'
+                dmt_transaction.status_message = eko_response.get('message', 'API call failed')
+                dmt_transaction.save()
+                
+                # Refund wallet
+                wallet.add_amount(total_deduction)
+                wallet_transaction.status = 'failed'
+                wallet_transaction.description = f"Refund: {wallet_transaction.description}"
+                wallet_transaction.save()
+                
+                Transaction.objects.create(
+                    wallet=wallet,
+                    amount=total_deduction,
+                    transaction_type='credit',
+                    transaction_category='refund',
+                    description=f"Refund for failed DMT API call {dmt_transaction.transaction_id}",
+                    created_by=user,
+                    status='success'
+                )
+                
+                return {
+                    "status": 1,
+                    "message": f"Transaction failed: {eko_response.get('message', 'API error')}. Amount refunded.",
+                    "wallet_balance": wallet.balance
+                }
+                
+        except Exception as e:
+            logger.error(f"DMT transaction error: {str(e)}")
+            return {"status": 1, "message": f"Transaction failed: {str(e)}"}
+        
+
+
+
+    def process_dmt_commission(self, user, amount, dmt_transaction):
+        """Process commission for DMT transaction"""
+        try:
+            from commission.views import CommissionManager
+            from services.models import ServiceSubCategory
+            
+            # Find DMT service
+            dmt_service = ServiceSubCategory.objects.filter(
+                name__icontains='dmt',
+                is_active=True
+            ).first()
+            
+            if dmt_service:
+                # Create dummy service submission for commission
+                class DummyServiceSubmission:
+                    def __init__(self, user, amount, dmt_transaction):
+                        self.submitted_by = user
+                        self.amount = amount
+                        self.service_subcategory = dmt_service
+                        self.service_form = type('obj', (object,), {
+                            'name': f"DMT Transfer - {dmt_transaction.transaction_id}"
+                        })()
+                        self.submission_id = dmt_transaction.transaction_id
+                
+                dummy_submission = DummyServiceSubmission(user, amount, dmt_transaction)
+                
+                # Get wallet transaction
+                wallet_transaction = dmt_transaction.wallet_transaction
+                
+                # Process commission
+                success, comm_message = CommissionManager.process_service_commission(
+                    dummy_submission, wallet_transaction
+                )
+                
+                if success:
+                    logger.info(f"✅ DMT commission processed: {dmt_transaction.transaction_id}")
+                    dmt_transaction.status_message = f"Transaction successful. {comm_message}"
+                else:
+                    logger.warning(f"⚠️ DMT commission failed: {comm_message}")
+                    dmt_transaction.status_message = f"Transaction successful but commission failed: {comm_message}"
+                
+                dmt_transaction.save()
+                
+        except ImportError:
+            logger.warning("Commission app not available")
+        except Exception as e:
+            logger.error(f"❌ Commission processing error: {str(e)}")
+
     
     def transaction_inquiry(self, inquiry_id, is_client_ref_id=False):
         """Check transaction status by TID or client_ref_id"""

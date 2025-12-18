@@ -4,10 +4,6 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 import logging
 import json
-from django.db import transaction as db_transaction
-from decimal import Decimal
-from users.models import Wallet, Transaction
-
 
 from .services.dmt_manager import dmt_manager
 from .serializers import (
@@ -18,7 +14,7 @@ from .serializers import (
     DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer
 )
 
-from .models import EkoBank, DMTTransaction, DMTServiceCharge
+from .models import EkoBank
 
 logger = logging.getLogger(__name__)
 
@@ -211,17 +207,34 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTTransactionViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
     def send_transaction_otp(self, request):
         """
-        Send Transaction OTP
-        POST /api/dmt/transaction/send_transaction_otp/
+        Send Transaction OTP with wallet balance check
         """
         serializer = DMTSendTxnOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
+        data = serializer.validated_data
+        user = request.user
+        amount = data['amount']
+        
+        # Check wallet balance before sending OTP
+        from .services.dmt_manager import dmt_manager
+        
+        # Calculate charges
+        charges = dmt_manager.calculate_dmt_charges(Decimal(str(amount)))
+        total_required = charges['total_amount']
+        
+        if not user.wallet.has_sufficient_balance(amount, charges['total_fee']):
+            return Response({
+                "status": 1,
+                "message": f"Insufficient wallet balance. Required: ₹{total_required} (₹{amount} transfer + ₹{charges['total_fee']} fees)"
+            })
+        
+        # Send OTP if balance is sufficient
         response = dmt_manager.send_transaction_otp(
             serializer.validated_data['customer_id'],
             serializer.validated_data['recipient_id'],
@@ -229,112 +242,41 @@ class DMTTransactionViewSet(viewsets.ViewSet):
         )
         return Response(response)
     
-    # @action(detail=False, methods=['post'])
-    # def initiate_transaction(self, request):
-    #     """
-    #     Initiate Transaction
-    #     POST /api/dmt/transaction/initiate_transaction/
-    #     """
-    #     serializer = DMTInitiateTransactionSerializer(data=request.data)
-    #     serializer.is_valid(raise_exception=True)
-        
-    #     response = dmt_manager.initiate_transaction(
-    #         serializer.validated_data['customer_id'],
-    #         serializer.validated_data['recipient_id'],
-    #         serializer.validated_data['amount'],
-    #         serializer.validated_data['otp'],
-    #         serializer.validated_data['otp_ref_id']
-    #     )
-    #     return Response(response)
-
-
-
-
     @action(detail=False, methods=['post'])
-    @db_transaction.atomic
     def initiate_transaction(self, request):
-
+        """
+        Initiate Transaction with wallet payment
+        """
         serializer = DMTInitiateTransactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
+        
+        data = serializer.validated_data
         user = request.user
-        pin = serializer.validated_data['pin']
-
-        # 🔐 Wallet verification
-        wallet = user.wallet
-        if not wallet.verify_pin(pin):
+        
+        # Add PIN to data
+        pin = request.data.get('pin')
+        if not pin:
             return Response({
                 "status": 1,
-                "message": "Invalid wallet PIN"
+                "message": "Wallet PIN is required"
             })
-
-        amount = Decimal(serializer.validated_data['amount'])
-
-        # 💰 Service charge
-        service_charge = DMTServiceCharge.calculate_charge(amount)
-        total_deduction = amount + service_charge
-
-        if wallet.balance < total_deduction:
-            return Response({
-                "status": 1,
-                "message": f"Insufficient wallet balance. Required ₹{total_deduction}"
-            })
-
-        # 🔻 WALLET DEBIT
-        wallet.balance -= total_deduction
-        wallet.save()
-
-        Transaction.objects.create(
-            user=user,
-            amount=total_deduction,
-            transaction_type="debit",
-            description="DMT Money Transfer"
-        )
-
-        # 🧾 Create local DMT record
-        dmt_txn = DMTTransaction.objects.create(
-            user=user,
-            amount=amount,
-            service_charge=service_charge,
-            total_amount=total_deduction,
-            sender_mobile=serializer.validated_data['customer_id'],
-            status='processing'
-        )
-
-        # 🔗 EKO API CALL
+        
+        data['pin'] = pin
+        data['user'] = user
+        
+        # Call DMTManager with wallet integration
+        from .services.dmt_manager import dmt_manager
         response = dmt_manager.initiate_transaction(
-            serializer.validated_data['customer_id'],
-            serializer.validated_data['recipient_id'],
-            amount,
-            serializer.validated_data['otp'],
-            serializer.validated_data['otp_ref_id']
+            customer_id=data['customer_id'],
+            recipient_id=data['recipient_id'],
+            amount=data['amount'],
+            otp=data['otp'],
+            otp_ref_id=data['otp_ref_id'],
+            user=user,
+            pin=pin
         )
-
-        # ❌ FAILURE → REFUND
-        if response.get("status") != 0:
-            wallet.balance += total_deduction
-            wallet.save()
-
-            Transaction.objects.create(
-                user=user,
-                amount=total_deduction,
-                transaction_type="credit",
-                description="DMT Refund"
-            )
-
-            dmt_txn.status = "failed"
-            dmt_txn.status_message = response.get("message", "EKO Failed")
-            dmt_txn.save()
-
-            return Response(response)
-
-        # ✅ SUCCESS
-        dmt_txn.status = "success"
-        dmt_txn.api_response = response
-        dmt_txn.save()
-
+        
         return Response(response)
-
     
 
 class BankViewSet(viewsets.ModelViewSet):

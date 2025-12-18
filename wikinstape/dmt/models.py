@@ -81,6 +81,13 @@ class DMTTransaction(models.Model):
     # Response Data
     api_response = models.JSONField(blank=True, null=True)
     error_details = models.JSONField(blank=True, null=True)
+    wallet_transaction = models.OneToOneField(
+        'users.Transaction',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dmt_transaction'
+    )
     
     class Meta:
         ordering = ['-initiated_at']
