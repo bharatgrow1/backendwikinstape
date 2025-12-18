@@ -11,7 +11,7 @@ from .serializers import (
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
     DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, 
-    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer
+    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer, DMTTransactionSerializer
 )
 
 from .models import EkoBank, DMTTransaction
@@ -207,7 +207,7 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTTransactionViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     
     @action(detail=False, methods=['post'])
     def send_transaction_otp(self, request):
