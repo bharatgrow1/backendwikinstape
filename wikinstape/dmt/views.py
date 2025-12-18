@@ -14,7 +14,7 @@ from .serializers import (
     DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer
 )
 
-from .models import EkoBank
+from .models import EkoBank, DMTTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +277,22 @@ class DMTTransactionViewSet(viewsets.ViewSet):
         )
         
         return Response(response)
+    
+
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def my_transactions(self, request):
+        """Get user's DMT transactions"""
+        transactions = DMTTransaction.objects.filter(
+            user=request.user
+        ).select_related('wallet_transaction').order_by('-initiated_at')
+        
+        serializer = DMTTransactionSerializer(transactions, many=True)
+        return Response({
+            'success': True,
+            'count': transactions.count(),
+            'transactions': serializer.data
+        })
     
 
 class BankViewSet(viewsets.ModelViewSet):
