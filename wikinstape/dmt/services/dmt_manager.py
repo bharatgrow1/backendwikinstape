@@ -155,10 +155,17 @@ class DMTManager:
             with db_transaction.atomic():
                 wallet = user.wallet
                 
-                transfer_amount = Decimal(str(transaction_data['amount']))
+                amount_value = transaction_data['amount']
+                if isinstance(amount_value, float):
+                    transfer_amount = Decimal(str(amount_value))
+                elif isinstance(amount_value, str):
+                    transfer_amount = Decimal(amount_value)
+                else:
+                    transfer_amount = Decimal(str(amount_value))
+
                 processing_fee = Decimal('7.00')
                 gst = Decimal('1.26')
-                total_fee = processing_fee + gst
+                total_fee = Decimal(str(processing_fee)) + Decimal(str(gst))
                 total_deduction = Decimal(str(transfer_amount)) + Decimal(str(total_fee))
                 
                 logger.info(f"💰 DMT Payment Calculation:")
@@ -189,10 +196,7 @@ class DMTManager:
                         "message": f"Insufficient wallet balance. Required: ₹{total_deduction}, Available: ₹{wallet_balance}"
                     }
                 
-                current_balance = Decimal(str(wallet.balance))
-                new_balance = Decimal(str(current_balance)) - Decimal(str(total_deduction))
-
-                wallet.balance = new_balance
+                wallet.balance = Decimal(str(wallet.balance)) + Decimal(str(total_deduction))
                 wallet.save(update_fields=["balance"])
 
                 
