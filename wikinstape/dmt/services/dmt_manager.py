@@ -193,16 +193,19 @@ class DMTManager:
                 dmt_transaction = DMTTransaction.objects.create(
                     user=user,
                     amount=transfer_amount,
-                    processing_fee=processing_fee,
-                    gst=gst,
-                    total_fee=total_fee,
-                    total_deduction=total_deduction,
+
+                    service_charge=total_fee,
+                    total_amount=total_deduction,
+
+                    sender_mobile=transaction_data.get('customer_id'),
+
                     recipient_name=transaction_data.get('recipient_name'),
                     recipient_account=transaction_data.get('account'),
                     recipient_ifsc=transaction_data.get('ifsc'),
-                    sender_mobile=transaction_data.get('customer_id'),
+
                     status='initiated'
                 )
+
                 
                 from users.models import Transaction
                 Transaction.objects.create(
@@ -238,7 +241,7 @@ class DMTManager:
                 }
                 
                 logger.info(f"📤 Sending to EKO: Transfer Amount = ₹{transfer_amount}")
-                eko_result = self.eko.initiate_transaction(**eko_data)
+                eko_result = self.eko_service.initiate_transaction(**eko_data)
                 
                 logger.info(f"✅ EKO DMT response: {eko_result}")
                 
