@@ -94,16 +94,8 @@ class DMTInitiateTransactionSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
     otp = serializers.CharField(max_length=6, required=True)
     otp_ref_id = serializers.CharField(required=True)
-    # pin = serializers.CharField(
-    #     max_length=4,
-    #     min_length=4,
-    #     write_only=True
-    # )
-
-    # def validate_pin(self, value):
-    #     if not value.isdigit():
-    #         raise serializers.ValidationError("PIN must contain only digits")
-    #     return value
+    pin = serializers.CharField(max_length=4,min_length=4,write_only=True,required=True)
+    
 
 
 class EkoBankSerializer(serializers.ModelSerializer):
