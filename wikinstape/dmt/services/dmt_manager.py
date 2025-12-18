@@ -159,7 +159,7 @@ class DMTManager:
                 processing_fee = Decimal('7.00')
                 gst = Decimal('1.26')
                 total_fee = processing_fee + gst
-                total_deduction = transfer_amount + total_fee
+                total_deduction = Decimal(str(transfer_amount)) + Decimal(str(total_fee))
                 
                 logger.info(f"💰 DMT Payment Calculation:")
                 logger.info(f"   Transfer Amount: ₹{transfer_amount}")
@@ -190,7 +190,7 @@ class DMTManager:
                     }
                 
                 current_balance = Decimal(str(wallet.balance))
-                new_balance = current_balance - total_deduction
+                new_balance = Decimal(str(current_balance)) - Decimal(str(total_deduction))
 
                 wallet.balance = new_balance
                 wallet.save(update_fields=["balance"])
@@ -270,7 +270,7 @@ class DMTManager:
                 else:
                     logger.error(f"DMT transfer failed: {eko_result.get('message')}")
                     
-                    wallet.balance = Decimal(str(wallet.balance)) + total_deduction
+                    wallet.balance = Decimal(str(wallet.balance)) + Decimal(str(total_deduction))
                     wallet.save(update_fields=["balance"])
 
                     
