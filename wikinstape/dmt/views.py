@@ -11,10 +11,10 @@ from .serializers import (
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
     DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, 
-    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer, DMTTransactionSerializer
+    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer, DMTWalletTransactionSerializer
 )
 
-from .models import EkoBank, DMTTransaction
+from .models import EkoBank
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,37 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTTransactionViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+
+
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def initiate_with_wallet(self, request):
+        """
+        Initiate DMT transaction with wallet payment
+        POST /api/dmt/transaction/initiate_with_wallet/
+        """
+        try:
+            serializer = DMTWalletTransactionSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            user = request.user
+            
+            # Process DMT with wallet payment
+            result = dmt_manager.initiate_transaction_with_wallet(
+                user=user,
+                transaction_data=serializer.validated_data
+            )
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"DMT wallet payment error: {str(e)}")
+            return Response({
+                "status": 1,
+                "message": f"Failed to process DMT payment: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
     
     @action(detail=False, methods=['post'])
     def send_transaction_otp(self, request):
@@ -228,54 +258,20 @@ class DMTTransactionViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def initiate_transaction(self, request):
         """
-        Initiate Transaction with wallet payment
+        Initiate Transaction
+        POST /api/dmt/transaction/initiate_transaction/
         """
         serializer = DMTInitiateTransactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        data = serializer.validated_data
-        user = request.user
-        
-        # Add PIN to data
-        pin = request.data.get('pin')
-        if not pin:
-            return Response({
-                "status": 1,
-                "message": "Wallet PIN is required"
-            })
-        
-        data['pin'] = pin
-        data['user'] = user
-        
-        # Call DMTManager with wallet integration
-        from .services.dmt_manager import dmt_manager
         response = dmt_manager.initiate_transaction(
-            customer_id=data['customer_id'],
-            recipient_id=data['recipient_id'],
-            amount=data['amount'],
-            otp=data['otp'],
-            otp_ref_id=data['otp_ref_id'],
-            user=user,
-            pin=pin
+            serializer.validated_data['customer_id'],
+            serializer.validated_data['recipient_id'],
+            serializer.validated_data['amount'],
+            serializer.validated_data['otp'],
+            serializer.validated_data['otp_ref_id']
         )
-        
         return Response(response)
-    
-
-
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
-    def my_transactions(self, request):
-        """Get user's DMT transactions"""
-        transactions = DMTTransaction.objects.filter(
-            user=request.user
-        ).select_related('wallet_transaction').order_by('-initiated_at')
-        
-        serializer = DMTTransactionSerializer(transactions, many=True)
-        return Response({
-            'success': True,
-            'count': transactions.count(),
-            'transactions': serializer.data
-        })
     
 
 class BankViewSet(viewsets.ModelViewSet):
