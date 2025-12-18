@@ -182,13 +182,15 @@ class DMTManager:
                         "message": "Invalid wallet PIN"
                     }
                 
-                if wallet.balance < total_deduction:
+                wallet_balance = Decimal(str(wallet.balance))
+                if wallet_balance < total_deduction:
                     return {
                         "status": 1,
-                        "message": f"Insufficient wallet balance. Required: ₹{total_deduction} (₹{transfer_amount} transfer + ₹{total_fee} fees), Available: ₹{wallet.balance}"
+                        "message": f"Insufficient wallet balance. Required: ₹{total_deduction}, Available: ₹{wallet_balance}"
                     }
                 
-                wallet.deduct_amount(transfer_amount, total_fee, pin)
+                wallet.deduct_amount(Decimal(str(transfer_amount)),Decimal(str(total_fee)),pin)
+
                 
                 dmt_transaction = DMTTransaction.objects.create(
                     user=user,
@@ -264,7 +266,7 @@ class DMTManager:
                 else:
                     logger.error(f"DMT transfer failed: {eko_result.get('message')}")
                     
-                    wallet.add_amount(total_deduction)
+                    wallet.add_amount(Decimal(str(total_deduction)))
                     
                     Transaction.objects.create(
                         wallet=wallet,
