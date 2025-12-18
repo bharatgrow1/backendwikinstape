@@ -189,7 +189,11 @@ class DMTManager:
                         "message": f"Insufficient wallet balance. Required: ₹{total_deduction}, Available: ₹{wallet_balance}"
                     }
                 
-                wallet.deduct_amount(Decimal(str(transfer_amount)),Decimal(str(total_fee)),pin)
+                current_balance = Decimal(str(wallet.balance))
+                new_balance = current_balance - total_deduction
+
+                wallet.balance = new_balance
+                wallet.save(update_fields=["balance"])
 
                 
                 dmt_transaction = DMTTransaction.objects.create(
@@ -266,7 +270,9 @@ class DMTManager:
                 else:
                     logger.error(f"DMT transfer failed: {eko_result.get('message')}")
                     
-                    wallet.add_amount(Decimal(str(total_deduction)))
+                    wallet.balance = Decimal(str(wallet.balance)) + total_deduction
+                    wallet.save(update_fields=["balance"])
+
                     
                     Transaction.objects.create(
                         wallet=wallet,
