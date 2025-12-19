@@ -3,7 +3,9 @@ from django.utils import timezone
 from decimal import Decimal
 import logging
 from .eko_service import eko_service
-from dmt.models import DMTTransaction
+from dmt.models import DMTTransaction, DMTRecipient
+from django.contrib.auth import get_user_model
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +45,71 @@ class DMTManager:
         """Verify KYC OTP"""
         return self.eko_service.verify_ekyc_otp(customer_id, otp, otp_ref_id, kyc_request_id)
 
-    def add_recipient(self, customer_id, recipient_data):
-        """Add recipient"""
-        return self.eko_service.add_recipient(
-            customer_id=customer_id,
-            recipient_name=recipient_data['recipient_name'],
-            recipient_mobile=recipient_data.get('recipient_mobile', ''),
-            account=recipient_data['account'],
-            ifsc=recipient_data['ifsc'],
-            bank_id=recipient_data.get('bank_id', 11),
-            recipient_type=recipient_data.get('recipient_type', 3),
-            account_type=recipient_data.get('account_type', 1)
-        )
+    def add_recipient(self, customer_id, recipient_data, user=None):
+        """Add recipient to both EKO and local database"""
+        try:
+            eko_response = self.eko_service.add_recipient(
+                customer_id=customer_id,
+                recipient_name=recipient_data['recipient_name'],
+                recipient_mobile=recipient_data.get('recipient_mobile', ''),
+                account=recipient_data['account'],
+                ifsc=recipient_data['ifsc'],
+                bank_id=recipient_data.get('bank_id', 11),
+                recipient_type=recipient_data.get('recipient_type', 3),
+                account_type=recipient_data.get('account_type', 1)
+            )
+            
+            if eko_response.get('status') == 0:
+                try:
+                    if user:
+                        target_user = user
+                        logger.info(f"Using authenticated user: {target_user.username}")
+                    else:
+                        User = get_user_model()
+                        try:
+                            from users.models import UserProfile
+                            profile = UserProfile.objects.filter(mobile=customer_id).first()
+                            if profile:
+                                target_user = profile.user
+                                logger.info(f"Found user via UserProfile: {target_user.username}")
+                            else:
+                                target_user = User.objects.filter(username=customer_id).first()
+                                if target_user:
+                                    logger.info(f"Found user via username: {target_user.username}")
+                                else:
+                                    target_user = None
+                                    logger.warning(f"No user found for customer_id: {customer_id}")
+                        except ImportError:
+                            target_user = User.objects.filter(username=customer_id).first()
+                    
+                    if target_user:
+                        recipient = DMTRecipient.objects.create(
+                            user=target_user,
+                            name=recipient_data['recipient_name'],
+                            mobile=recipient_data.get('recipient_mobile', ''),
+                            account_number=recipient_data['account'],
+                            ifsc_code=recipient_data['ifsc'],
+                            bank_id=recipient_data.get('bank_id', 11),
+                            account_type=recipient_data.get('account_type', 1),
+                            recipient_type=recipient_data.get('recipient_type', 3),
+                            eko_recipient_id=eko_response.get('data', {}).get('recipient_id'),
+                            is_verified=True,
+                            eko_verification_status='verified'
+                        )
+                        
+                        logger.info(f"Recipient saved to local database: {recipient.name} (User: {target_user.username})")
+                    else:
+                        logger.warning(f"Could not find user for customer_id: {customer_id}. Recipient not saved locally.")
+                        
+                except Exception as db_error:
+                    logger.error(f"Failed to save recipient to local database: {str(db_error)}")
+            
+            return eko_response
+            
+        except Exception as e:
+            logger.error(f"Add recipient error: {str(e)}")
+            return {"status": 1, "message": f"Failed to add recipient: {str(e)}"}
+        
 
     def get_recipient_list(self, customer_id):
         """Get recipient list"""
@@ -79,12 +134,10 @@ class DMTManager:
         try:
             response = self.eko_service.transaction_inquiry(inquiry_id, is_client_ref_id)
             
-            # Optionally update transaction status in database
             if response.get('status') == 0:
                 data = response.get('data', {})
                 tx_status = data.get('tx_status')
                 
-                # Update transaction record if exists
                 try:
                     if is_client_ref_id:
                         transaction = DMTTransaction.objects.filter(
@@ -168,14 +221,6 @@ class DMTManager:
                 total_fee = Decimal(str(processing_fee)) + Decimal(str(gst))
                 total_deduction = Decimal(str(transfer_amount)) + Decimal(str(total_fee))
                 
-                logger.info(f"💰 DMT Payment Calculation:")
-                logger.info(f"   Transfer Amount: ₹{transfer_amount}")
-                logger.info(f"   Processing Fee: ₹{processing_fee}")
-                logger.info(f"   GST: ₹{gst}")
-                logger.info(f"   Total Fee: ₹{total_fee}")
-                logger.info(f"   Total Deduction: ₹{total_deduction}")
-                logger.info(f"   Wallet Balance: ₹{wallet.balance}")
-                
                 pin = transaction_data.get('pin')
                 if not pin:
                     return {
@@ -199,14 +244,31 @@ class DMTManager:
                 wallet.balance = Decimal(str(wallet.balance)) - Decimal(str(total_deduction))
                 wallet.save(update_fields=["balance"])
 
+                recipient, created = DMTRecipient.objects.get_or_create(
+                    user=user,
+                    account_number=transaction_data.get('account'),
+                    ifsc_code=transaction_data.get('ifsc'),
+                    defaults={
+                        'name': transaction_data.get('recipient_name'),
+                        'mobile': transaction_data.get('customer_id'),
+                        'eko_recipient_id': transaction_data.get('recipient_id'),
+                        'is_active': True,
+                    }
+                )
+                
+                if not created and not recipient.eko_recipient_id:
+                    recipient.eko_recipient_id = transaction_data.get('recipient_id')
+                    recipient.save()
                 
                 dmt_transaction = DMTTransaction.objects.create(
                     user=user,
+                    recipient=recipient,
                     amount=transfer_amount,
                     recipient_name=transaction_data.get('recipient_name'),
                     recipient_account=transaction_data.get('account'),
                     recipient_ifsc=transaction_data.get('ifsc'),
                     sender_mobile=transaction_data.get('customer_id'),
+                    eko_recipient_id=transaction_data.get('recipient_id'),
                     status='initiated'
                 )
                 
@@ -232,8 +294,8 @@ class DMTManager:
                     }
                 )
                 
-                logger.info(f"✅ Wallet deduction successful: ₹{total_deduction} deducted")
-                logger.info(f"✅ New wallet balance: ₹{wallet.balance}")
+                logger.info(f"Wallet deduction successful: ₹{total_deduction} deducted")
+                logger.info(f"New wallet balance: ₹{wallet.balance}")
                 
                 eko_data = {
                     'customer_id': transaction_data.get('customer_id'),
@@ -243,10 +305,10 @@ class DMTManager:
                     'otp_ref_id': transaction_data.get('otp_ref_id')
                 }
                 
-                logger.info(f"📤 Sending to EKO: Transfer Amount = ₹{transfer_amount}")
+                logger.info(f"Sending to EKO: Transfer Amount = ₹{transfer_amount}")
                 eko_result = self.eko_service.initiate_transaction(**eko_data)
                 
-                logger.info(f"✅ EKO DMT response: {eko_result}")
+                logger.info(f"EKO DMT response: {eko_result}")
                 
                 if eko_result.get('status') == 0:
                     dmt_transaction.status = 'success'
@@ -277,7 +339,6 @@ class DMTManager:
                     wallet.balance = Decimal(str(wallet.balance)) + Decimal(str(total_deduction))
                     wallet.save(update_fields=["balance"])
 
-                    
                     Transaction.objects.create(
                         wallet=wallet,
                         amount=total_deduction,
@@ -313,6 +374,5 @@ class DMTManager:
                 "status": 1,
                 "message": f"Payment processing failed: {str(e)}"
             }
-
 
 dmt_manager = DMTManager()

@@ -176,7 +176,7 @@ class DMTKYCViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTRecipientViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
     def add_recipient(self, request):
@@ -188,8 +188,9 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         
         response = dmt_manager.add_recipient(
-            serializer.validated_data['customer_id'],
-            serializer.validated_data
+            customer_id=serializer.validated_data['customer_id'],
+            recipient_data=serializer.validated_data,
+            user=request.user 
         )
         return Response(response)
     
