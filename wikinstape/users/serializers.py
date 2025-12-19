@@ -134,6 +134,16 @@ class TransactionSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     recipient_username = serializers.CharField(source='recipient_user.username', read_only=True)
     service_submission_details = serializers.SerializerMethodField()
+    opening_balance = serializers.DecimalField(
+        max_digits=50, 
+        decimal_places=2, 
+        read_only=True
+    )
+    closing_balance = serializers.DecimalField(
+        max_digits=50, 
+        decimal_places=2, 
+        read_only=True
+    )
 
     class Meta:
         model = Transaction
@@ -142,7 +152,7 @@ class TransactionSerializer(serializers.ModelSerializer):
             'transaction_type', 'transaction_category', 'status', 'description',
             'reference_number', 'recipient_user', 'recipient_username',
             'service_submission', 'service_submission_details', 'service_name',
-            'created_by', 'created_by_username', 'created_at', 'metadata'
+            'created_by', 'created_by_username', 'created_at', 'metadata','opening_balance', 'closing_balance'
         ]
         read_only_fields = ['created_at']
 

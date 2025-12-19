@@ -1502,13 +1502,17 @@ class TransactionViewSet(DynamicModelViewSet):
         
         try:
             with db_transaction.atomic():
-                # For debit transactions, deduct amount including service charge
+                opening_balance = wallet.balance
+
                 if data['transaction_type'] == 'debit':
                     total_deducted = wallet.deduct_amount(amount, service_charge, pin)
                 else:
                     # For credit transactions, just add amount
                     wallet.add_amount(amount)
                     total_deducted = 0
+
+
+                closing_balance = wallet.balance
                 
                 # Get service submission if provided
                 service_submission = None
@@ -1531,7 +1535,9 @@ class TransactionViewSet(DynamicModelViewSet):
                     recipient_user=data.get('recipient_user'),
                     service_submission=service_submission,
                     service_name=data.get('service_name'),
-                    status='success'
+                    status='success',
+                    opening_balance=opening_balance,
+                    closing_balance=closing_balance
                 )
                 
                 # If there's a recipient for money transfer, add amount to their wallet
@@ -1605,7 +1611,9 @@ class TransactionViewSet(DynamicModelViewSet):
         
         try:
             with db_transaction.atomic():
-                # Ensure amount and service_charge are Decimal
+                opening_balance = wallet.balance
+                total_deducted = wallet.deduct_amount(amount, service_charge, pin)
+                closing_balance = wallet.balance
                 if isinstance(amount, float):
                     amount = Decimal(str(amount))
                 if isinstance(service_charge, float):
@@ -1626,7 +1634,9 @@ class TransactionViewSet(DynamicModelViewSet):
                     created_by=request.user,
                     service_submission=service_submission,
                     service_name=service_submission.service_form.name if service_submission.service_form else 'Service Payment',
-                    status='success'
+                    status='success',
+                    opening_balance=opening_balance,
+                    closing_balance=closing_balance  
                 )
                 
                 # Update service submission payment status

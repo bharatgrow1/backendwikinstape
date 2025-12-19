@@ -467,7 +467,12 @@ class Transaction(models.Model):
         blank=True,
         related_name='received_transactions'
     )
-    
+    opening_balance = models.DecimalField(
+        max_digits=50, decimal_places=2, null=True, blank=True
+    )
+    closing_balance = models.DecimalField(
+        max_digits=50, decimal_places=2, null=True, blank=True
+    )
     # Service-related fields (for service payments)
     service_submission = models.ForeignKey(
         'services.ServiceSubmission',  # Your service app model
@@ -675,10 +680,14 @@ class FundRequest(models.Model):
                 
                 # Get or create wallet for the user
                 wallet, created = Wallet.objects.get_or_create(user=self.user)
+
+                opening_balance = wallet.balance
                 
                 # Add funds to user's wallet
                 wallet.balance += self.amount
                 wallet.save()
+
+                closing_balance = wallet.balance
                 
                 # Create transaction record
                 Transaction.objects.create(
@@ -686,7 +695,9 @@ class FundRequest(models.Model):
                     amount=self.amount,
                     transaction_type='credit',
                     description=f"Fund request approved: {self.reference_number}",
-                    created_by=approved_by
+                    created_by=approved_by,
+                    opening_balance=opening_balance,
+                    closing_balance=closing_balance  
                 )
                 
                 return True, "Fund request approved successfully"
