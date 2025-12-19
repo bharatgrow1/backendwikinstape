@@ -1544,7 +1544,12 @@ class TransactionViewSet(DynamicModelViewSet):
                 recipient_user = data.get('recipient_user')
                 if recipient_user and data['transaction_type'] == 'debit' and data.get('transaction_category') == 'money_transfer':
                     recipient_wallet = recipient_user.wallet
+
+                    recipient_opening_balance = recipient_wallet.balance
+                
                     recipient_wallet.add_amount(amount)
+                    
+                    recipient_closing_balance = recipient_wallet.balance
                     
                     # Create credit transaction for recipient
                     Transaction.objects.create(
@@ -1558,6 +1563,8 @@ class TransactionViewSet(DynamicModelViewSet):
                         created_by=request.user,
                         recipient_user=recipient_user,
                         status='success',
+                        opening_balance=recipient_opening_balance,
+                        closing_balance=recipient_closing_balance,
                         metadata={'sender_transaction_id': transaction.id}
                     )
                 

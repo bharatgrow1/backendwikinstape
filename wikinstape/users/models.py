@@ -11,7 +11,7 @@ from django.core.validators import MinValueValidator
 import hashlib
 import secrets
 from decimal import Decimal
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save  
 from django.dispatch import receiver
 
 
@@ -735,3 +735,23 @@ def ensure_wallet_exists(sender, instance, **kwargs):
     """
     if not hasattr(instance, 'wallet'):
         Wallet.objects.get_or_create(user=instance)
+
+
+
+@receiver(pre_save, sender=Transaction)
+def set_transaction_balances(sender, instance, **kwargs):
+    """Automatically set opening and closing balances"""
+    if not instance.pk:  # Only for new transactions
+        wallet = instance.wallet
+        
+        # Opening balance = current wallet balance
+        instance.opening_balance = wallet.balance
+        
+        # Calculate closing balance
+        if instance.transaction_type == 'credit':
+            # Credit: Add amount to wallet
+            instance.closing_balance = wallet.balance + instance.amount
+        else:  # debit
+            # Debit: Subtract amount + service charge
+            total_deduction = instance.amount + instance.service_charge
+            instance.closing_balance = wallet.balance - total_deduction
