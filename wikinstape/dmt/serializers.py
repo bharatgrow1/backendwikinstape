@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from .models import EkoBank
+from decimal import Decimal
+
 
 class DMTOnboardSerializer(serializers.Serializer):
     pan_number = serializers.CharField(max_length=10, required=True)
@@ -94,16 +96,7 @@ class DMTInitiateTransactionSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
     otp = serializers.CharField(max_length=6, required=True)
     otp_ref_id = serializers.CharField(required=True)
-    # pin = serializers.CharField(
-    #     max_length=4,
-    #     min_length=4,
-    #     write_only=True
-    # )
-
-    # def validate_pin(self, value):
-    #     if not value.isdigit():
-    #         raise serializers.ValidationError("PIN must contain only digits")
-    #     return value
+    
 
 
 class EkoBankSerializer(serializers.ModelSerializer):
@@ -129,3 +122,33 @@ class DMTRefundSerializer(serializers.Serializer):
 
 class DMTRefundOTPResendSerializer(serializers.Serializer):
     tid = serializers.CharField(required=True)
+
+
+
+class DMTWalletTransactionSerializer(serializers.Serializer):
+    customer_id = serializers.CharField(max_length=15, required=True)
+    recipient_id = serializers.IntegerField(required=True)
+    amount = serializers.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        required=True,
+        coerce_to_string=True
+    )
+    otp = serializers.CharField(max_length=6, required=True)
+    otp_ref_id = serializers.CharField(required=True)
+    pin = serializers.CharField(max_length=4, min_length=4, write_only=True, required=True)
+    recipient_name = serializers.CharField(required=False)
+    account = serializers.CharField(required=False)
+    ifsc = serializers.CharField(required=False)
+
+    def validate_amount(self, value):
+        if isinstance(value, float):
+            return Decimal(str(value))
+        return value
+    
+    def validate_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("PIN must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("PIN must be exactly 4 digits")
+        return value

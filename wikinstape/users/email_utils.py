@@ -35,9 +35,10 @@ def calculate_service_charge(amount, transaction_category):
         return 0.00
 
 def create_transaction_record(wallet, amount, transaction_type, category, description, 
-                            recipient_user=None, service_charge=0, status='success'):
-    """Helper function to create transaction record"""
-    return Transaction.objects.create(
+                            recipient_user=None, service_charge=0, status='success',
+                            opening_balance=None, closing_balance=None):
+    """Helper function to create transaction record with opening/closing balances"""
+    transaction = Transaction.objects.create(
         wallet=wallet,
         amount=amount,
         net_amount=amount,
@@ -49,3 +50,11 @@ def create_transaction_record(wallet, amount, transaction_type, category, descri
         created_by=wallet.user,
         status=status
     )
+    
+    if opening_balance is not None:
+        transaction.opening_balance = opening_balance
+    if closing_balance is not None:
+        transaction.closing_balance = closing_balance
+    transaction.save()
+    
+    return transaction

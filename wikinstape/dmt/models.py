@@ -97,8 +97,26 @@ class DMTTransaction(models.Model):
     def save(self, *args, **kwargs):
         if not self.transaction_id:
             self.transaction_id = f"DMT{uuid.uuid4().hex[:12].upper()}"
+        
+        # FIX: Ensure total_amount calculation works with Decimal
         if not self.total_amount:
-            self.total_amount = self.amount + self.service_charge
+            try:
+                # Convert to Decimal if needed
+                if isinstance(self.amount, float):
+                    amt = Decimal(str(self.amount))
+                else:
+                    amt = self.amount
+                    
+                if isinstance(self.service_charge, float):
+                    sc = Decimal(str(self.service_charge))
+                else:
+                    sc = self.service_charge
+                    
+                self.total_amount = amt + sc
+            except:
+                # Fallback
+                self.total_amount = Decimal('0.00')
+        
         super().save(*args, **kwargs)
     
     def mark_otp_sent(self, otp_ref_id):

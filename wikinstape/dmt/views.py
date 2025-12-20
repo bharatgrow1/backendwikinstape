@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 import logging
 import json
+from decimal import Decimal
 
 from .services.dmt_manager import dmt_manager
 from .serializers import (
@@ -11,7 +12,7 @@ from .serializers import (
     DMTKycOTPVerifySerializer, DMTAddRecipientSerializer, DMTGetRecipientsSerializer,
     DMTSendTxnOTPSerializer, DMTInitiateTransactionSerializer, DMTCreateCustomerSerializer,
     DMTVerifyCustomerSerializer, DMTResendOTPSerializer, EkoBankSerializer, 
-    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer
+    DMTTransactionInquirySerializer, DMTRefundSerializer, DMTRefundOTPResendSerializer, DMTWalletTransactionSerializer
 )
 
 from .models import EkoBank
@@ -175,7 +176,7 @@ class DMTKYCViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTRecipientViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
     def add_recipient(self, request):
@@ -187,8 +188,9 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         
         response = dmt_manager.add_recipient(
-            serializer.validated_data['customer_id'],
-            serializer.validated_data
+            customer_id=serializer.validated_data['customer_id'],
+            recipient_data=serializer.validated_data,
+            user=request.user 
         )
         return Response(response)
     
@@ -207,7 +209,37 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         return Response(response)
 
 class DMTTransactionViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+
+
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def initiate_with_wallet(self, request):
+        """
+        Initiate DMT transaction with wallet payment
+        POST /api/dmt/transaction/initiate_with_wallet/
+        """
+        try:
+            serializer = DMTWalletTransactionSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            user = request.user
+            
+            # Process DMT with wallet payment
+            result = dmt_manager.initiate_transaction_with_wallet(
+                user=user,
+                transaction_data=serializer.validated_data
+            )
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"DMT wallet payment error: {str(e)}")
+            return Response({
+                "status": 1,
+                "message": f"Failed to process DMT payment: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
     
     @action(detail=False, methods=['post'])
     def send_transaction_otp(self, request):

@@ -11,7 +11,7 @@ from django.core.validators import MinValueValidator
 import hashlib
 import secrets
 from decimal import Decimal
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save  
 from django.dispatch import receiver
 
 
@@ -467,7 +467,12 @@ class Transaction(models.Model):
         blank=True,
         related_name='received_transactions'
     )
-    
+    opening_balance = models.DecimalField(
+        max_digits=50, decimal_places=2, null=True, blank=True
+    )
+    closing_balance = models.DecimalField(
+        max_digits=50, decimal_places=2, null=True, blank=True
+    )
     # Service-related fields (for service payments)
     service_submission = models.ForeignKey(
         'services.ServiceSubmission',  # Your service app model
@@ -675,10 +680,14 @@ class FundRequest(models.Model):
                 
                 # Get or create wallet for the user
                 wallet, created = Wallet.objects.get_or_create(user=self.user)
+
+                opening_balance = wallet.balance
                 
                 # Add funds to user's wallet
                 wallet.balance += self.amount
                 wallet.save()
+
+                closing_balance = wallet.balance
                 
                 # Create transaction record
                 Transaction.objects.create(
@@ -686,7 +695,9 @@ class FundRequest(models.Model):
                     amount=self.amount,
                     transaction_type='credit',
                     description=f"Fund request approved: {self.reference_number}",
-                    created_by=approved_by
+                    created_by=approved_by,
+                    opening_balance=opening_balance,
+                    closing_balance=closing_balance  
                 )
                 
                 return True, "Fund request approved successfully"
@@ -724,3 +735,23 @@ def ensure_wallet_exists(sender, instance, **kwargs):
     """
     if not hasattr(instance, 'wallet'):
         Wallet.objects.get_or_create(user=instance)
+
+
+
+@receiver(pre_save, sender=Transaction)
+def set_transaction_balances(sender, instance, **kwargs):
+    """Automatically set opening and closing balances"""
+    if not instance.pk:  # Only for new transactions
+        wallet = instance.wallet
+        
+        # Opening balance = current wallet balance
+        instance.opening_balance = wallet.balance
+        
+        # Calculate closing balance
+        if instance.transaction_type == 'credit':
+            # Credit: Add amount to wallet
+            instance.closing_balance = wallet.balance + instance.amount
+        else:  # debit
+            # Debit: Subtract amount + service charge
+            total_deduction = instance.amount + instance.service_charge
+            instance.closing_balance = wallet.balance - total_deduction
