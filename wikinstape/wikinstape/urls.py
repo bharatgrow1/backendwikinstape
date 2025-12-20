@@ -12,6 +12,7 @@ urlpatterns = [
     path('apis/dmt/', include('dmt.urls')),
     path('apis/recharge/', include('recharge.urls')),
     path('apis/vendorpayment/', include('vendorpayment.urls')),
+    path('apis/commission/', include('commission.urls')), 
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

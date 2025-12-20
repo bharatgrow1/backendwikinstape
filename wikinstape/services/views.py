@@ -10,6 +10,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import BasePermission
 
+from rest_framework.permissions import IsAuthenticated
+from recharge.models import Operator
+
 from services.models import (UploadImage, ServiceCategory, ServiceSubCategory, 
                              ServiceForm, FormField, ServiceSubmission, FormSubmissionFile)
 from services.serializers import (DirectServiceFormSerializer, ServiceFormWithFieldsSerializer, 
@@ -983,3 +986,88 @@ class CanManageServicePermissions(BasePermission):
 #             {'error': 'Failed to fetch services'}, 
 #             status=status.HTTP_500_INTERNAL_SERVER_ERROR
 #         )
+
+
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_operators_for_subcategory(request, subcategory_id):
+    """Get operators for specific service subcategory"""
+    try:
+        from services.models import ServiceSubCategory
+        
+        subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
+        
+        # Service name से operator type mapping
+        service_to_operator_map = {
+            'mobile_recharge': 'prepaid',
+            'mobile prepaid': 'prepaid',
+            'mobile postpaid': 'postpaid',
+            'dth': 'dth',
+            'dth recharge': 'dth',
+            'electricity': 'electricity',
+            'electricity bill': 'electricity',
+            'water': 'water',
+            'water bill': 'water',
+            'gas': 'gas',
+            'gas bill': 'gas',
+            'broadband': 'broadband',
+            'broadband bill': 'broadband',
+            'landline': 'landline',
+            'fastag': 'fastag',
+            'credit card': 'credit',
+            'insurance': 'insurance',
+            'loan': 'loan',
+            'education': 'education',
+            'municipal tax': 'municipal_tax',
+            'society maintenance': 'society',
+            'traffic challan': 'tax',
+            'cable tv': 'cable',
+            'lpg': 'lpg',
+            'hospital': 'hospital',
+            'ott': 'ott',
+        }
+        
+        # Subcategory name के आधार पर operator type identify करें
+        subcategory_name_lower = subcategory.name.lower()
+        operator_type = None
+        
+        for keyword, op_type in service_to_operator_map.items():
+            if keyword in subcategory_name_lower:
+                operator_type = op_type
+                break
+        
+        if operator_type:
+            # Specific operator type के operators fetch करें
+            operators = Operator.objects.filter(
+                operator_type=operator_type,
+                is_active=True
+            ).order_by('operator_name')
+        else:
+            # Default: सभी operators fetch करें
+            operators = Operator.objects.filter(
+                is_active=True
+            ).order_by('operator_name')
+        
+        # Serialize operators
+        from recharge.serializers import OperatorSerializer
+        serializer = OperatorSerializer(operators, many=True)
+        
+        return Response({
+            'subcategory': {
+                'id': subcategory.id,
+                'name': subcategory.name,
+                'category_name': subcategory.category.name if subcategory.category else ''
+            },
+            'operator_type_filter': operator_type,
+            'operators': serializer.data,
+            'count': operators.count()
+        })
+        
+    except ServiceSubCategory.DoesNotExist:
+        return Response(
+            {'error': 'Subcategory not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )

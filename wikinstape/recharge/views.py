@@ -150,22 +150,6 @@ class RechargeViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     @db_transaction.atomic
     def recharge(self, request):
-        """
-        Perform recharge with wallet payment and commission
-        POST /api/recharge/recharge/
-        {
-            "mobile": "9876543210",
-            "amount": 100.00,
-            "operator_id": "operator_id",
-            "operator_type": "prepaid",
-            "circle": "Delhi",
-            "consumer_number": "optional",
-            "customer_name": "optional",
-            "is_plan_recharge": false,
-            "plan_id": "optional",
-            "pin": "1234"  # REQUIRED for wallet payment
-        }
-        """
         serializer = RechargeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -174,11 +158,9 @@ class RechargeViewSet(viewsets.ViewSet):
         pin = request.data.get('pin')
         
         try:
-            # Calculate service charge
             service_charge = RechargeServiceCharge.calculate_charge(data['amount'])
             total_amount = data['amount'] + service_charge
             
-            # Validate wallet PIN
             wallet = user.wallet
             
             if not pin:
@@ -199,7 +181,6 @@ class RechargeViewSet(viewsets.ViewSet):
                     'message': 'Insufficient wallet balance'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Create recharge transaction record
             recharge_txn = RechargeTransaction.objects.create(
                 user=user,
                 operator_id=data['operator_id'],
@@ -220,11 +201,9 @@ class RechargeViewSet(viewsets.ViewSet):
                 payment_status='processing'
             )
             
-            # Step 1: Deduct amount from wallet FIRST
             try:
                 total_deducted = wallet.deduct_amount(data['amount'], service_charge, pin)
                 
-                # Create wallet transaction record
                 wallet_transaction = Transaction.objects.create(
                     wallet=wallet,
                     amount=data['amount'],
@@ -249,7 +228,6 @@ class RechargeViewSet(viewsets.ViewSet):
                     'message': f"Payment failed: {str(e)}"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Step 2: Perform recharge via EKO API
             result = recharge_manager.perform_recharge(
                 mobile=data['mobile'],
                 amount=data['amount'],
@@ -258,7 +236,6 @@ class RechargeViewSet(viewsets.ViewSet):
                 circle=data.get('circle')
             )
             
-            # Step 3: Update transaction with API response
             recharge_txn.eko_message = result.get('eko_message')
             recharge_txn.eko_txstatus_desc = result.get('txstatus_desc')
             recharge_txn.eko_response_status = result.get('response_status')
@@ -270,66 +247,29 @@ class RechargeViewSet(viewsets.ViewSet):
             if result['success']:
                 recharge_txn.status = 'success'
                 recharge_txn.payment_status = 'paid'
-                recharge_txn.eko_transaction_ref = result.get('eko_transaction_ref')
-                recharge_txn.processed_at = timezone.now()
-                recharge_txn.completed_at = timezone.now()
                 
-                # Update transaction ID with EKO's if available
-                if result.get('transaction_id'):
-                    recharge_txn.transaction_id = result['transaction_id']
-                
-                message = result.get('message', 'Recharge successful')
-                
-                # Step 4: Process commission after successful recharge
                 try:
                     from commission.views import CommissionManager
-                    from services.models import ServiceSubCategory
                     
-                    # Recharge service ko database mein dhoondhein
-                    recharge_service = ServiceSubCategory.objects.filter(
-                        Q(name__icontains='recharge') | Q(name__icontains='mobile'),
-                        is_active=True
-                    ).first()
-                    
-                    if recharge_service:
-                        # Recharge ke liye dummy service submission banayein
-                        class DummyServiceSubmission:
-                            def __init__(self, user, amount, mobile, operator):
-                                self.submitted_by = user
-                                self.amount = amount
-                                self.service_subcategory = recharge_service
-                                self.service_form = type('obj', (object,), {
-                                    'name': f"Mobile Recharge - {operator}"
-                                })()
-                        
-                        dummy_submission = DummyServiceSubmission(
-                            user=user,
-                            amount=data['amount'],
-                            mobile=data['mobile'],
-                            operator=data['operator_id']
-                        )
-                        
-                        # ✅ Use the EXISTING global commission method
-                        success, comm_message = CommissionManager.process_service_commission(
-                            dummy_submission, wallet_transaction
-                        )
-                    else:
-                        # Agar recharge service nahi mila
-                        success, comm_message = False, "Recharge service not configured for commission"
+                    success, comm_message = CommissionManager.process_operator_commission(
+                        recharge_txn=recharge_txn, 
+                        wallet_transaction=wallet_transaction,
+                        operator_id=data['operator_id']
+                    )
                     
                     if success:
-                        logger.info(f"✅ Commission processed for recharge: {recharge_txn.transaction_id}")
+                        logger.info(f"✅ Operator commission processed for recharge: {recharge_txn.transaction_id}")
                         recharge_txn.status_message = f"Recharge successful. {comm_message}"
                     else:
-                        logger.warning(f"⚠️ Commission processing failed: {comm_message}")
-                        recharge_txn.status_message = f"Recharge successful but commission failed: {comm_message}"
-
-                except ImportError:
-                    logger.warning("Commission app not available")
-                    recharge_txn.status_message = "Recharge successful (commission app not available)"
+                        logger.warning(f"⚠️ Operator commission processing failed: {comm_message}")
+                        
+                except ImportError as e:
+                    logger.warning(f"Commission app not available: {str(e)}")
                 except Exception as e:
                     logger.error(f"❌ Commission processing error: {str(e)}")
-                    recharge_txn.status_message = f"Recharge successful but commission error: {str(e)}"
+                    import traceback
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
+            
                 
             else:
                 recharge_txn.status = 'failed'
@@ -438,8 +378,9 @@ class RechargeViewSet(viewsets.ViewSet):
             return Response({
                 'success': False,
                 'message': f"Failed to check status: {str(e)}"
+
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
 
 
 
@@ -515,6 +456,7 @@ class RechargeViewSet(viewsets.ViewSet):
             "count": queryset.count(),
             "reports": serializer.data
         })
+
 
 
 
