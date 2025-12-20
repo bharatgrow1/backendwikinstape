@@ -1168,18 +1168,6 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter operators based on various parameters"""
         queryset = super().get_queryset()
-
-        service_subcategory_id = self.request.query_params.get('service_subcategory')
-        if service_subcategory_id:
-            # First get the service subcategory
-            try:
-                subcategory = ServiceSubCategory.objects.get(id=service_subcategory_id)
-                # Get operator types for this subcategory
-                operator_types = self.get_operator_types_for_subcategory(subcategory.name)
-                # Filter operators by these types
-                queryset = queryset.filter(operator__operator_type__in=operator_types)
-            except ServiceSubCategory.DoesNotExist:
-                pass
         
         # Filter by operator type
         operator_type = self.request.query_params.get('operator_type')
@@ -1207,49 +1195,6 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
         
         return queryset
-    
-
-
-    def get_operator_types_for_subcategory(self, subcategory_name):
-        """Map service subcategory to operator types"""
-        service_to_operator_map = {
-            'mobile_recharge': ['prepaid', 'postpaid'],
-            'mobile prepaid': ['prepaid'],
-            'mobile postpaid': ['postpaid'],
-            'dth': ['dth'],
-            'dth recharge': ['dth'],
-            'electricity': ['electricity'],
-            'electricity bill': ['electricity'],
-            'water': ['water'],
-            'water bill': ['water'],
-            'gas': ['gas'],
-            'gas bill': ['gas'],
-            'broadband': ['broadband'],
-            'broadband bill': ['broadband'],
-            'landline': ['landline'],
-            'fastag': ['fastag'],
-            'credit card': ['credit'],
-            'insurance': ['insurance'],
-            'loan': ['loan'],
-            'education': ['education'],
-            'municipal tax': ['municipal_tax'],
-            'society maintenance': ['society'],
-            'traffic challan': ['tax'],
-            'cable tv': ['cable'],
-            'lpg': ['lpg'],
-            'hospital': ['hospital'],
-            'ott': ['ott'],
-        }
-        
-        subcategory_name_lower = subcategory_name.lower()
-        operator_types = []
-        
-        for keyword, op_types in service_to_operator_map.items():
-            if keyword in subcategory_name_lower:
-                operator_types.extend(op_types)
-        
-        # Remove duplicates and return
-        return list(set(operator_types))
     
     def perform_create(self, serializer):
         """Save with operator information"""
