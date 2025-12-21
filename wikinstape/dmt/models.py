@@ -5,6 +5,7 @@ import uuid
 from decimal import Decimal
 import logging
 logger = logging.getLogger(__name__)
+import uuid
 
 
 class DMTTransaction(models.Model):
@@ -472,3 +473,215 @@ class TransactionStatusManager:
         except Exception as e:
             logger.error(f"Error getting refund eligible transactions: {str(e)}")
             return DMTTransaction.objects.none()
+        
+
+class DMTPlan(models.Model):
+    """Platinum, Gold, Silver plans"""
+    PLAN_TYPES = (
+        ('platinum', 'Platinum'),
+        ('gold', 'Gold'),
+        ('silver', 'Silver'),
+        ('basic', 'Basic'),
+    )
+    
+    name = models.CharField(max_length=100)
+    plan_type = models.CharField(max_length=20, choices=PLAN_TYPES, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.name} ({self.plan_type})"
+
+
+class EKOChargeConfig(models.Model):
+    """EKO charges configuration from your table"""
+    amount_from = models.DecimalField(max_digits=10, decimal_places=2)
+    amount_to = models.DecimalField(max_digits=10, decimal_places=2)
+    customer_fee_net_gst = models.DecimalField(max_digits=10, decimal_places=2) 
+    eko_pricing = models.DecimalField(max_digits=10, decimal_places=2)  
+    commission_after_tds = models.DecimalField(max_digits=10, decimal_places=2) 
+    
+    class Meta:
+        ordering = ['amount_from']
+    
+    def __str__(self):
+        return f"₹{self.amount_from} - ₹{self.amount_to}: ₹{self.commission_after_tds}"
+
+
+class DMTChargeScheme(models.Model):
+    """Super admin creates charges scheme"""
+    CHARGE_TYPE_CHOICES = (
+        ('percentage', 'Percentage'),
+        ('flat', 'Flat Amount'),
+        ('both', 'Both Percentage and Flat'),
+    )
+    
+    name = models.CharField(max_length=100)
+    plan = models.ForeignKey(DMTPlan, on_delete=models.CASCADE, related_name='charge_schemes')
+    
+    amount_range = models.CharField(max_length=50)
+    amount_from = models.DecimalField(max_digits=10, decimal_places=2)
+    amount_to = models.DecimalField(max_digits=10, decimal_places=2)
+    eko_commission = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    charge_type = models.CharField(max_length=20, choices=CHARGE_TYPE_CHOICES, default='percentage')
+    percentage_charge = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    flat_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)  
+    
+    retailer_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00) 
+    dealer_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00) 
+    master_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00) 
+    admin_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)  
+    superadmin_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['amount_from']
+        unique_together = ['plan', 'amount_from', 'amount_to']
+    
+    def __str__(self):
+        return f"{self.name} - {self.plan.name} - ₹{self.amount_from}-₹{self.amount_to}"
+    
+    def save(self, *args, **kwargs):
+        if not self.amount_range:
+            self.amount_range = f"{self.amount_from}-{self.amount_to}"
+        super().save(*args, **kwargs)
+    
+    def calculate_charges(self, transaction_amount):
+        """Calculate total charges for a transaction"""
+        eko_commission = self.eko_commission
+        
+        extra_charge = Decimal('0.00')
+        
+        if self.charge_type in ['percentage', 'both']:
+            extra_charge += (eko_commission * self.percentage_charge) / 100
+        
+        if self.charge_type in ['flat', 'both']:
+            extra_charge += self.flat_charge
+        
+        total_charges = eko_commission + extra_charge
+        
+        distribution = {
+            'total_charges': total_charges,
+            'eko_commission': eko_commission,
+            'superadmin_extra': extra_charge,
+            'retailer_amount': (total_charges * self.retailer_percentage) / 100,
+            'dealer_amount': (total_charges * self.dealer_percentage) / 100,
+            'master_amount': (total_charges * self.master_percentage) / 100,
+            'admin_amount': (total_charges * self.admin_percentage) / 100,
+            'superadmin_amount': (total_charges * self.superadmin_percentage) / 100,
+        }
+        
+        return distribution
+    
+    def validate_percentages(self):
+        """Validate that percentages add up to 100%"""
+        total = (
+            self.retailer_percentage + 
+            self.dealer_percentage + 
+            self.master_percentage + 
+            self.admin_percentage + 
+            self.superadmin_percentage
+        )
+        return total == 100
+
+
+class DMTTransactionCharge(models.Model):
+    """Track charges for each DMT transaction"""
+    dmt_transaction = models.OneToOneField('DMTTransaction', on_delete=models.CASCADE, related_name='charge_details')
+    charge_scheme = models.ForeignKey(DMTChargeScheme, on_delete=models.CASCADE)
+    
+    transaction_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    eko_commission = models.DecimalField(max_digits=10, decimal_places=2)
+    superadmin_extra_charge = models.DecimalField(max_digits=10, decimal_places=2)
+    total_charges = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    retailer_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    dealer_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    master_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    admin_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    superadmin_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    is_distributed = models.BooleanField(default=False)
+    distributed_at = models.DateTimeField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Charges for {self.dmt_transaction.transaction_id}"
+    
+    def distribute_to_wallets(self):
+        """Distribute amounts to all wallets in hierarchy"""
+        try:
+            from django.db import transaction as db_transaction
+            from users.models import Transaction
+            
+            with db_transaction.atomic():
+                chain = self.get_hierarchy_chain()
+                
+                for user_info in chain:
+                    role = user_info['role']
+                    amount_field = f"{role}_amount"
+                    amount = getattr(self, amount_field, Decimal('0.00'))
+                    
+                    if amount > 0:
+                        wallet = user_info['user'].wallet
+                        
+                        wallet.balance += amount
+                        wallet.save()
+                        
+                        Transaction.objects.create(
+                            wallet=wallet,
+                            amount=amount,
+                            transaction_type='credit',
+                            transaction_category='dmt_commission',
+                            description=f"DMT commission - {self.dmt_transaction.transaction_id}",
+                            created_by=user_info['user'],
+                            status='success',
+                            metadata={
+                                'dmt_transaction_id': self.dmt_transaction.id,
+                                'role': role,
+                                'charge_scheme_id': self.charge_scheme.id
+                            }
+                        )
+                
+                self.is_distributed = True
+                self.distributed_at = timezone.now()
+                self.save()
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Distribution failed: {str(e)}")
+            return False
+    
+    def get_hierarchy_chain(self):
+        """Get all users in hierarchy for this transaction"""
+        from users.models import User
+        
+        chain = []
+        current_user = self.dmt_transaction.user
+        
+        while current_user:
+            chain.append({
+                'user': current_user,
+                'role': current_user.role
+            })
+            current_user = current_user.created_by
+        
+        roles_needed = ['retailer', 'dealer', 'master', 'admin', 'superadmin']
+        existing_roles = [u['role'] for u in chain]
+        
+        if 'superadmin' not in existing_roles:
+            superadmin = User.objects.filter(role='superadmin').first()
+            if superadmin:
+                chain.append({
+                    'user': superadmin,
+                    'role': 'superadmin'
+                })
+        
+        return chain
