@@ -315,14 +315,65 @@ class Wallet(models.Model):
     def __str__(self):
         return f"{self.user.username}'s Wallet - ₹{self.balance}"
 
+    # def set_pin(self, pin):
+    #     """Set wallet PIN"""
+    #     if len(pin) != 4 or not pin.isdigit():
+    #         raise ValueError("PIN must be 4 digits")
+        
+    #     self.pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+    #     self.is_pin_set = True
+    #     self.save()
+
+
     def set_pin(self, pin):
-        """Set wallet PIN"""
+        """Set wallet PIN with validation"""
         if len(pin) != 4 or not pin.isdigit():
             raise ValueError("PIN must be 4 digits")
+        
+        if self.is_sequential(pin):
+            raise ValueError("PIN cannot be sequential numbers")
+        
+        if self.is_repeated(pin):
+            raise ValueError("PIN cannot have repeated digits")
+        
+        if self.is_common_pattern(pin):
+            raise ValueError("PIN is too common. Choose a different one.")
+        
+        if self.is_recent_pin(pin):
+            raise ValueError("You cannot reuse a recent PIN")
         
         self.pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         self.is_pin_set = True
         self.save()
+
+    
+    def is_sequential(self, pin):
+        """Check if PIN is sequential numbers"""
+        if all(int(pin[i]) + 1 == int(pin[i+1]) for i in range(len(pin)-1)):
+            return True
+        
+        if all(int(pin[i]) - 1 == int(pin[i+1]) for i in range(len(pin)-1)):
+            return True
+        
+        return False
+    
+    def is_repeated(self, pin):
+        """Check if PIN has repeated digits"""
+        return len(set(pin)) == 1
+    
+    def is_common_pattern(self, pin):
+        """Check for common weak PINs"""
+        common_pins = {
+            '1234', '1111', '0000', '1212', '1004', 
+            '2000', '4444', '2222', '6969', '9999',
+            '3333', '5555', '6666', '1122', '1313',
+            '7777', '8888', '2001', '4321', '1010'
+        }
+        return pin in common_pins
+    
+    def is_recent_pin(self, pin):
+        """Check if PIN was used recently (if implementing PIN history)"""
+        return False
 
     def verify_pin(self, pin):
         """Verify wallet PIN"""
@@ -377,6 +428,40 @@ class Wallet(models.Model):
             amount = Decimal(str(amount))
         self.balance += amount
         self.save()
+
+
+
+
+class PinHistory(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    pin_hash = models.CharField(max_length=255)
+    set_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-set_at']
+        indexes = [
+            models.Index(fields=['user', 'set_at']),
+        ]
+
+@receiver(pre_save, sender=Wallet)
+def track_pin_history(sender, instance, **kwargs):
+    """Track PIN history when PIN is changed"""
+    if instance.pk:
+        try:
+            old_wallet = Wallet.objects.get(pk=instance.pk)
+            if (old_wallet.pin_hash and instance.pin_hash and 
+                old_wallet.pin_hash != instance.pin_hash):
+                PinHistory.objects.create(
+                    user=instance.user,
+                    pin_hash=old_wallet.pin_hash
+                )
+                
+                pin_history = PinHistory.objects.filter(user=instance.user)
+                if pin_history.count() > 5:
+                    old_records = pin_history.order_by('set_at')[0:pin_history.count()-5]
+                    old_records.delete()
+        except Wallet.DoesNotExist:
+            pass
 
 
 class ForgetPinOTP(models.Model):
