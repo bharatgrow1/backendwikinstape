@@ -1,9 +1,8 @@
 from django.db import transaction as db_transaction
-from django.utils import timezone
 from decimal import Decimal
 import logging
 from .eko_service import eko_service
-from dmt.models import DMTTransaction, DMTRecipient
+from dmt.models import DMTTransaction, DMTRecipient, DMTChargeScheme
 from django.contrib.auth import get_user_model
 
 
@@ -163,7 +162,6 @@ class DMTManager:
     def refund_transaction(self, tid, otp):
         """Process refund for transaction"""
         try:
-            # First verify the transaction exists and is eligible for refund
             try:
                 transaction = DMTTransaction.objects.filter(eko_tid=tid).first()
                 if not transaction:
@@ -174,10 +172,8 @@ class DMTManager:
             except DMTTransaction.DoesNotExist:
                 return {"status": 1, "message": "Transaction not found"}
             
-            # Process refund through EKO API
             response = self.eko_service.refund_transaction(tid, otp)
             
-            # Update transaction status based on refund response
             if response.get('status') == 0:
                 transaction.status = 'cancelled'
                 transaction.status_message = "Refund initiated"
@@ -202,7 +198,7 @@ class DMTManager:
 
     def initiate_transaction_with_wallet(self, user, transaction_data):
         """
-        DMT transaction with wallet deduction
+        DMT transaction with charges and distribution
         """
         try:
             with db_transaction.atomic():
@@ -215,11 +211,18 @@ class DMTManager:
                     transfer_amount = Decimal(amount_value)
                 else:
                     transfer_amount = Decimal(str(amount_value))
-
-                processing_fee = Decimal('7.00')
-                gst = Decimal('1.26')
-                total_fee = Decimal(str(processing_fee)) + Decimal(str(gst))
-                total_deduction = Decimal(str(transfer_amount)) + Decimal(str(total_fee))
+                
+                charge_scheme = self.get_applicable_charge_scheme(transfer_amount)
+                if not charge_scheme:
+                    return {
+                        "status": 1,
+                        "message": "No charge scheme found for this amount"
+                    }
+                
+                distribution = charge_scheme.calculate_charges(transfer_amount)
+                total_charges = distribution['total_charges']
+                
+                total_deduction = transfer_amount + total_charges
                 
                 pin = transaction_data.get('pin')
                 if not pin:
@@ -241,9 +244,9 @@ class DMTManager:
                         "message": f"Insufficient wallet balance. Required: ₹{total_deduction}, Available: ₹{wallet_balance}"
                     }
                 
-                wallet.balance = Decimal(str(wallet.balance)) - Decimal(str(total_deduction))
+                wallet.balance = wallet_balance - total_deduction
                 wallet.save(update_fields=["balance"])
-
+                
                 recipient, created = DMTRecipient.objects.get_or_create(
                     user=user,
                     account_number=transaction_data.get('account'),
@@ -255,10 +258,6 @@ class DMTManager:
                         'is_active': True,
                     }
                 )
-                
-                if not created and not recipient.eko_recipient_id:
-                    recipient.eko_recipient_id = transaction_data.get('recipient_id')
-                    recipient.save()
                 
                 dmt_transaction = DMTTransaction.objects.create(
                     user=user,
@@ -272,30 +271,38 @@ class DMTManager:
                     status='initiated'
                 )
                 
+                charge_record = DMTTransactionCharge.objects.create(
+                    dmt_transaction=dmt_transaction,
+                    charge_scheme=charge_scheme,
+                    transaction_amount=transfer_amount,
+                    eko_commission=distribution['eko_commission'],
+                    superadmin_extra_charge=distribution['superadmin_extra'],
+                    total_charges=total_charges,
+                    retailer_amount=distribution['retailer_amount'],
+                    dealer_amount=distribution['dealer_amount'],
+                    master_amount=distribution['master_amount'],
+                    admin_amount=distribution['admin_amount'],
+                    superadmin_amount=distribution['superadmin_amount']
+                )
+                
                 from users.models import Transaction
                 Transaction.objects.create(
                     wallet=wallet,
-                    amount=transfer_amount,
-                    service_charge=total_fee,
-                    net_amount=transfer_amount,
+                    amount=total_deduction,
                     transaction_type='debit',
                     transaction_category='dmt_transfer',
-                    description=f"DMT transfer to {transaction_data.get('recipient_name')}",
+                    description=f"DMT transfer + charges to {transaction_data.get('recipient_name')}",
                     created_by=user,
                     status='success',
                     metadata={
                         'dmt_transaction_id': dmt_transaction.id,
-                        'recipient_name': transaction_data.get('recipient_name'),
-                        'recipient_account': transaction_data.get('account')[-4:],
-                        'ifsc': transaction_data.get('ifsc'),
                         'transfer_amount': str(transfer_amount),
-                        'fee': str(total_fee),
-                        'total_deduction': str(total_deduction)
+                        'total_charges': str(total_charges),
+                        'charge_scheme_id': charge_scheme.id
                     }
                 )
                 
-                logger.info(f"Wallet deduction successful: ₹{total_deduction} deducted")
-                logger.info(f"New wallet balance: ₹{wallet.balance}")
+                logger.info(f"Wallet deduction: ₹{total_deduction} (₹{transfer_amount} + ₹{total_charges} charges)")
                 
                 eko_data = {
                     'customer_id': transaction_data.get('customer_id'),
@@ -305,10 +312,7 @@ class DMTManager:
                     'otp_ref_id': transaction_data.get('otp_ref_id')
                 }
                 
-                logger.info(f"Sending to EKO: Transfer Amount = ₹{transfer_amount}")
                 eko_result = self.eko_service.initiate_transaction(**eko_data)
-                
-                logger.info(f"EKO DMT response: {eko_result}")
                 
                 if eko_result.get('status') == 0:
                     dmt_transaction.status = 'success'
@@ -317,40 +321,41 @@ class DMTManager:
                     dmt_transaction.bank_ref_num = eko_result.get('data', {}).get('bank_ref_num')
                     dmt_transaction.save()
                     
+                    charge_record.distribute_to_wallets()
+                    
                     return {
                         "status": 0,
                         "message": "DMT transfer successful",
                         "data": {
                             "transaction_id": dmt_transaction.id,
-                            "client_ref_id": dmt_transaction.client_ref_id,
-                            "amount": str(transfer_amount),
-                            "fee": str(processing_fee),
-                            "gst": str(gst),
-                            "total_fee": str(total_fee),
-                            "total_deduction": str(total_deduction),
-                            "balance": str(wallet.balance),
-                            "recipient_name": transaction_data.get('recipient_name'),
-                            "bank_ref_num": dmt_transaction.bank_ref_num
+                            "transfer_amount": str(transfer_amount),
+                            "charges": {
+                                "eko_commission": str(distribution['eko_commission']),
+                                "superadmin_extra": str(distribution['superadmin_extra']),
+                                "total_charges": str(total_charges)
+                            },
+                            "distribution": {
+                                "retailer": str(distribution['retailer_amount']),
+                                "dealer": str(distribution['dealer_amount']),
+                                "master": str(distribution['master_amount']),
+                                "admin": str(distribution['admin_amount']),
+                                "superadmin": str(distribution['superadmin_amount'])
+                            },
+                            "wallet_balance": str(wallet.balance)
                         }
                     }
                 else:
-                    logger.error(f"DMT transfer failed: {eko_result.get('message')}")
-                    
                     wallet.balance = Decimal(str(wallet.balance)) + Decimal(str(total_deduction))
                     wallet.save(update_fields=["balance"])
-
+                    
                     Transaction.objects.create(
                         wallet=wallet,
                         amount=total_deduction,
                         transaction_type='credit',
                         transaction_category='refund',
-                        description=f"Refund for failed DMT transfer to {transaction_data.get('recipient_name')}",
+                        description=f"Refund for failed DMT transfer",
                         created_by=user,
-                        status='success',
-                        metadata={
-                            'dmt_transaction_id': dmt_transaction.id,
-                            'error': eko_result.get('message')
-                        }
+                        status='success'
                     )
                     
                     dmt_transaction.status = 'failed'
@@ -359,20 +364,33 @@ class DMTManager:
                     
                     return {
                         "status": 1,
-                        "message": f"DMT transfer failed: {eko_result.get('message')}. ₹{total_deduction} refunded to wallet.",
+                        "message": f"DMT transfer failed: {eko_result.get('message')}",
                         "data": {
+                            "refund_amount": str(total_deduction),
                             "balance": str(wallet.balance)
                         }
                     }
                     
         except Exception as e:
-            logger.error(f"DMT wallet payment error: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
+            logger.error(f"DMT payment error: {str(e)}")
             return {
                 "status": 1,
                 "message": f"Payment processing failed: {str(e)}"
             }
+    
+    def get_applicable_charge_scheme(self, amount):
+        """Get active charge scheme for amount"""
+        try:            
+            scheme = DMTChargeScheme.objects.filter(
+                amount_from__lte=amount,
+                amount_to__gte=amount,
+                is_active=True
+            ).first()
+            
+            return scheme
+            
+        except Exception as e:
+            logger.error(f"Error getting charge scheme: {str(e)}")
+            return None
 
 dmt_manager = DMTManager()

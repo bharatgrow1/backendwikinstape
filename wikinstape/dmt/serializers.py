@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import EkoBank
 from decimal import Decimal
+from dmt.models import DMTPlan, EKOChargeConfig, DMTChargeScheme
 
 
 class DMTOnboardSerializer(serializers.Serializer):
@@ -152,3 +153,124 @@ class DMTWalletTransactionSerializer(serializers.Serializer):
         if len(value) != 4:
             raise serializers.ValidationError("PIN must be exactly 4 digits")
         return value
+    
+
+
+class DMTPlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DMTPlan
+        fields = ['id', 'name', 'plan_type', 'description', 'is_active', 'created_at']
+
+
+class EKOChargeConfigSerializer(serializers.ModelSerializer):
+    amount_range_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = EKOChargeConfig
+        fields = ['id', 'amount_from', 'amount_to', 'amount_range_display', 
+                 'customer_fee_net_gst', 'eko_pricing', 'commission_after_tds']
+    
+    def get_amount_range_display(self, obj):
+        return f"₹{obj.amount_from} - ₹{obj.amount_to}"
+
+
+class DMTChargeSchemeCreateSerializer(serializers.ModelSerializer):
+    amount_from = serializers.DecimalField(max_digits=10, decimal_places=2)
+    amount_to = serializers.DecimalField(max_digits=10, decimal_places=2)
+    
+    class Meta:
+        model = DMTChargeScheme
+        fields = [
+            'name', 'plan', 'amount_from', 'amount_to',
+            'charge_type', 'percentage_charge', 'flat_charge',
+            'retailer_percentage', 'dealer_percentage', 
+            'master_percentage', 'admin_percentage', 'superadmin_percentage'
+        ]
+    
+    def validate(self, data):
+        amount_from = data['amount_from']
+        amount_to = data['amount_to']
+        
+        try:
+            eko_charge = EKOChargeConfig.objects.get(
+                amount_from=amount_from,
+                amount_to=amount_to
+            )
+            data['eko_commission'] = eko_charge.commission_after_tds
+        except EKOChargeConfig.DoesNotExist:
+            raise serializers.ValidationError("Amount range not found in EKO charges")
+        
+        total_percentage = (
+            data['retailer_percentage'] + 
+            data['dealer_percentage'] + 
+            data['master_percentage'] + 
+            data['admin_percentage'] + 
+            data['superadmin_percentage']
+        )
+        
+        if total_percentage != 100:
+            raise serializers.ValidationError("Percentages must add up to 100%")
+        
+        return data
+    
+    def create(self, validated_data):
+        validated_data['amount_range'] = f"{validated_data['amount_from']}-{validated_data['amount_to']}"
+        return super().create(validated_data)
+
+
+class DMTChargeSchemeSerializer(serializers.ModelSerializer):
+    plan = DMTPlanSerializer(read_only=True)
+    plan_id = serializers.PrimaryKeyRelatedField(
+        queryset=DMTPlan.objects.filter(is_active=True),
+        write_only=True,
+        source='plan'
+    )
+    eko_commission_display = serializers.SerializerMethodField()
+    total_percentage = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DMTChargeScheme
+        fields = [
+            'id', 'name', 'plan', 'plan_id', 'amount_range', 'amount_from', 'amount_to',
+            'eko_commission', 'eko_commission_display',
+            'charge_type', 'percentage_charge', 'flat_charge',
+            'retailer_percentage', 'dealer_percentage', 
+            'master_percentage', 'admin_percentage', 'superadmin_percentage',
+            'total_percentage', 'is_active', 'created_at'
+        ]
+    
+    def get_eko_commission_display(self, obj):
+        return f"₹{obj.eko_commission}"
+    
+    def get_total_percentage(self, obj):
+        return obj.retailer_percentage + obj.dealer_percentage + obj.master_percentage + obj.admin_percentage + obj.superadmin_percentage
+
+
+class ChargePreviewSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+    plan_id = serializers.IntegerField(required=False)
+    
+    def validate(self, data):
+        amount = data['amount']
+        
+        plan_id = data.get('plan_id')
+        
+        if plan_id:
+            schemes = DMTChargeScheme.objects.filter(
+                plan_id=plan_id,
+                amount_from__lte=amount,
+                amount_to__gte=amount,
+                is_active=True
+            )
+        else:
+            schemes = DMTChargeScheme.objects.filter(
+                amount_from__lte=amount,
+                amount_to__gte=amount,
+                is_active=True
+            )
+        
+        if not schemes.exists():
+            raise serializers.ValidationError("No charge scheme found for this amount")
+        
+        data['schemes'] = schemes
+        return data
