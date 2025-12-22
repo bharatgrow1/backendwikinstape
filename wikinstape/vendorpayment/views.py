@@ -48,11 +48,11 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                 })
             
             # ✅ FIXED: Calculate total deduction properly
-            amount = Decimal(str(data['amount']))  # ₹10.00
-            fee = Decimal('7.00')  # Processing fee
-            gst = Decimal('1.26')  # GST
-            total_fee = fee + gst  # ₹8.26
-            total_deduction = amount + total_fee  # ₹10.00 + ₹8.26 = ₹18.26
+            amount = Decimal(str(data['amount']))
+            fee = Decimal('49.00')
+            gst = Decimal('1.26')
+            total_fee = fee + gst
+            total_deduction = amount + total_fee
             
             logger.info(f"💰 Payment Calculation:")
             logger.info(f"   Transfer Amount: ₹{amount}")
@@ -144,17 +144,25 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             vendor_payment.status_message = eko_data.get("txstatus_desc")
 
             # Status update from EKO
-            if eko_data.get("tx_status") == "SUCCESS":
+            tx_desc = (
+                eko_data.get("txstatus_desc") or
+                eko_data.get("tx_status")
+            )
+
+            tx_desc = str(tx_desc).upper()
+
+            if tx_desc in ["INITIATED", "SUCCESS", "SUCCESSFUL", "2"]:
                 vendor_payment.status = "success"
-            elif eko_data.get("tx_status") == "FAILED":
+            elif tx_desc in ["FAILED", "FAILURE", "1"]:
                 vendor_payment.status = "failed"
             else:
                 vendor_payment.status = "processing"
 
+
             vendor_payment.save()
 
             
-            if eko_status != 0 or vendor_payment.status == "failed":
+            if vendor_payment.status == "failed":
                 vendor_payment.status = 'failed'
                 vendor_payment.status_message = eko_message
                 vendor_payment.save()

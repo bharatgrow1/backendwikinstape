@@ -2,7 +2,7 @@ from django.db import transaction as db_transaction
 from decimal import Decimal
 import logging
 from .eko_service import eko_service
-from dmt.models import DMTTransaction, DMTRecipient, DMTChargeScheme
+from dmt.models import DMTTransaction, DMTRecipient, DMTChargeScheme, DMTTransactionCharge
 from django.contrib.auth import get_user_model
 
 
@@ -160,30 +160,24 @@ class DMTManager:
     
 
     def refund_transaction(self, tid, otp):
-        """Process refund for transaction"""
         try:
-            try:
-                transaction = DMTTransaction.objects.filter(eko_tid=tid).first()
-                if not transaction:
-                    return {"status": 1, "message": "Transaction not found"}
-                
-                if transaction.status not in ['failed', 'processing']:
-                    return {"status": 1, "message": "Transaction is not eligible for refund"}
-            except DMTTransaction.DoesNotExist:
+            transaction = DMTTransaction.objects.filter(eko_tid=tid).first()
+            if not transaction:
                 return {"status": 1, "message": "Transaction not found"}
-            
+
             response = self.eko_service.refund_transaction(tid, otp)
-            
-            if response.get('status') == 0:
-                transaction.status = 'cancelled'
+
+            if response.get("status") == 0:
+                transaction.status = "cancelled"
                 transaction.status_message = "Refund initiated"
                 transaction.save()
-            
+
             return response
-            
+
         except Exception as e:
             logger.error(f"Refund transaction error: {str(e)}")
-            return {"status": 1, "message": f"Failed to process refund: {str(e)}"}
+            return {"status": 1, "message": str(e)}
+
     
 
     def resend_refund_otp(self, tid):

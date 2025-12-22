@@ -335,9 +335,9 @@ class EkoAPIService:
     def resend_refund_otp(self, tid):
         """
         Resend Refund OTP
-        POST /v2/transactions/{tid}/refund/otp
+        POST /v1/transactions/{tid}/refund/otp
         """
-        endpoint = f"/v2/transactions/{tid}/refund/otp"
+        endpoint = f"/v1/transactions/{tid}/refund/otp"
         
         payload = {
             "initiator_id": self.initiator_id
