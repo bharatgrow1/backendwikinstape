@@ -826,17 +826,13 @@ def ensure_wallet_exists(sender, instance, **kwargs):
 @receiver(pre_save, sender=Transaction)
 def set_transaction_balances(sender, instance, **kwargs):
     """Automatically set opening and closing balances"""
-    if not instance.pk:  # Only for new transactions
+    if not instance.pk:
         wallet = instance.wallet
         
-        # Opening balance = current wallet balance
-        instance.opening_balance = wallet.balance
-        
-        # Calculate closing balance
         if instance.transaction_type == 'credit':
-            # Credit: Add amount to wallet
+            instance.opening_balance = wallet.balance
             instance.closing_balance = wallet.balance + instance.amount
-        else:  # debit
-            # Debit: Subtract amount + service charge
+        else:
             total_deduction = instance.amount + instance.service_charge
-            instance.closing_balance = wallet.balance - total_deduction
+            instance.opening_balance = wallet.balance + total_deduction
+            instance.closing_balance = wallet.balance

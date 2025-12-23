@@ -47,14 +47,13 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                     'message': 'Invalid wallet PIN'
                 })
             
-            # ✅ FIXED: Calculate total deduction properly
             amount = Decimal(str(data['amount']))
-            fee = Decimal('49.00')
-            gst = Decimal('1.26')
+            fee = Decimal('42.59')
+            gst = Decimal('7.67')
             total_fee = fee + gst
             total_deduction = amount + total_fee
             
-            logger.info(f"💰 Payment Calculation:")
+            logger.info(f"   Payment Calculation:")
             logger.info(f"   Transfer Amount: ₹{amount}")
             logger.info(f"   Processing Fee: ₹{fee}")
             logger.info(f"   GST: ₹{gst}")
@@ -86,10 +85,10 @@ class VendorPaymentViewSet(viewsets.ViewSet):
             
             wallet.deduct_amount(amount, total_fee, pin)
             
-            transaction = Transaction.objects.create(
+            Transaction.objects.create(
                 wallet=wallet,
-                amount=amount,
                 service_charge=total_fee,
+                amount=amount,
                 net_amount=amount,
                 transaction_type='debit',
                 transaction_category='vendor_payment',
@@ -102,7 +101,9 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                     'recipient_account': data['account'][-4:],
                     'ifsc': data['ifsc'],
                     'transfer_amount': str(amount),
-                    'fee': str(total_fee),
+                    'processing_fee': str(fee),
+                    'gst': str(gst), 
+                    'total_fee': str(total_fee),
                     'total_deduction': str(total_deduction)
                 }
             )
@@ -206,7 +207,7 @@ class VendorPaymentViewSet(viewsets.ViewSet):
                     'ifsc': data['ifsc'],
                     'bank_ref_num': eko_data_response.get('bank_ref_num', ''),
                     'status': eko_data_response.get('txstatus_desc', 'Initiated'),
-                    'transaction_id': vendor_payment.client_ref_id,
+                    'transaction_id': eko_data_response.get('tid', ''),
                     'timestamp': eko_data_response.get('timestamp', ''),
                     'purpose': data.get('purpose', 'Vendor Payment'),
                     'payment_mode': data['payment_mode']
