@@ -423,11 +423,29 @@ class Wallet(models.Model):
 
     def add_amount(self, amount):
         """Add amount to wallet"""
-        # Convert to Decimal if it's a float
         if isinstance(amount, float):
             amount = Decimal(str(amount))
         self.balance += amount
         self.save()
+
+
+    def deduct_fee_without_pin(self, fee_amount):
+        """
+        Deduct fee without PIN verification
+        Only for beneficiary verification fee
+        """
+        if isinstance(fee_amount, float):
+            fee_amount = Decimal(str(fee_amount))
+        
+        if fee_amount <= 0:
+            raise ValueError("Fee amount must be greater than zero")
+        
+        if self.balance < fee_amount:
+            raise ValueError("Insufficient balance")
+        
+        self.balance -= fee_amount
+        self.save()
+        return fee_amount
 
 
 
@@ -526,6 +544,7 @@ class Transaction(models.Model):
         ('refund', 'Refund'),
         ('commission', 'Commission'),
         ('service_payment', 'Service Payment'),
+        ('beneficiary_verification', 'Beneficiary Verification'),
         ('other', 'Other'),
     )
     
@@ -541,7 +560,7 @@ class Transaction(models.Model):
     net_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     service_charge = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
-    transaction_category = models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, default='other')
+    transaction_category = models.CharField(max_length=30, choices=TRANSACTION_CATEGORIES, default='other')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='success')
     description = models.CharField(max_length=255)
     reference_number = models.CharField(max_length=100, unique=True, blank=True)
@@ -606,7 +625,7 @@ class ServiceCharge(models.Model):
     """Model to manage service charges for different transaction types"""
     TRANSACTION_CATEGORIES = Transaction.TRANSACTION_CATEGORIES
     
-    transaction_category = models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, unique=True)
+    transaction_category = models.CharField(max_length=30, choices=TRANSACTION_CATEGORIES, unique=True)
     charge_type = models.CharField(max_length=10, choices=[('fixed', 'Fixed'), ('percentage', 'Percentage')])
     charge_value = models.DecimalField(max_digits=10, decimal_places=2)
     min_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
@@ -641,6 +660,20 @@ class ServiceCharge(models.Model):
         return charge
 
  
+    def save(self, *args, **kwargs):
+        """Auto-create beneficiary verification charge if not exists"""
+        super().save(*args, **kwargs)
+        
+        if not ServiceCharge.objects.filter(transaction_category='beneficiary_verification').exists():
+            ServiceCharge.objects.create(
+                transaction_category='beneficiary_verification',
+                charge_type='fixed',
+                charge_value=Decimal('2.90'),
+                min_charge=Decimal('2.90'),
+                max_charge=Decimal('2.90'),
+                is_active=True
+            )
+
 
 class FundRequest(models.Model):
     TRANSACTION_TYPE_CHOICES = (
