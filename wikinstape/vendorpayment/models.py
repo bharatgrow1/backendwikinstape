@@ -102,3 +102,67 @@ class VendorPayment(models.Model):
                 'purpose': self.purpose
             }
         }
+    
+
+
+class VendorBank(models.Model):
+    """Vendor के verified bank details store करने के लिए"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='vendor_banks')
+    vendor_mobile = models.CharField(max_length=15)
+    
+    recipient_name = models.CharField(max_length=255)
+    account_number = models.CharField(max_length=50)
+    ifsc_code = models.CharField(max_length=11)
+    bank_name = models.CharField(max_length=255)
+    
+    is_mobile_verified = models.BooleanField(default=False)
+    is_bank_verified = models.BooleanField(default=False)
+    verification_ref_id = models.CharField(max_length=100, blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['user', 'vendor_mobile', 'account_number']
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.recipient_name} - {self.account_number[-4:]}"
+    
+
+
+    def save(self, *args, **kwargs):
+        """Override save to ensure consistency"""
+        if self.is_bank_verified and not self.is_mobile_verified:
+            self.is_mobile_verified = True
+        
+        super().save(*args, **kwargs)
+    
+    def mark_as_fully_verified(self):
+        """Mark both mobile and bank as verified"""
+        self.is_mobile_verified = True
+        self.is_bank_verified = True
+        self.save()
+
+class VendorOTP(models.Model):
+    """Vendor mobile verification के लिए OTP store करने के लिए"""
+    vendor_mobile = models.CharField(max_length=15)
+    otp = models.CharField(max_length=6)
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    
+    def generate_otp(self):
+        import random
+        self.otp = str(random.randint(100000, 999999))
+        self.expires_at = timezone.now() + timezone.timedelta(minutes=10)
+        self.is_verified = False
+        self.save()
+        return self.otp
+    
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+    
+    def mark_verified(self):
+        self.is_verified = True
+        self.save()
