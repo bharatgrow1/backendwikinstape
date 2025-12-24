@@ -3,7 +3,9 @@ import time
 import base64
 import hmac
 import hashlib
-import json
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class EkoVendorService:
     BASE_URL = "https://api.eko.in:25002/ekoicici"
@@ -44,3 +46,48 @@ class EkoVendorService:
     def initiate_payment(self, payload):
         endpoint = f"/v1/agent/user_code:{self.USER_CODE}/settlement"
         return self.make_request("POST", endpoint, payload)
+    
+    
+    def verify_bank_details(self, ifsc_code, account_number, mobile, customer_name):
+        endpoint = f"/v2/banks/ifsc:{ifsc_code}/accounts/{account_number}"
+
+        data = {
+            "initiator_id": self.INITIATOR_ID,
+            "customer_id": mobile,
+            "user_code": self.USER_CODE
+        }
+
+        result = self.make_request("POST", endpoint, data)
+
+        if result.get("status") != 0:
+            return {
+                "success": False,
+                "verified": False,
+                "error": result.get("message", "Bank verification failed"),
+                "data": result
+            }
+
+        bank_data = result.get("data", {})
+        api_name = bank_data.get("recipient_name", "").strip().upper()
+        input_name = customer_name.strip().upper()
+
+        return {
+            "success": True,
+            "verified": True,
+            "bank_name": bank_data.get("bank", ""),
+            "account_holder_name": api_name,
+            "name_match": self._compare_names(api_name, input_name),
+            "data": bank_data
+        }
+
+    def _compare_names(self, n1, n2):
+        if n1 == n2:
+            return True
+        if n1 in n2 or n2 in n1:
+            return True
+
+        s1, s2 = set(n1.split()), set(n2.split())
+        return len(s1 & s2) >= min(len(s1), len(s2)) / 2
+
+
+bank_verifier = EkoVendorService()
