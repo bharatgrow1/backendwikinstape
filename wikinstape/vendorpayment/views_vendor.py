@@ -33,8 +33,20 @@ class VendorManagerViewSet(viewsets.ViewSet):
         
         mobile = serializer.validated_data['mobile']
         user = request.user
+
+        already_verified = VendorBank.objects.filter(
+            user=request.user,
+            vendor_mobile=mobile,
+            is_mobile_verified=True
+        ).exists()
+
+        if already_verified:
+            return Response({
+                "success": True,
+                "message": "Mobile already verified",
+                "next_step": "add_bank_details"
+            })
     
-        
         # Try Twilio first
         if vendor_mobile_verifier.client:
             result = vendor_mobile_verifier.send_verification_otp(mobile)
