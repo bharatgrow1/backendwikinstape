@@ -76,10 +76,11 @@ class VendorBankSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'vendor_mobile', 'recipient_name', 
             'account_number', 'ifsc_code', 'bank_name',
-            'is_mobile_verified', 'is_bank_verified',
+            'is_mobile_verified', 'is_bank_verified', 'beneficiary_fee',
             'created_at'
         ]
-        read_only_fields = ['is_mobile_verified', 'is_bank_verified', 'created_at']
+        read_only_fields = ['is_mobile_verified', 'is_bank_verified', 'beneficiary_fee', 'created_at']
+
 
 class AddVendorBankSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15, required=True)

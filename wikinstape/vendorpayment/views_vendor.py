@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from django.db import transaction as db_transaction
 from django.utils import timezone
 import logging
+from users.models import Transaction
+from decimal import Decimal
 
 from .models import VendorBank, VendorOTP
 from .serializers import (
@@ -162,7 +164,17 @@ class VendorManagerViewSet(viewsets.ViewSet):
         account_number = serializer.validated_data['account_number']
         ifsc_code = serializer.validated_data['ifsc_code'].upper()
         
-        # Check if this bank already exists for this user+mobile
+        # ✅ 1. Check wallet balance for beneficiary fee
+        wallet = user.wallet
+        beneficiary_fee = Decimal('2.90')
+        
+        if wallet.balance < beneficiary_fee:
+            return Response({
+                'success': False,
+                'error': f'Insufficient balance. ₹{beneficiary_fee} required for beneficiary verification. Available: ₹{wallet.balance}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # ✅ 2. Check if this bank already exists for this user+mobile
         existing_bank = VendorBank.objects.filter(
             user=user,
             vendor_mobile=mobile,
@@ -175,7 +187,7 @@ class VendorManagerViewSet(viewsets.ViewSet):
                 'error': 'This bank account is already added for this mobile number.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Verify bank details using EKO API
+        # ✅ 3. Verify bank details using EKO API
         logger.info(f"🔍 Verifying bank details for vendor: {mobile}")
         verification_result = bank_verifier.verify_bank_details(
             ifsc_code=ifsc_code,
@@ -197,7 +209,7 @@ class VendorManagerViewSet(viewsets.ViewSet):
                 'api_response': verification_result.get('data', {})
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Bank verified successfully
+        # ✅ 4. Bank verified successfully
         bank_name = verification_result.get('bank_name', '')
         name_match = verification_result.get('name_match', False)
         
@@ -209,8 +221,41 @@ class VendorManagerViewSet(viewsets.ViewSet):
                 'provided_name': recipient_name
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # ✅ IMPORTANT CHANGE: Mobile is automatically considered verified
-        # Create VendorBank record with BOTH verified
+        # ✅ 5. Deduct beneficiary fee from wallet WITHOUT PIN
+        try:
+            # Use new method that doesn't require PIN
+            deducted_amount = wallet.deduct_fee_without_pin(beneficiary_fee)
+            
+            # Create transaction record for fee deduction
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=Decimal('0.00'),
+                service_charge=deducted_amount,
+                net_amount=Decimal('0.00'),
+                transaction_type='debit',
+                transaction_category='beneficiary_verification',
+                description=f"Beneficiary verification fee for {recipient_name} - {account_number[-4:]}",
+                created_by=user,
+                status='success',
+                metadata={
+                    'vendor_mobile': mobile,
+                    'recipient_name': recipient_name,
+                    'account_number': account_number[-4:],
+                    'ifsc_code': ifsc_code,
+                    'bank_name': bank_name,
+                    'fee_type': 'beneficiary_verification'
+                }
+            )
+            
+            logger.info(f"✅ Beneficiary fee deducted (without PIN): ₹{deducted_amount} from {user.username}")
+            
+        except ValueError as e:
+            return Response({
+                'success': False,
+                'error': f'Failed to deduct beneficiary fee: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # ✅ 6. Create VendorBank record with BOTH verified
         vendor_bank = VendorBank.objects.create(
             user=user,
             vendor_mobile=mobile,
@@ -220,6 +265,7 @@ class VendorManagerViewSet(viewsets.ViewSet):
             bank_name=bank_name,
             is_mobile_verified=True,
             is_bank_verified=True,
+            beneficiary_fee=beneficiary_fee,
             verification_ref_id=verification_result.get('data', {}).get('tid', '')
         )
         
@@ -227,8 +273,10 @@ class VendorManagerViewSet(viewsets.ViewSet):
         
         return Response({
             'success': True,
-            'message': 'Bank account verified and added successfully',
-            'vendor_bank': VendorBankSerializer(vendor_bank).data
+            'message': f'Bank account verified and added successfully. ₹{beneficiary_fee} deducted as verification fee.',
+            'vendor_bank': VendorBankSerializer(vendor_bank).data,
+            'fee_deducted': float(beneficiary_fee),
+            'remaining_balance': float(wallet.balance)
         })
     
     @action(detail=False, methods=['post'])
