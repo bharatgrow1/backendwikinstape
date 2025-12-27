@@ -503,28 +503,30 @@ class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
             'success': True,
             'operators': result
         })
-
+    
 
 
     @action(detail=False, methods=['get'])
-    def for_service(self, request):
-        """Get operators filtered by service subcategory"""
-        service_subcategory_id = request.query_params.get('service_subcategory')
+    def by_subcategory(self, request):
+        """Get operators by service subcategory"""
+        subcategory_id = request.query_params.get('subcategory_id')
         
-        if not service_subcategory_id:
+        if not subcategory_id:
             return Response({
-                'error': 'service_subcategory parameter is required'
+                'success': False,
+                'message': 'subcategory_id parameter is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             from services.models import ServiceSubCategory
-            subcategory = ServiceSubCategory.objects.get(id=service_subcategory_id)
+            subcategory = ServiceSubCategory.objects.get(id=subcategory_id)
             
-            # Simple mapping logic
             service_name_lower = subcategory.name.lower()
             
-            if 'mobile' in service_name_lower or 'recharge' in service_name_lower:
-                operator_types = ['prepaid', 'postpaid']
+            if 'prepaid' in service_name_lower:
+                operator_types = ['prepaid']
+            elif 'postpaid' in service_name_lower:
+                operator_types = ['postpaid']
             elif 'dth' in service_name_lower:
                 operator_types = ['dth']
             elif 'electricity' in service_name_lower:
@@ -537,30 +539,23 @@ class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
                 operator_types = ['broadband']
             elif 'landline' in service_name_lower:
                 operator_types = ['landline']
-            elif 'loan' in service_name_lower:
-                operator_types = ['loan']
-            elif 'fastag' in service_name_lower:
-                operator_types = ['fastag']
-            elif 'credit' in service_name_lower:
-                operator_types = ['credit']
             else:
-                # Default to all types
-                operator_types = list(self.queryset.values_list('operator_type', flat=True).distinct())
+                operator_types = self.queryset.values_list('operator_type', flat=True).distinct()
             
-            queryset = self.queryset.filter(operator_type__in=operator_types)
-            serializer = self.get_serializer(queryset, many=True)
+            operators = self.get_queryset().filter(operator_type__in=operator_types)
+            serializer = self.get_serializer(operators, many=True)
             
             return Response({
                 'success': True,
-                'service_name': subcategory.name,
-                'operator_types': operator_types,
+                'category': subcategory.name,
                 'operators': serializer.data,
-                'count': queryset.count()
+                'count': operators.count()
             })
             
         except ServiceSubCategory.DoesNotExist:
             return Response({
-                'error': 'Service subcategory not found'
+                'success': False,
+                'message': 'Service subcategory not found'
             }, status=status.HTTP_404_NOT_FOUND)
 
 class PlanViewSet(viewsets.ReadOnlyModelViewSet):
