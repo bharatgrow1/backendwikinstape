@@ -1218,12 +1218,10 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
             'operator_types': list(operator_types)
         })
     
+    
     @action(detail=False, methods=['get'])
     def available_operators(self, request):
-        """Get all operators for commission setup - FILTERED BY SERVICE"""
-        from recharge.models import Operator
-        
-        # Get service subcategory from query params
+        """Get operators filtered by service subcategory"""
         service_subcategory_id = request.query_params.get('service_subcategory')
         
         if not service_subcategory_id:
@@ -1232,60 +1230,36 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Get service subcategory details
             from services.models import ServiceSubCategory
             subcategory = ServiceSubCategory.objects.get(id=service_subcategory_id)
             
-            # Map service name to operator types
-            service_operator_mapping = {
-                # Mobile Recharge
-                'Mobile Prepaid/Postpaid Recharge': ['prepaid', 'postpaid'],
-                'Mobile Recharge': ['prepaid', 'postpaid'],
-                'Recharge': ['prepaid', 'postpaid'],
-                
-                # DTH
-                'DTH Recharge': ['dth'],
-                'DTH': ['dth'],
-                
-                # Utility Bills
-                'Electricity Bill': ['electricity'],
-                'Water Bill': ['water'],
-                'Gas Bill': ['gas'],
-                'Broadband Bill': ['broadband'],
-                'Landline Bill': ['landline'],
-                
-                # Other Bills
-                'Loan EMI Payment': ['loan'],
-                'Fastag Recharge': ['fastag'],
-                'Credit Card Bill Payment': ['credit'],
-                'Municipal Tax Payment': ['tax', 'municipal_tax'],
-                'Housing Society Maintenance': ['society'],
-                'OTT Subscription Payment': ['ott'],
-                'Education Fee Payment': ['education'],
-                'Clubs and Associations Payment': ['clubs'],
-                'Cable TV Payment': ['cable'],
-                'LPG Cylinder Payment': ['lpg'],
-                'Hospital Bill Payment': ['hospital'],
-                'Insurance Premium Payment': ['insurance'],
-                'Municipal Service Payment': ['municipal_services'],
-                'Subscription2 Payment': ['subscription_2'],
-            }
+            service_name_lower = subcategory.name.lower()
             
-            # Find matching operator types
-            operator_types = []
-            for service_keyword, types in service_operator_mapping.items():
-                if service_keyword.lower() in subcategory.name.lower():
-                    operator_types.extend(types)
-                    break
-            
-            # If no specific mapping found, show all active operators
-            if not operator_types:
-                queryset = Operator.objects.filter(is_active=True)
+            if 'prepaid' in service_name_lower:
+                operator_types = ['prepaid']
+            elif 'postpaid' in service_name_lower:
+                operator_types = ['postpaid']
+            elif 'dth' in service_name_lower:
+                operator_types = ['dth']
+            elif 'electricity' in service_name_lower:
+                operator_types = ['electricity']
+            elif 'water' in service_name_lower:
+                operator_types = ['water']
+            elif 'gas' in service_name_lower:
+                operator_types = ['gas']
+            elif 'broadband' in service_name_lower:
+                operator_types = ['broadband']
+            elif 'landline' in service_name_lower:
+                operator_types = ['landline']
             else:
-                queryset = Operator.objects.filter(
-                    is_active=True,
-                    operator_type__in=operator_types
-                )
+                from recharge.models import Operator
+                operator_types = list(Operator.objects.values_list('operator_type', flat=True).distinct())
+            
+            from recharge.models import Operator
+            queryset = Operator.objects.filter(
+                is_active=True,
+                operator_type__in=operator_types
+            )
             
             from recharge.serializers import OperatorSerializer
             serializer = OperatorSerializer(queryset, many=True)
@@ -1293,7 +1267,7 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
             return Response({
                 'success': True,
                 'service_name': subcategory.name,
-                'matched_operator_types': operator_types,
+                'operator_types': operator_types,
                 'operators': serializer.data,
                 'count': queryset.count()
             })
@@ -1306,6 +1280,8 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
             return Response({
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
     
     @action(detail=False, methods=['post'])
     def bulk_create_operator_commissions(self, request):
