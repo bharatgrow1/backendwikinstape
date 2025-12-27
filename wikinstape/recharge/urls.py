@@ -9,4 +9,5 @@ router.register(r'plans', PlanViewSet, basename='plans')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('operators/for-service/', OperatorViewSet.as_view({'get': 'for_service'}), name='operators-for-service'),
 ]
