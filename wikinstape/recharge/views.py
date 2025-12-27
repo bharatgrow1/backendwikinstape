@@ -159,6 +159,7 @@ class RechargeViewSet(viewsets.ViewSet):
         
         try:
             service_charge = RechargeServiceCharge.calculate_charge(data['amount'])
+            service_charge = Decimal('0.00')
             total_amount = data['amount'] + service_charge
             
             wallet = user.wallet
