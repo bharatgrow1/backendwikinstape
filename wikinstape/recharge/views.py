@@ -504,6 +504,65 @@ class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
             'operators': result
         })
 
+
+
+    @action(detail=False, methods=['get'])
+    def for_service(self, request):
+        """Get operators filtered by service subcategory"""
+        service_subcategory_id = request.query_params.get('service_subcategory')
+        
+        if not service_subcategory_id:
+            return Response({
+                'error': 'service_subcategory parameter is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from services.models import ServiceSubCategory
+            subcategory = ServiceSubCategory.objects.get(id=service_subcategory_id)
+            
+            # Simple mapping logic
+            service_name_lower = subcategory.name.lower()
+            
+            if 'mobile' in service_name_lower or 'recharge' in service_name_lower:
+                operator_types = ['prepaid', 'postpaid']
+            elif 'dth' in service_name_lower:
+                operator_types = ['dth']
+            elif 'electricity' in service_name_lower:
+                operator_types = ['electricity']
+            elif 'water' in service_name_lower:
+                operator_types = ['water']
+            elif 'gas' in service_name_lower:
+                operator_types = ['gas']
+            elif 'broadband' in service_name_lower:
+                operator_types = ['broadband']
+            elif 'landline' in service_name_lower:
+                operator_types = ['landline']
+            elif 'loan' in service_name_lower:
+                operator_types = ['loan']
+            elif 'fastag' in service_name_lower:
+                operator_types = ['fastag']
+            elif 'credit' in service_name_lower:
+                operator_types = ['credit']
+            else:
+                # Default to all types
+                operator_types = list(self.queryset.values_list('operator_type', flat=True).distinct())
+            
+            queryset = self.queryset.filter(operator_type__in=operator_types)
+            serializer = self.get_serializer(queryset, many=True)
+            
+            return Response({
+                'success': True,
+                'service_name': subcategory.name,
+                'operator_types': operator_types,
+                'operators': serializer.data,
+                'count': queryset.count()
+            })
+            
+        except ServiceSubCategory.DoesNotExist:
+            return Response({
+                'error': 'Service subcategory not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
 class PlanViewSet(viewsets.ReadOnlyModelViewSet):
     """Plan management"""
     permission_classes = [IsAuthenticated]
