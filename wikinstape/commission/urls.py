@@ -25,5 +25,4 @@ commission_router.register(r'commission-dashboard', CommissionDashboardViewSet, 
 
 urlpatterns = [
     path('', include(commission_router.urls)),
-    path('operator-commissions/service-operators/', OperatorCommissionViewSet.as_view({'get': 'available_operators'}), name='service-operators'),
 ]
