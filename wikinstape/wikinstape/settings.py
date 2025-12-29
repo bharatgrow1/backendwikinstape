@@ -85,14 +85,27 @@ WSGI_APPLICATION = 'wikinstape.wsgi.application'
 # }
 
 #local aws server db
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'wikinstape_db',
+#         'USER': 'postgres',
+#         'PASSWORD': 'password',
+#         'HOST': '127.0.0.1',
+#         'PORT': '15432',
+#     }
+# }
+
+
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'wikinstape_db',
         'USER': 'postgres',
         'PASSWORD': 'password',
-        'HOST': '127.0.0.1',
-        'PORT': '15432',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
