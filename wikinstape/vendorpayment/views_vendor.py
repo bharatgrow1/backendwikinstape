@@ -7,7 +7,8 @@ from django.utils import timezone
 import logging
 from users.models import Transaction
 from decimal import Decimal
-
+from .services.otp_router import otp_router
+from django.conf import settings
 from .models import VendorBank, VendorOTP
 from .serializers import (
     VendorMobileVerificationSerializer,
@@ -27,15 +28,17 @@ class VendorManagerViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def send_mobile_otp(self, request):
-        """Step 1: Send OTP to vendor mobile for verification"""
+        """Step 1: Send OTP to vendor mobile (Twilio / MSG91)"""
+
         serializer = VendorMobileVerificationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         mobile = serializer.validated_data['mobile']
         user = request.user
 
+        # 🔹 Check if already verified
         already_verified = VendorBank.objects.filter(
-            user=request.user,
+            user=user,
             vendor_mobile=mobile,
             is_mobile_verified=True
         ).exists()
@@ -46,122 +49,53 @@ class VendorManagerViewSet(viewsets.ViewSet):
                 "message": "Mobile already verified",
                 "next_step": "add_bank_details"
             })
-    
-        # Try Twilio first
-        if vendor_mobile_verifier.client:
-            result = vendor_mobile_verifier.send_verification_otp(mobile)
-            
-            if result['success']:
-                # Also create database entry as backup
-                vendor_otp, created = VendorOTP.objects.get_or_create(
-                    vendor_mobile=mobile,
-                    defaults={'expires_at': timezone.now() + timezone.timedelta(minutes=10)}
-                )
-                if created:
-                    vendor_otp.generate_otp()
-                
-                return Response({
-                    'success': True,
-                    'message': 'OTP sent successfully to vendor mobile',
-                    'mobile': mobile,
-                    'method': 'twilio'
-                })
-            else:
-                return Response({
-                    'success': False,
-                    'error': result.get('error', 'Failed to send OTP'),
-                    'method': 'twilio_failed'
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        # Fallback to database OTP
-        try:
-            vendor_otp, created = VendorOTP.objects.get_or_create(
-                vendor_mobile=mobile,
-                defaults={'expires_at': timezone.now() + timezone.timedelta(minutes=10)}
-            )
-            otp = vendor_otp.generate_otp()
-            
-            # In production, you would send SMS via other gateway
-            logger.info(f"📱 Database OTP for vendor {mobile}: {otp}")
-            
+
+        # 🔹 Send OTP using OTP Router (Twilio or MSG91)
+        result = otp_router.send_otp(mobile)
+
+        if result.get("success"):
             return Response({
-                'success': True,
-                'message': 'OTP generated (debug mode)',
-                'mobile': mobile,
-                'method': 'database',
-                'debug_otp': otp  # Remove in production
+                "success": True,
+                "message": "OTP sent successfully",
+                "mobile": mobile,
+                "provider": result.get("provider", settings.OTP_PROVIDER)
             })
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to generate OTP: {e}")
-            return Response({
-                'success': False,
-                'error': 'Failed to generate OTP'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # 🔹 If failed
+        return Response({
+            "success": False,
+            "error": result.get("error", "Failed to send OTP")
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     
     @action(detail=False, methods=['post'])
     def verify_mobile_otp(self, request):
-        """Step 2: Verify OTP for vendor mobile"""
+        """Step 2: Verify OTP (Twilio / MSG91)"""
+
         serializer = VendorOTPVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         mobile = serializer.validated_data['mobile']
         otp = serializer.validated_data['otp']
         user = request.user
-        
-        is_verified = False
-        verification_method = None
-        
-        # Try Twilio verification first
-        if vendor_mobile_verifier.client:
-            result = vendor_mobile_verifier.verify_otp(mobile, otp)
-            if result['success'] and result['valid']:
-                is_verified = True
-                verification_method = 'twilio'
-                logger.info(f"✅ Twilio verification successful for vendor: {mobile}")
-        
-        # If Twilio fails, try database verification
-        if not is_verified:
-            try:
-                vendor_otp = VendorOTP.objects.get(
-                    vendor_mobile=mobile,
-                    otp=otp,
-                    is_verified=False
-                )
-                
-                if vendor_otp.is_expired():
-                    return Response({
-                        'success': False,
-                        'error': 'OTP has expired. Please request a new one.'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
-                vendor_otp.mark_verified()
-                is_verified = True
-                verification_method = 'database'
-                logger.info(f"✅ Database verification successful for vendor: {mobile}")
-                
-            except VendorOTP.DoesNotExist:
-                return Response({
-                    'success': False,
-                    'error': 'Invalid OTP. Please check and try again.'
-                }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not is_verified:
+
+        # 🔹 Verify OTP using OTP Router
+        result = otp_router.verify_otp(mobile, otp)
+
+        if not result.get("success"):
             return Response({
-                'success': False,
-                'error': 'OTP verification failed'
+                "success": False,
+                "error": result.get("error", "Invalid or expired OTP")
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Check if mobile already verified for this user
-        # We don't create VendorBank here, only after bank verification
-        
+
         return Response({
-            'success': True,
-            'message': 'Mobile number verified successfully',
-            'mobile': mobile,
-            'verification_method': verification_method,
-            'next_step': 'add_bank_details'
+            "success": True,
+            "message": "Mobile number verified successfully",
+            "mobile": mobile,
+            "verification_method": settings.OTP_PROVIDER.lower(),
+            "next_step": "add_bank_details"
         })
+
     
     @action(detail=False, methods=['post'])
     @db_transaction.atomic
