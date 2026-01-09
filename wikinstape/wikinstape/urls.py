@@ -10,7 +10,7 @@ urlpatterns = [
     path('api/services/', include('services.urls')),
     path('apis/', include(router.urls)),
     path('apis/dmt/', include('dmt.urls')),
-    path('apis/recharge/', include('recharge.urls')),
+    path('apis/bbps/', include('bbps.urls')),
     path('apis/vendorpayment/', include('vendorpayment.urls')),
     path('apis/commission/', include('commission.urls')), 
 ]

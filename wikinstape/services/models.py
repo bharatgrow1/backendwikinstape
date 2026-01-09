@@ -98,8 +98,8 @@ class ServiceFieldRequirements(models.Model):
     require_subscriber_number = models.BooleanField(default=False)
     require_consumer_id = models.BooleanField(default=False)
     
-    # Mobile Recharge Fields
-    require_recharge_type = models.BooleanField(default=False)
+    # Mobile bbps Fields
+    require_bbps_type = models.BooleanField(default=False)
     require_plan_browsing = models.BooleanField(default=False)
     
     # Education Fields
@@ -243,8 +243,8 @@ class ServiceFieldRequirements(models.Model):
             ('require_subscriber_number', 'subscriber_number', 'text', 'Subscriber Number'),
             ('require_consumer_id', 'consumer_id', 'text', 'Consumer ID'),
             
-            # Mobile Recharge Fields
-            ('require_recharge_type', 'recharge_type', 'select', 'Recharge Type'),
+            # Mobile bbps Fields
+            ('require_bbps_type', 'bbps_type', 'select', 'bbps Type'),
             ('require_plan_browsing', 'plan_browsing', 'select', 'Browse Plans'),
             
             # Education Fields
@@ -365,14 +365,14 @@ class BillFetchConfig(models.Model):
         ('gas', 'Gas Bill'),
         ('broadband', 'Broadband Bill'),
         ('loan_emi', 'Loan EMI'),
-        ('fastag', 'Fastag Recharge'),
+        ('fastag', 'Fastag bbps'),
         ('credit_card', 'Credit Card Bill'),
         ('society_maintenance', 'Society Maintenance'),
         ('traffic_challan', 'Traffic Challan'),
         ('education_fee', 'Education Fee'),
         ('rent', 'Rent Payment'),
-        ('dth', 'DTH Recharge'),
-        ('mobile', 'Mobile Recharge'),
+        ('dth', 'DTH bbps'),
+        ('mobile', 'Mobile bbps'),
     ]
     
     service_type = models.CharField(max_length=50, choices=SERVICE_TYPES, unique=True)
@@ -424,7 +424,7 @@ class ServiceSubCategory(ServiceFieldRequirements):
                 'education fee': 'education_fee',
                 'rent': 'rent',
                 'dth': 'dth',
-                'mobile_recharge': 'mobile',
+                'mobile_bbps': 'mobile',
             }
             
             service_type = service_type_map.get(self.name.lower())
@@ -452,7 +452,7 @@ class ServiceForm(models.Model):
         ('operator', 'Operator'),
         ('circle', 'Circle'),
         ('plan_type', 'Plan Type'),
-        ('recharge_type', 'Recharge Type'),
+        ('bbps_type', 'bbps Type'),
         ('button', 'Button'),
         ('plan_browse', 'Browse Plans'),
         ('plan_fetch', 'Fetch Plans'),
@@ -460,7 +460,7 @@ class ServiceForm(models.Model):
     ]
 
     SERVICE_TYPES = [
-        ('mobile_recharge', 'Mobile Recharge'),
+        ('mobile_bbps', 'Mobile bbps'),
         ('dtm', 'DTM Service'),
         ('electricity', 'Electricity Bill'),
         ('water', 'Water Bill'),
@@ -542,8 +542,8 @@ class FormField(models.Model):
             'Fastway', 'NXT Digital', 'Other Cable Operator'
         ],
         
-        'recharge_type': [
-            'Prepaid', 'Postpaid', 'Top-up', 'Special Recharge', 'Data Pack',
+        'bbps_type': [
+            'Prepaid', 'Postpaid', 'Top-up', 'Special bbps', 'Data Pack',
             'Voice Pack', 'SMS Pack', 'International Roaming'
         ],
         
@@ -594,7 +594,7 @@ class FormField(models.Model):
         
         'plan_categories': [
             'Popular Plans', 'Data Packs', 'Voice Packs', 'Top-up Packs',
-            'Special Recharge', 'International Roaming', 'SMS Packs',
+            'Special bbps', 'International Roaming', 'SMS Packs',
             'Seasonal Offers', 'Festival Offers'
         ],
         

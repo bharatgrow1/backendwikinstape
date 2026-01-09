@@ -22,6 +22,7 @@ class MobileOTP(models.Model):
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
+    provider = models.CharField(max_length=20, default='database', blank=True)
 
     def generate_otp(self):
         self.otp = str(random.randint(100000, 999999))
@@ -86,19 +87,13 @@ class User(AbstractUser):
         ('franchise', 'Franchise'),
         ('other', 'Other'),
     )
-
+    email = models.EmailField(unique=True,null=True,blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='retailer')
-    created_by = models.ForeignKey(
-        'self',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='created_users'
-    )
+    created_by = models.ForeignKey('self',on_delete=models.SET_NULL,null=True,blank=True,related_name='created_users')
     profile_picture = models.CharField(max_length=500, null=True, blank=True)
     first_name = models.CharField(max_length=30, blank=True, null=True)
     last_name = models.CharField(max_length=30, blank=True, null=True)
-    phone_number = models.CharField(max_length=15, blank=True, null=True)
+    phone_number = models.CharField(max_length=15,unique=True, blank=True, null=True)
     alternative_phone = models.CharField(max_length=15, blank=True, null=True)
     aadhar_number = models.CharField(max_length=12, blank=True, null=True)
     pan_number = models.CharField(max_length=10, blank=True, null=True)
@@ -222,6 +217,41 @@ class User(AbstractUser):
         return self.created_by
     
 
+
+    def can_transfer_to_user(self, target_user):
+        """Check if user can directly transfer money to target user"""
+        if self.role == 'superadmin':
+            return True
+        
+        if self.role == 'admin':
+            return target_user.role in ['admin', 'master', 'dealer', 'retailer']
+        
+        if self.role == 'master':
+            return target_user.created_by == self and target_user.role in ['dealer', 'retailer']
+        
+        if self.role == 'dealer':
+            return target_user.created_by == self and target_user.role == 'retailer'
+        
+        return False
+    
+
+class UserBank(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.CASCADE,related_name='banks')
+    bank_name = models.CharField(max_length=255)
+    account_number = models.CharField(max_length=50)
+    ifsc_code = models.CharField(max_length=11)
+    account_holder_name = models.CharField(max_length=255)
+    is_primary = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'account_number']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.bank_name}"
+
+
 class ForgotPasswordOTP(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     otp = models.CharField(max_length=6)
@@ -269,9 +299,15 @@ class State(models.Model):
 class City(models.Model):
     state = models.ForeignKey(State, on_delete=models.CASCADE, related_name='cities')
     name = models.CharField(max_length=100)
+    district_code = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True
+    )
 
     def __str__(self):
         return f"{self.name}, {self.state.name}"
+
 
 class RolePermission(models.Model):
     """Permissions assigned to specific roles"""
@@ -538,7 +574,7 @@ class Transaction(models.Model):
         ('fund_request', 'Fund Request'),
         ('money_transfer', 'Money Transfer'),
         ('bill_payment', 'Bill Payment'),
-        ('recharge', 'Recharge'),
+        ('bbps', 'bbps'),
         ('service_charge', 'Service Charge'),
         ('cashback', 'Cashback'),
         ('refund', 'Refund'),
@@ -683,34 +719,6 @@ class FundRequest(models.Model):
         ('cheque', 'Cheque'),
         ('other', 'Other'),
     )
-
-    BANKS = [
-        ('State Bank of India', 'State Bank of India'),
-        ('HDFC Bank', 'HDFC Bank'),
-        ('ICICI Bank', 'ICICI Bank'),
-        ('Punjab National Bank', 'Punjab National Bank'),
-        ('Axis Bank', 'Axis Bank'),
-        ('Bank of Baroda', 'Bank of Baroda'),
-        ('Canara Bank', 'Canara Bank'),
-        ('Union Bank of India', 'Union Bank of India'),
-        ('Indian Bank', 'Indian Bank'),
-        ('IndusInd Bank', 'IndusInd Bank'),
-        ('IDFC FIRST Bank', 'IDFC FIRST Bank'),
-        ('Kotak Mahindra Bank', 'Kotak Mahindra Bank'),
-        ('Central Bank of India', 'Central Bank of India'),
-        ('Bank of India', 'Bank of India'),
-        ('UCO Bank', 'UCO Bank'),
-        ('Indian Overseas Bank', 'Indian Overseas Bank'),
-        ('Bank of Maharashtra', 'Bank of Maharashtra'),
-        ('Yes Bank', 'Yes Bank'),
-        ('Federal Bank', 'Federal Bank'),
-        ('South Indian Bank', 'South Indian Bank'),
-        ('RBL Bank', 'RBL Bank'),
-        ('IDBI Bank', 'IDBI Bank'),
-        ('Jammu & Kashmir Bank', 'Jammu & Kashmir Bank'),
-        ('Karnataka Bank', 'Karnataka Bank'),
-        ('Dhanlaxmi Bank', 'Dhanlaxmi Bank'),
-    ]
     
     STATUS_CHOICES = (
         ('pending', 'Pending'),
@@ -727,10 +735,12 @@ class FundRequest(models.Model):
     )
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE_CHOICES)
-    deposit_bank = models.CharField(max_length=300, choices=BANKS)  # Updated field
-    Your_Bank = models.CharField(max_length=255, choices=BANKS)    # Updated field
+    deposit_bank = models.CharField(max_length=300)
+    Your_Bank = models.CharField(max_length=255)
     account_number = models.CharField(max_length=50, blank=True, null=True)
     reference_number = models.CharField(max_length=100, unique=True)
+    service_charge = models.DecimalField(max_digits=15,decimal_places=2,default=0.00)
+    wallet_credit = models.DecimalField(max_digits=15,decimal_places=2,default=0.00)
     remarks = models.TextField(blank=True, null=True)
     screenshot = models.FileField(upload_to='fund_requests/screenshots/', blank=True, null=True)
     
@@ -782,6 +792,8 @@ class FundRequest(models.Model):
         onboarder = self.get_onboarder()
         return onboarder and onboarder == user
     
+
+    
     def approve(self, approved_by, notes=""):
         """Approve the fund request and add balance to user's wallet"""
         if self.status != 'pending':
@@ -789,40 +801,106 @@ class FundRequest(models.Model):
         
         try:
             with db_transaction.atomic():
-                # Update fund request status FIRST
+
+                charge = (self.amount * Decimal("0.0001")).quantize(Decimal("0.01"))
+                if charge < Decimal("0.01"):
+                    charge = Decimal("0.01")
+                    
+                net_amount = self.amount - charge
+
                 self.status = 'approved'
                 self.processed_by = approved_by
                 self.processed_at = timezone.now()
                 self.admin_notes = notes
+                self.service_charge = charge
+                self.wallet_credit = net_amount
                 self.save()
                 
-                # Get or create wallet for the user
+
                 wallet, created = Wallet.objects.get_or_create(user=self.user)
 
                 opening_balance = wallet.balance
-                
-                # Add funds to user's wallet
-                wallet.balance += self.amount
+                wallet.balance += net_amount
                 wallet.save()
-
                 closing_balance = wallet.balance
                 
-                # Create transaction record
                 Transaction.objects.create(
                     wallet=wallet,
-                    amount=self.amount,
+                    amount=net_amount,
+                    net_amount=net_amount,
+                    service_charge=charge,
                     transaction_type='credit',
-                    description=f"Fund request approved: {self.reference_number}",
+                    transaction_category='fund_request',
+                    description=(
+                        f"Fund request approved: {self.reference_number} "
+                        f"(0.01% charge ₹{charge})"
+                    ),
                     created_by=approved_by,
                     opening_balance=opening_balance,
                     closing_balance=closing_balance  
                 )
-                
+
+
+                # if approved_by.role != "superadmin":
+                #     admin_wallet = approved_by.wallet
+
+                #     if admin_wallet.balance < net_amount:
+                #         raise ValueError("Admin wallet has insufficient balance")
+
+                #     admin_opening_balance = admin_wallet.balance
+                #     admin_wallet.balance -= net_amount
+                #     admin_wallet.save()
+                #     admin_closing_balance = admin_wallet.balance
+
+                #     Transaction.objects.create(
+                #         wallet=admin_wallet,
+                #         amount=net_amount,
+                #         net_amount=net_amount,
+                #         service_charge=Decimal("0.00"),
+                #         transaction_type='debit',
+                #         transaction_category='fund_request',
+                #         description=(
+                #             f"Fund request approved for {self.user.username}: "
+                #             f"{self.reference_number}"
+                #         ),
+                #         created_by=approved_by,
+                #         opening_balance=admin_opening_balance,
+                #         closing_balance=admin_closing_balance
+                #     )
+
+                admin_wallet = approved_by.wallet
+
+                if admin_wallet.balance < net_amount:
+                    raise ValueError("Admin wallet has insufficient balance")
+
+                admin_opening_balance = admin_wallet.balance
+                admin_wallet.balance -= net_amount
+                admin_wallet.save()
+                admin_closing_balance = admin_wallet.balance
+
+                Transaction.objects.create(
+                    wallet=admin_wallet,
+                    amount=net_amount,
+                    net_amount=net_amount,
+                    service_charge=Decimal("0.00"),
+                    transaction_type='debit',
+                    transaction_category='fund_request',
+                    description=(
+                        f"Fund request approved for {self.user.username}: "
+                        f"{self.reference_number}"
+                    ),
+                    created_by=approved_by,
+                    opening_balance=admin_opening_balance,
+                    closing_balance=admin_closing_balance
+                )
+
                 return True, "Fund request approved successfully"
-                
+                    
         except Exception as e:
             print(f"Error approving fund request: {str(e)}")
             return False, f"Error approving request: {str(e)}"
+
+
     
     def reject(self, rejected_by, notes=""):
         """Reject the fund request"""
@@ -836,6 +914,8 @@ class FundRequest(models.Model):
         self.save()
         
         return True, "Fund request rejected"
+    
+    
     
 
 @receiver(post_save, sender=User)

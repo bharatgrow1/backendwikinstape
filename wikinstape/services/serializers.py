@@ -42,8 +42,8 @@ class ServiceSubCategorySerializer(serializers.ModelSerializer):
             'require_dth_operator', 'require_dth_plan_amount', 'require_cable_operator',
             'require_cable_plan_amount', 'require_subscriber_number', 'require_consumer_id',
             
-            # New Mobile Recharge fields
-            'require_recharge_type', 'require_plan_browsing',
+            # New Mobile bbps fields
+            'require_bbps_type', 'require_plan_browsing',
             
             # New Education fields
             'require_student_unique_id', 'require_student_relation', 'require_institution_name',
@@ -128,8 +128,8 @@ class ServiceCategorySerializer(serializers.ModelSerializer):
             # DTH/Cable TV
             'require_dth_operator', 'require_dth_plan_amount', 'require_cable_operator', 'require_cable_plan_amount',
             'require_subscriber_number', 'require_consumer_id',
-            # Mobile Recharge
-            'require_recharge_type', 'require_plan_browsing',
+            # Mobile bbps
+            'require_bbps_type', 'require_plan_browsing',
             # Education
             'require_student_unique_id', 'require_student_relation', 'require_institution_name',
             # OTT

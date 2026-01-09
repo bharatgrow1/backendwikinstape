@@ -3,10 +3,11 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from services.models import ServiceSubCategory
 from django.core.validators import MinValueValidator
+from users.email_utils import send_welcome_email
 import re
 
 from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
-                          RolePermission, State, City, FundRequest)
+                          RolePermission, State, City, FundRequest, UserBank)
 
 
 class LoginSerializer(serializers.Serializer):
@@ -319,6 +320,23 @@ class UserCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_by']
 
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists")
+        return value
+
+
+    def validate_email(self, value):
+        if value and User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Email already registered")
+        return value
+
+    def validate_phone_number(self, value):
+        if value and User.objects.filter(phone_number=value).exists():
+            raise serializers.ValidationError("Mobile number already registered")
+        return value
+    
+
     def validate_role(self, value):
         request = self.context.get('request')
         if not request:
@@ -345,13 +363,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         service_ids = validated_data.pop('service_ids', [])
-        
+        raw_password = validated_data['password']
+
         user = User(
             username=validated_data['username'],
-            email=validated_data.get('email', ''),
+            email=validated_data.get('email'),
             role=validated_data['role'],
             created_by=self.context['request'].user,
-            # Personal Information
             first_name=validated_data.get('first_name'),
             last_name=validated_data.get('last_name'),
             phone_number=validated_data.get('phone_number'),
@@ -360,42 +378,41 @@ class UserCreateSerializer(serializers.ModelSerializer):
             pan_number=validated_data.get('pan_number'),
             date_of_birth=validated_data.get('date_of_birth'),
             gender=validated_data.get('gender'),
-            # Business Information
             business_name=validated_data.get('business_name'),
             business_nature=validated_data.get('business_nature'),
             business_registration_number=validated_data.get('business_registration_number'),
             gst_number=validated_data.get('gst_number'),
             business_ownership_type=validated_data.get('business_ownership_type'),
-            # Address Information
             address=validated_data.get('address'),
             city=validated_data.get('city'),
             state=validated_data.get('state'),
             pincode=validated_data.get('pincode'),
             landmark=validated_data.get('landmark'),
-            # Bank Information
             bank_name=validated_data.get('bank_name'),
             account_number=validated_data.get('account_number'),
             ifsc_code=validated_data.get('ifsc_code'),
             account_holder_name=validated_data.get('account_holder_name'),
         )
-        user.set_password(validated_data['password'])
+
+        user.set_password(raw_password)
         user.save()
-        
-        # Create wallet
-        Wallet.objects.create(user=user)
-        
-        try:
-            for service_id in service_ids:
-                try:
-                    service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
-                    UserService.objects.create(user=user, service=service)
-                except ServiceSubCategory.DoesNotExist:
-                    continue
-        except Exception as e:
-            print(f"Service assignment failed: {e}")
-        
+
+        Wallet.objects.get_or_create(user=user)
+
+        for service_id in service_ids:
+            try:
+                service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
+                UserService.objects.create(user=user, service=service)
+            except ServiceSubCategory.DoesNotExist:
+                pass
+
+        if user.email:
+            try:
+                send_welcome_email(user, raw_password)
+            except Exception as e:
+                print("Welcome email failed:", e)
+
         return user
-    
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -426,8 +443,17 @@ class UserSerializer(serializers.ModelSerializer):
         user = User(**validated_data)
         user.set_password(password)
         user.save()
-        Wallet.objects.create(user=user)
+        Wallet.objects.get_or_create(user=user)
         return user
+    
+
+
+class UserBankSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserBank
+        fields = "__all__"
+        read_only_fields = ["is_verified"]
+
 
 class PermissionSerializer(serializers.ModelSerializer):
     content_type_name = serializers.CharField(source='content_type.model', read_only=True)
@@ -559,6 +585,63 @@ class FundRequestCreateSerializer(serializers.ModelSerializer):
         if request and 'user' not in data:
             data['user'] = request.user
         return data
+
+
+class FundRequestRejectSerializer(serializers.Serializer):
+    admin_notes = serializers.CharField(required=True)
+
+
+class FundRequestDetailSerializer(serializers.ModelSerializer):
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    user_role = serializers.CharField(source='user.role', read_only=True)
+    onboarder_username = serializers.SerializerMethodField()
+    processed_by_username = serializers.CharField(
+        source='processed_by.username',
+        read_only=True
+    )
+
+    service_charge = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
+    )
+    wallet_credit = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = FundRequest
+        fields = [
+            'id',
+            'user',
+            'user_username',
+            'user_role',
+
+            'amount',
+            'service_charge',
+            'wallet_credit',
+            'transaction_type',
+            'deposit_bank',
+            'Your_Bank',
+            'account_number',
+
+            'reference_number',
+            'remarks',
+            'screenshot',
+
+            'status',
+
+            'admin_notes',
+            'processed_by_username',
+            'processed_at',
+
+            'created_at',
+            'updated_at',
+            'onboarder_username',
+        ]
+
+    def get_onboarder_username(self, obj):
+        onboarder = obj.get_onboarder()
+        return onboarder.username if onboarder else None
+
 
 class FundRequestUpdateSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
@@ -777,3 +860,77 @@ class MobileOTPLoginSerializer(serializers.Serializer):
 class MobileOTPVerifySerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15, required=True)
     otp = serializers.CharField(max_length=6, required=True)
+
+
+
+class GoogleLoginSerializer(serializers.Serializer):
+    id_token = serializers.CharField()
+
+
+
+
+class DirectWalletTransferSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=15, decimal_places=2, min_value=0.01)
+    transaction_type = serializers.ChoiceField(choices=['credit', 'debit'])
+    pin = serializers.CharField(max_length=4, write_only=True)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero")
+        return value
+    
+    def validate_pin(self, value):
+        if not value.isdigit() or len(value) != 4:
+            raise serializers.ValidationError("PIN must be 4 digits")
+        return value
+    
+
+
+class DirectTransferHistorySerializer(serializers.ModelSerializer):
+    from_user = serializers.SerializerMethodField()
+    to_user = serializers.SerializerMethodField()
+    wallet_user = serializers.SerializerMethodField()
+    notes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Transaction
+        fields = [
+            'id',
+            'created_at',
+            'transaction_type',
+            'transaction_category',
+            'amount',
+            'opening_balance',
+            'closing_balance',
+            'from_user',
+            'to_user',
+            'wallet_user',
+            'notes',
+            'description',
+        ]
+
+    def get_from_user(self, obj):
+        return {
+            "id": obj.created_by.id if obj.created_by else None,
+            "username": obj.created_by.username if obj.created_by else None,
+            "role": obj.created_by.role if obj.created_by else None,
+        }
+
+    def get_to_user(self, obj):
+        return {
+            "id": obj.recipient_user.id if obj.recipient_user else None,
+            "username": obj.recipient_user.username if obj.recipient_user else None,
+            "role": obj.recipient_user.role if obj.recipient_user else None,
+        }
+
+    def get_wallet_user(self, obj):
+        return {
+            "id": obj.wallet.user.id,
+            "username": obj.wallet.user.username,
+            "role": obj.wallet.user.role,
+        }
+
+    def get_notes(self, obj):
+        return obj.metadata.get("notes") if obj.metadata else None
