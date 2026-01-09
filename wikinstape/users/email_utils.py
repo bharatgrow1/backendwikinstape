@@ -1,5 +1,6 @@
 from django.core.mail import send_mail
 from users.models import ServiceCharge, Transaction
+from django.conf import settings
 
 def send_otp_email(email, otp, is_password_reset=False, purpose=None):
     if is_password_reset:
@@ -24,7 +25,6 @@ def send_otp_email(email, otp, is_password_reset=False, purpose=None):
     )
 
 def calculate_service_charge(amount, transaction_category):
-    """Calculate service charge for a transaction"""
     try:
         service_charge_config = ServiceCharge.objects.get(
             transaction_category=transaction_category, 
@@ -37,7 +37,6 @@ def calculate_service_charge(amount, transaction_category):
 def create_transaction_record(wallet, amount, transaction_type, category, description, 
                             recipient_user=None, service_charge=0, status='success',
                             opening_balance=None, closing_balance=None):
-    """Helper function to create transaction record with opening/closing balances"""
     transaction = Transaction.objects.create(
         wallet=wallet,
         amount=amount,
@@ -58,3 +57,36 @@ def create_transaction_record(wallet, amount, transaction_type, category, descri
     transaction.save()
     
     return transaction
+
+
+
+
+def send_welcome_email(user, raw_password):
+    subject = "Welcome to Wikin Stape Portal"
+
+    message = f"""
+Dear {user.first_name or user.username},
+
+Welcome to Wikin Stape
+Your account has been successfully created.
+
+Login Details:
+Username: {user.username}
+Password: {raw_password}
+
+Login Portal:
+https://wikinstape.vercel.app
+
+Please change your password after first login.
+
+Regards,
+Wikin Stape Team
+"""
+
+    send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=False,
+    )

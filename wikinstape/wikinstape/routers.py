@@ -1,9 +1,9 @@
 from rest_framework.routers import DefaultRouter
 from rest_framework import routers
-from api.views import SignUPRequestViewSet
+from api.views import SignUPRequestViewSet, HelpDeskViewSet
 from services.views import (ServiceCategoryViewSet, DirectServiceFormViewSet, ServiceSubCategoryViewSet,
     ServiceFormViewSet, ServiceSubmissionViewSet, ServiceImageViewSet)
-from users.views import (PermissionViewSet, AuthViewSet, UserViewSet, WalletViewSet,
+from users.views import (PermissionViewSet, AuthViewSet, UserViewSet, WalletViewSet, UserBankViewSet,
         TransactionViewSet, UserHierarchyViewSet, OnBoardServiceViewSet, FundRequestViewSet, ServiceChargeViewSet,
         StateViewSet, CityViewSet)
 from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, CommissionTransactionViewSet,
@@ -20,6 +20,7 @@ router = DefaultRouter()
 
 # Users
 router.register(r'upload-images', ServiceImageViewSet)
+router.register("helpdesk", HelpDeskViewSet, basename="helpdesk")
 
 router.register(r'auth', AuthViewSet, basename='auth')
 router.register(r'users', UserViewSet, basename='users')
@@ -35,6 +36,8 @@ router.register(r'wallets', WalletViewSet, basename='wallets')
 router.register(r'transactions', TransactionViewSet, basename='transactions')
 router.register(r'fund-requests', FundRequestViewSet, basename='fund-requests')
 router.register(r'service-charges', ServiceChargeViewSet, basename='service-charges')
+router.register(r'user/banks', UserBankViewSet, basename='user-banks')
+
 
 # Locations
 router.register(r'states', StateViewSet, basename='states')

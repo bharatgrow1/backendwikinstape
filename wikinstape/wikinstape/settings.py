@@ -1,6 +1,9 @@
 
 from pathlib import Path
 from datetime import timedelta
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,7 +39,7 @@ INSTALLED_APPS = [
     'services',
     'commission',
     'dmt',
-    'recharge',
+    'bbps',
     'vendorpayment',
     'aeps',
 ]
@@ -84,28 +87,15 @@ WSGI_APPLICATION = 'wikinstape.wsgi.application'
 #     }
 # }
 
-#local aws server db
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'wikinstape_db',
-#         'USER': 'postgres',
-#         'PASSWORD': 'password',
-#         'HOST': '127.0.0.1',
-#         'PORT': '15432',
-#     }
-# }
-
-
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'wikinstape_db',
-        'USER': 'postgres',
-        'PASSWORD': 'password',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv("DB_NAME"),
+        'USER': os.getenv("DB_USER"),
+        'PASSWORD': os.getenv("DB_PASSWORD"),
+        'HOST': os.getenv("DB_HOST"),
+        'PORT': os.getenv("DB_PORT"),
     }
 }
 
@@ -172,8 +162,9 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_USE_TLS = True
 EMAIL_PORT = 587
-EMAIL_HOST_USER = 'priteshbharatgrow@gmail.com'
-EMAIL_HOST_PASSWORD = 'hsweivbrdxycifbu'
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = "EinsPay provigo171@gmail.com"
 
 
 REST_FRAMEWORK = {
@@ -186,6 +177,7 @@ REST_FRAMEWORK = {
     #     'rest_framework.renderers.JSONRenderer',
     # ],
 }
+
 
 
 
@@ -222,7 +214,6 @@ SIMPLE_JWT = {
 }
 
 
-
 # File upload settings
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 
@@ -231,41 +222,28 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
 ALLOWED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
 
-
 # Twilio Configuration
-TWILIO_ACCOUNT_SID = 'AC079c36a7c26c213aef5c2d0b7d73e465'
-TWILIO_AUTH_TOKEN = '61c006a5a8b566aa18678bf10a0a5d96'
-TWILIO_VERIFY_SERVICE_SID = 'VA3c418db7da1f4e1149ba4f0655359952'
-
-
-
-EKO_DEVELOPER_KEY = "753595f07a59eb5a52341538fad5a63d"
-EKO_ACCESS_KEY = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
-EKO_INITIATOR_ID = "9212094999"
-EKO_USER_CODE = "38130001"
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_VERIFY_SERVICE_SID = os.getenv("TWILIO_VERIFY_SERVICE_SID")
 
 DMT_DAILY_LIMIT = 50000.00
 DMT_MONTHLY_LIMIT = 200000.00
 DMT_PER_TRANSACTION_LIMIT = 25000.00
 
 
-EKO_DEV_KEY = "753595f07a59eb5a52341538fad5a63d"
-EKO_SECRET_KEY = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
-EKO_USER_CODE = "38130001"
-EKO_INITIATOR_ID = "9212094999"
+EKO_DEVELOPER_KEY = os.getenv("EKO_DEVELOPER_KEY")
+EKO_SECRET_KEY = os.getenv("EKO_SECRET_KEY")
+EKO_INITIATOR_ID = os.getenv("EKO_INITIATOR_ID")
+EKO_USER_CODE = os.getenv("EKO_USER_CODE")
+
 
 # OTP_PROVIDER = "TWILIO"
-# OTP_PROVIDER = "SMSDEALNOW"
-# MSG91_SENDER_ID = "KWIKINSTA"
-# MSG91_TEMPLATE_ID = "1007683186050889013"
-# MSG91_AUTH_KEY = "854313b5-a37a-445a-8bc5-a27f4f0fe56a"
-
-
-
 OTP_PROVIDER = "SMSDEALNOW"
-SMSDEALNOW_USER = "518426"
-SMSDEALNOW_SENDER_ID = "KWIKPE"
-SMSDEALNOW_AUTH_KEY = "92beLEkHFQf3E"
-SMSDEALNOW_ENTITY_ID = "1001396776447674352"
-SMSDEALNOW_TEMPLATE_ID = "1007683186050889013"
+SMSDEALNOW_USER = os.getenv("SMSDEALNOW_USER")
+SMSDEALNOW_SENDER_ID = os.getenv("SMSDEALNOW_SENDER_ID")
+SMSDEALNOW_AUTH_KEY = os.getenv("SMSDEALNOW_AUTH_KEY")
+SMSDEALNOW_ENTITY_ID = os.getenv("SMSDEALNOW_ENTITY_ID")
+SMSDEALNOW_TEMPLATE_ID = os.getenv("SMSDEALNOW_TEMPLATE_ID")
 
+GOOGLE_CLIENT_ID = "922448588004-avo3qutef79mnj56lhtfgbqja5agljms.apps.googleusercontent.com"

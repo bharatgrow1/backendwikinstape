@@ -7,6 +7,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import Permission
 from django.db import transaction as db_transaction
 from django.db.models import Q, Sum, Count, F
+from vendorpayment.models import VendorOTP
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from django.shortcuts import get_object_or_404
@@ -16,14 +17,18 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
 from services.models import ServiceSubmission
-from .utils.twilio_service import twilio_service
+from vendorpayment.services.smsdealnow_otp import SMSDealNowOTPProvider
 from .email_utils import send_otp_email
 from decimal import Decimal
+from django.core.cache import cache
+from rest_framework.exceptions import PermissionDenied
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 
 from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
                           RolePermission, State, City, FundRequest, EmailOTP, ForgotPasswordOTP, 
-                           MobileOTP, ForgetPinOTP, WalletPinOTP )
+                           MobileOTP, ForgetPinOTP, WalletPinOTP, UserBank )
 
 from services.models import ServiceSubCategory
 from users.permissions import (IsSuperAdmin, IsAdminUser)
@@ -31,19 +36,19 @@ from users.serializers import (LoginSerializer, OTPVerifySerializer, WalletSeria
         ResetWalletPinSerializer, VerifyWalletPinSerializer, TransactionCreateSerializer, TransactionSerializer,
         TransactionFilterSerializer, ServiceChargeSerializer, WalletBalanceResponseSerializer, FundRequestHistorySerializer,
         ServiceSubCategorySerializer, UserServiceSerializer, UserCreateSerializer, UserSerializer, PermissionSerializer,
-        UserPermissionsSerializer, ContentTypeSerializer, GrantRolePermissionSerializer, ModelPermissionSerializer,
+        UserPermissionsSerializer, FundRequestDetailSerializer, GrantRolePermissionSerializer, ModelPermissionSerializer,
         RolePermissionSerializer, ForgotPasswordSerializer, VerifyForgotPasswordOTPSerializer, ResetPasswordSerializer,
         StateSerializer, CitySerializer, FundRequestCreateSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer,
-        FundRequestStatsSerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer, SetWalletPinWithOTPSerializer,
-        ForgetPinRequestOTPSerializer, VerifyForgetPinOTPSerializer, ResetPinWithForgetOTPSerializer, UserProfileUpdateSerializer,
-        UserKYCSerializer, MobileOTPLoginSerializer, MobileOTPVerifySerializer, UserPermissionSerializer, ResetWalletPinWithOTPSerializer)
+        FundRequestRejectSerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer, SetWalletPinWithOTPSerializer,
+        UserBankSerializer, GoogleLoginSerializer, DirectWalletTransferSerializer, UserProfileUpdateSerializer,
+        UserKYCSerializer, MobileOTPLoginSerializer, DirectTransferHistorySerializer, UserPermissionSerializer, ResetWalletPinWithOTPSerializer)
 
 from commission.models import CommissionTransaction
 
 import logging
 
 logger = logging.getLogger(__name__)
-
+sms_otp_provider = SMSDealNowOTPProvider()
 
 if not logger.handlers:
     logging.basicConfig(
@@ -119,7 +124,6 @@ class PermissionViewSet(viewsets.ViewSet):
             user = User.objects.get(id=user_id)
             permissions = Permission.objects.filter(id__in=permission_ids)
             
-            # Clear existing permissions and assign new ones
             user.user_permissions.clear()
             user.user_permissions.add(*permissions)
             
@@ -222,6 +226,66 @@ class PermissionViewSet(viewsets.ViewSet):
             'role': role,
             'permissions': serializer.data
         })
+    
+
+
+class UserBankViewSet(viewsets.ModelViewSet):
+    serializer_class = UserBankSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.role == "superadmin":
+            return UserBank.objects.all()
+
+        if user.role in ["admin", "master", "dealer"]:
+            downline_users = User.objects.filter(created_by=user)
+            return UserBank.objects.filter(
+                Q(user=user) | Q(user__in=downline_users)
+            )
+
+        return UserBank.objects.filter(user=user)
+
+    def perform_create(self, serializer):
+        """
+        RULES:
+        - Retailer → sirf apna bank
+        - Admin/Master/Dealer → apna + downline
+        """
+        request_user = self.request.user
+        target_user = serializer.validated_data.get("user")
+
+        if not target_user:
+            serializer.save(user=request_user)
+            return
+
+        if request_user.role == "retailer" and target_user != request_user:
+            raise PermissionDenied(
+                "You are not allowed to add bank for another user"
+            )
+
+        if request_user.role in ["admin", "master", "dealer"]:
+            is_downline = (
+                target_user.created_by == request_user
+            )
+
+            if target_user != request_user and not is_downline:
+                raise PermissionDenied(
+                    "You can add bank only for your downline users"
+                )
+
+        serializer.save()
+
+
+    @action(detail=False, methods=['get'])
+    def admin_banks(self, request):
+        admin_users = User.objects.filter(role__in=['admin', 'superadmin'], is_active=True)
+        banks = UserBank.objects.filter(user__in=admin_users)
+        serializer = UserBankSerializer(banks, many=True)
+        return Response(serializer.data)
+
+
 
 class AuthViewSet(viewsets.ViewSet):
     """Handles login with password + OTP verification"""
@@ -387,201 +451,198 @@ class AuthViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def send_mobile_otp(self, request):
-        """Send OTP to mobile number with proper Twilio integration"""
+        serializer = MobileOTPLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        mobile = serializer.validated_data['mobile']
+        
+        cleaned_mobile = str(mobile).strip()
+        
+        if cleaned_mobile.startswith('+'):
+            cleaned_mobile = cleaned_mobile[1:]
+        
+        if cleaned_mobile.startswith('91') and len(cleaned_mobile) == 12:
+            cleaned_mobile = cleaned_mobile[2:]
+        
+        cleaned_mobile = ''.join(filter(str.isdigit, cleaned_mobile))
+        if len(cleaned_mobile) > 10:
+            cleaned_mobile = cleaned_mobile[-10:]
+        
+        cache_key = f"otp_rate_limit_{cleaned_mobile}"
+        if cache.get(cache_key):
+            return Response(
+                {'error': 'Please wait 30 seconds before requesting new OTP'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        
+        try:
+            user = User.objects.get(phone_number=cleaned_mobile)
+        except User.DoesNotExist:
+            try:
+                user = User.objects.get(phone_number=f"+91{cleaned_mobile}")
+            except User.DoesNotExist:
+                users = User.objects.filter(
+                    Q(phone_number=cleaned_mobile) |
+                    Q(phone_number=f"+91{cleaned_mobile}") |
+                    Q(phone_number=f"91{cleaned_mobile}") |
+                    Q(phone_number__endswith=cleaned_mobile[-8:])
+                )
+                
+                if users.exists():
+                    user = users.first()
+                else:
+                    return Response(
+                        {'error': 'No account found with this mobile number'}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+        sms_mobile = f"+91{cleaned_mobile}"
+        
+        result = sms_otp_provider.send_otp(sms_mobile)
+        
+        if not result.get("success"):
+            return Response(
+                {'error': result.get('error', 'Failed to send OTP')},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        try:
+            from users.models import MobileOTP
+            saved_otp = MobileOTP.objects.filter(mobile=cleaned_mobile).first()
+            if saved_otp:
+                print(f" OTP saved in database: {saved_otp.otp}")
+            else:
+                print(f" No OTP found in MobileOTP for {cleaned_mobile}")
+        except Exception as e:
+            print(f" Error checking OTP: {e}")
+
+        cache.set(cache_key, True, 30)
+
+        return Response({
+            'success': True,
+            'message': 'OTP sent successfully',
+            'mobile': cleaned_mobile
+        })
+    
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def verify_mobile_otp(self, request):
+        mobile = request.data.get("mobile")
+        otp = request.data.get("otp")
+
+        mobile = mobile[-10:]
+
+        try:
+            record = VendorOTP.objects.get(
+                vendor_mobile=mobile,
+                otp=otp,
+                is_verified=False
+            )
+        except VendorOTP.DoesNotExist:
+            return Response(
+                {"error": "Invalid OTP. Please check and try again."},
+                status=400
+            )
+
+        if record.is_expired():
+            return Response({"error": "OTP expired"}, status=400)
+
+        record.mark_verified()
+
+        user = User.objects.get(phone_number__endswith=mobile)
+        wallet, _ = Wallet.objects.get_or_create(user=user)
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "username": user.username,
+            "role": user.role,
+            "is_pin_set": wallet.is_pin_set,
+            "message": "Login successful"
+        })
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def resend_mobile_otp(self, request):
+        """Resend OTP to mobile number using SMSDealNow"""
         serializer = MobileOTPLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         mobile = serializer.validated_data['mobile']
         
-        # Check if user exists
         try:
             user = User.objects.get(phone_number=mobile)
-            logger.info(f"✅ User found: {user.username} for mobile: {mobile}")
         except User.DoesNotExist:
-            logger.error(f"❌ User not found for mobile: {mobile}")
             return Response(
                 {'error': 'No account found with this mobile number'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # DEBUG: Log Twilio service status
-        logger.info(f"🔧 Twilio Service Status - Client: {twilio_service.client}")
-        logger.info(f"🔧 Twilio Service SID: {twilio_service.verify_service_sid}")
+        result = sms_otp_provider.send_otp(mobile)
         
-        # Try Twilio first
-        if twilio_service and twilio_service.client:
-            logger.info(f"🔧 Trying Twilio for: {mobile}")
-            result = twilio_service.send_otp_sms(mobile)
-            
-            logger.info(f"🔧 Twilio Result: {result}")
-            
-            if result['success']:
-                logger.info(f"✅ Twilio OTP sent successfully")
-                # Also create database entry as backup
-                otp_obj, created = MobileOTP.objects.get_or_create(
-                    mobile=mobile,
-                    defaults={'expires_at': timezone.now() + timedelta(minutes=10)}
-                )
-                if created:
-                    otp_obj.generate_otp()
-                
-                return Response({
-                    'message': 'OTP sent successfully to your mobile',
-                    'mobile': mobile,
-                    'method': 'twilio',
-                    'status': result['status']
-                })
-            else:
-                logger.warning(f"⚠️ Twilio failed: {result.get('error')}")
-                return Response({
-                    'error': f"Failed to send OTP via Twilio: {result.get('error')}",
-                    'mobile': mobile
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if not result.get("success"):
+            return Response(
+                {'error': 'Failed to resend OTP. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-        # Fallback to database OTP
-        logger.info(f"🔧 Using database OTP fallback for: {mobile}")
         try:
             otp_obj, created = MobileOTP.objects.get_or_create(
                 mobile=mobile,
                 defaults={'expires_at': timezone.now() + timedelta(minutes=10)}
             )
-            otp, token = otp_obj.generate_otp()
-            
-            # In development, you might want to log the OTP
-            if settings.DEBUG:
-                logger.info(f"📱 Database OTP for {mobile}: {otp}")
-            
-            return Response({
-                'message': 'OTP generated successfully',
-                'mobile': mobile,
-                'method': 'database_fallback',
-                'note': 'Twilio service unavailable, using database OTP'
-            })
+            otp_obj.generate_otp()
         except Exception as e:
-            logger.error(f"❌ Database OTP creation failed: {e}")
-            return Response(
-                {'error': 'Failed to generate OTP. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def verify_mobile_otp(self, request):
-        """Verify mobile OTP with both Twilio and database fallback"""
-        serializer = MobileOTPVerifySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        mobile = serializer.validated_data['mobile']
-        otp = serializer.validated_data['otp']
-        
-        verification_method = None
-        is_verified = False
-
-        # First try Twilio verification
-        if twilio_service and twilio_service.client:
-            formatted_mobile = mobile
-            if not mobile.startswith('+'):
-                formatted_mobile = '+91' + mobile
-                
-            result = twilio_service.verify_otp(formatted_mobile, otp)
-            if result['success'] and result['valid']:
-                verification_method = 'twilio'
-                is_verified = True
-                logger.info(f"✅ Twilio OTP verification successful for: {mobile}")
-
-        # If Twilio fails or not available, try database verification
-        if not is_verified:
-            logger.info(f"🔧 Trying database OTP verification for: {mobile}")
-            try:
-                otp_obj = MobileOTP.objects.get(
-                    mobile=mobile,
-                    otp=otp,
-                    is_verified=False
-                )
-                
-                if otp_obj.is_expired():
-                    return Response(
-                        {'error': 'OTP has expired. Please request a new one.'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # Mark OTP as verified
-                otp_obj.mark_verified()
-                verification_method = 'database'
-                is_verified = True
-                logger.info(f"✅ Database OTP verification successful for: {mobile}")
-                
-            except MobileOTP.DoesNotExist:
-                logger.error(f"❌ Invalid OTP for mobile: {mobile}")
-                return Response(
-                    {'error': 'Invalid OTP. Please check and try again.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        if not is_verified:
-            return Response(
-                {'error': 'OTP verification failed'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get user and generate tokens
-        try:
-            user = User.objects.get(phone_number=mobile)
-            
-            # Get or create wallet
-            wallet, created = Wallet.objects.get_or_create(user=user)
-            
-            # Generate JWT tokens
-            refresh = RefreshToken.for_user(user)
-            
-            return Response({
-                'access': str(refresh.access_token),
-                'refresh': str(refresh),
-                'role': user.role,
-                'user_id': user.id,
-                'username': user.username,
-                'needs_pin_setup': not wallet.is_pin_set,
-                'is_pin_set': wallet.is_pin_set,
-                'permissions': list(user.get_all_permissions()),
-                'message': 'Login successful',
-                'verification_method': verification_method
-            })
-
-        except User.DoesNotExist:
-            logger.error(f"❌ User not found after OTP verification for mobile: {mobile}")
-            return Response(
-                {'error': 'User not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def resend_mobile_otp(self, request):
-        """Resend OTP to mobile number"""
-        serializer = MobileOTPLoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        mobile = serializer.validated_data['mobile']
-        
-        try:
-            user = User.objects.get(phone_number=mobile)
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'No account found with this mobile number'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        result = twilio_service.send_otp_sms(mobile)
-        
-        if not result['success']:
-            return Response(
-                {'error': 'Failed to send OTP. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            logger.error(f"❌ Database update failed on resend: {e}")
 
         return Response({
             'message': 'OTP resent successfully',
             'mobile': mobile,
-            'status': result['status']
+            'provider': 'smsdealnow'
         })
+    
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def google_login(self, request):
+        serializer = GoogleLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token = serializer.validated_data['id_token']
+
+        try:
+            idinfo = id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                settings.GOOGLE_CLIENT_ID
+            )
+
+            email = idinfo.get('email')
+            name = idinfo.get('name', '')
+
+            user, _ = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'username': email.split('@')[0],
+                    'first_name': name.split(' ')[0],
+                    'last_name': ' '.join(name.split(' ')[1:]),
+                    'role': 'retailer'
+                }
+            )
+
+            # 🔐 SEND OTP
+            otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
+            otp = otp_obj.generate_otp()
+
+            send_otp_email(user.email, otp)
+
+            return Response({
+                "otp_required": True,
+                "username": user.username,
+                "message": "OTP sent to your registered email"
+            }, status=200)
+
+        except ValueError:
+            return Response({"error": "Invalid Google token"}, status=400)
+
 
 
 
@@ -1104,7 +1165,7 @@ class WalletViewSet(DynamicModelViewSet):
             'user_id': user.id
         })
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])  # ✅ Important: AllowAny
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def reset_pin_with_forget_otp(self, request):
         """Step 3: Reset PIN after OTP verification - NO AUTH REQUIRED"""
         email = request.data.get('email')
@@ -1418,6 +1479,60 @@ class WalletViewSet(DynamicModelViewSet):
             'is_pin_set': wallet.is_pin_set,
             'username': request.user.username 
         })
+    
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def superadmin_add_balance(self, request):
+        if request.user.role != "superadmin":
+            return Response(
+                {"error": "Only superadmin can add balance"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        amount = request.data.get("amount")
+
+        if not amount:
+            return Response(
+                {"error": "Amount is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                raise ValueError
+        except Exception:
+            return Response(
+                {"error": "Invalid amount"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        wallet, _ = Wallet.objects.get_or_create(user=request.user)
+
+        opening_balance = wallet.balance
+        wallet.balance += amount
+        wallet.save()
+
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=amount,
+            net_amount=amount,
+            service_charge=Decimal("0.00"),
+            transaction_type="credit",
+            transaction_category="manual_topup",
+            description="Manual top-up by SuperAdmin",
+            created_by=request.user,
+            opening_balance=opening_balance,
+            closing_balance=wallet.balance
+        )
+
+        return Response({
+            "success": True,
+            "message": "Balance added successfully",
+            "balance": str(wallet.balance)
+        })
+
+
 
     @action(detail=False, methods=['get'],  permission_classes=[IsAuthenticated])
     def transaction_history(self, request):
@@ -1449,6 +1564,203 @@ class WalletViewSet(DynamicModelViewSet):
             'total_debit': total_debit,
             'current_balance': user.wallet.balance
         })
+    
+
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def direct_transfer(self, request):
+        """Direct wallet-to-wallet transfer (admin to user)"""
+        serializer = DirectWalletTransferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user_id = serializer.validated_data['user_id']
+        amount = serializer.validated_data['amount']
+        transaction_type = serializer.validated_data['transaction_type']
+        pin = serializer.validated_data['pin']
+        notes = serializer.validated_data.get('notes', '')
+        
+        try:
+            admin = request.user
+            admin_wallet = admin.wallet
+            target_user = User.objects.get(id=user_id)
+            target_wallet = target_user.wallet
+            
+            # Permission check - Admin can only transfer to their downline
+            if not admin.can_transfer_to_user(target_user):
+                return Response(
+                    {'error': 'You do not have permission to transfer money to this user'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Verify admin's PIN
+            if not admin_wallet.verify_pin(pin):
+                return Response(
+                    {'error': 'Invalid PIN'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            with db_transaction.atomic():
+                # For CREDIT: Add money to target user (from admin)
+                if transaction_type == 'credit':
+                    # Check admin has sufficient balance
+                    if not admin_wallet.has_sufficient_balance(amount):
+                        return Response(
+                            {'error': 'Insufficient balance in your wallet'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Deduct from admin
+                    admin_opening = admin_wallet.balance
+                    admin_wallet.deduct_amount(amount, pin=pin)
+                    admin_closing = admin_wallet.balance
+                    
+                    # Add to target user
+                    target_opening = target_wallet.balance
+                    target_wallet.add_amount(amount)
+                    target_closing = target_wallet.balance
+                    
+                    # Create admin transaction (debit)
+                    Transaction.objects.create(
+                        wallet=admin_wallet,
+                        amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
+                        transaction_type='debit',
+                        transaction_category='direct_transfer',
+                        description=f"Direct transfer to {target_user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=target_user,
+                        opening_balance=admin_opening,
+                        closing_balance=admin_closing,
+                        metadata={'notes': notes, 'transfer_type': 'credit_to_user', 'admin_id': admin.id}
+                    )
+                    
+                    # Create user transaction (credit)
+                    Transaction.objects.create(
+                        wallet=target_wallet,
+                        amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
+                        transaction_type='credit',
+                        transaction_category='direct_transfer',
+                        description=f"Direct transfer from {request.user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=request.user,
+                        opening_balance=target_opening,
+                        closing_balance=target_closing,
+                        metadata={'notes': notes, 'transfer_type': 'credit_from_admin', 'admin_id': admin.id}
+                    )
+                    
+                    message = f"₹{amount} transferred to {target_user.username}"
+                    
+                # For DEBIT: Deduct money from target user (to admin)
+                else:
+                    # Check target user has sufficient balance
+                    if not target_wallet.has_sufficient_balance(amount):
+                        return Response(
+                            {'error': 'User has insufficient balance'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Deduct from target user
+                    target_opening = target_wallet.balance
+                    # Target user's PIN not required as admin is performing this
+                    target_wallet.balance -= amount
+                    target_wallet.save()
+                    target_closing = target_wallet.balance
+                    
+                    # Add to admin
+                    admin_opening = admin_wallet.balance
+                    admin_wallet.balance += amount
+                    admin_wallet.save()
+                    admin_closing = admin_wallet.balance
+                    
+                    # Create user transaction (debit)
+                    Transaction.objects.create(
+                        wallet=target_wallet,
+                        amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
+                        transaction_type='debit',
+                        transaction_category='direct_transfer',
+                        description=f"Direct deduction by {request.user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=request.user,
+                        opening_balance=target_opening,
+                        closing_balance=target_closing,
+                        metadata={'notes': notes, 'transfer_type': 'debit_by_admin', 'admin_id': admin.id}
+                    )
+                    
+                    # Create admin transaction (credit)
+                    Transaction.objects.create(
+                        wallet=admin_wallet,
+                        amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
+                        transaction_type='credit',
+                        transaction_category='direct_transfer',
+                        description=f"Direct deduction from {target_user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=target_user,
+                        opening_balance=admin_opening,
+                        closing_balance=admin_closing,
+                        metadata={'notes': notes, 'transfer_type': 'credit_from_user', 'admin_id': admin.id}
+                    )
+                    
+                    message = f"₹{amount} deducted from {target_user.username}"
+                
+                return Response({
+                    'success': True,
+                    'message': message,
+                    'user_balance': target_wallet.balance,
+                    'admin_balance': admin_wallet.balance,
+                    'user_id': user_id,
+                    'amount': amount,
+                    'user_name': target_user.username,
+                    'admin_name': admin.username
+                })
+                
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Direct transfer failed: {str(e)}")
+            return Response(
+                {'error': f'Transfer failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def direct_transfers(self, request):
+        queryset = Transaction.objects.filter(
+            transaction_category='direct_transfer'
+        ).select_related(
+            'wallet__user', 'created_by', 'recipient_user'
+        ).order_by('-created_at')
+
+        if not request.user.is_admin_user():
+            queryset = queryset.filter(
+                Q(wallet__user=request.user) |
+                Q(created_by=request.user)
+            )
+
+        user_id = request.query_params.get('user_id')
+        if user_id and request.user.is_admin_user():
+            queryset = queryset.filter(wallet__user_id=user_id)
+
+        page = self.paginate_queryset(queryset)
+        serializer = DirectTransferHistorySerializer(page or queryset, many=True)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+
+        return Response(serializer.data)
     
 
 class TransactionViewSet(DynamicModelViewSet):
@@ -1951,22 +2263,54 @@ class FundRequestViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'create':
             return FundRequestCreateSerializer
-        elif self.action in ['update', 'partial_update']:
+
+        if self.action in [
+            'list',
+            'retrieve',
+            'my_requests',
+            'pending_requests',
+            'approve',
+            'reject'
+        ]:
+            return FundRequestDetailSerializer
+        if self.action in ['update', 'partial_update']:
             return FundRequestUpdateSerializer
-        return FundRequestCreateSerializer
+        return FundRequestDetailSerializer
+
     
     def get_queryset(self):
         user = self.request.user
-        
-        if user.role in ['superadmin', 'admin']:
-            return FundRequest.objects.all().select_related('user', 'processed_by')
-        
-        elif user.role in ['master', 'dealer']:
-            onboarded_users = User.objects.filter(created_by=user)
-            return FundRequest.objects.filter(user__in=onboarded_users).select_related('user', 'processed_by')
-        
-        else:
-            return FundRequest.objects.filter(user=user).select_related('user', 'processed_by')
+
+        # Superadmin → sabki history
+        if user.role == "superadmin":
+            return FundRequest.objects.all().select_related(
+                "user", "processed_by"
+            ).order_by("-created_at")
+
+        # Admin → sab except superadmin
+        if user.role == "admin":
+            return FundRequest.objects.exclude(
+                user__role="superadmin"
+            ).select_related(
+                "user", "processed_by"
+            ).order_by("-created_at")
+
+        # Master / Dealer → apni + downline ki
+        if user.role in ["master", "dealer"]:
+            downline_users = User.objects.filter(created_by=user)
+            return FundRequest.objects.filter(
+                Q(user=user) | Q(user__in=downline_users)
+            ).select_related(
+                "user", "processed_by"
+            ).order_by("-created_at")
+
+        # Retailer → sirf apni
+        return FundRequest.objects.filter(
+            user=user
+        ).select_related(
+            "user", "processed_by"
+        ).order_by("-created_at")
+
     
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -2002,6 +2346,36 @@ class FundRequestViewSet(viewsets.ModelViewSet):
             })
         else:
             return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def reject(self, request, pk=None):
+        fund_request = self.get_object()
+
+        serializer = FundRequestRejectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        notes = serializer.validated_data['admin_notes']
+
+        success, message = fund_request.reject(
+            rejected_by=request.user,
+            notes=notes
+        )
+
+        if success:
+            fund_request.refresh_from_db()
+            return Response({
+                "message": message,
+                "data": FundRequestDetailSerializer(
+                    fund_request,
+                    context={'request': request}
+                ).data
+            })
+
+        return Response({"error": message}, status=400)
+
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def my_requests(self, request):
@@ -2175,3 +2549,43 @@ class UserHierarchyViewSet(viewsets.ViewSet):
             'total_users': User.objects.count(),
             'users_by_role': User.objects.values('role').annotate(count=Count('id'))
         })
+    
+
+
+    @action(detail=False, methods=['get'])
+    def assignable_users(self, request):
+        user = request.user
+
+        def get_downline_recursive(parent):
+            users = []
+            children = User.objects.filter(created_by=parent)
+
+            for child in children:
+                users.append({
+                    "id": child.id,
+                    "username": child.username,
+                    "role": child.role,
+                })
+                users.extend(get_downline_recursive(child))
+
+            return users
+
+        if user.role == "superadmin":
+            qs = User.objects.exclude(id=user.id)
+            data = [
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "role": u.role
+                }
+                for u in qs
+            ]
+            return Response({"users": data})
+
+        users = get_downline_recursive(user)
+
+        return Response({
+            "users": users,
+            "count": len(users)
+        })
+    

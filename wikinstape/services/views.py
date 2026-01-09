@@ -11,7 +11,7 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from rest_framework.permissions import BasePermission
 
 from rest_framework.permissions import IsAuthenticated
-from recharge.models import Operator
+from bbps.models import Operator
 
 from services.models import (UploadImage, ServiceCategory, ServiceSubCategory, 
                              ServiceForm, FormField, ServiceSubmission, FormSubmissionFile)
@@ -802,13 +802,13 @@ def fetch_bill_details_enhanced(request):
             'bank_name': 'HDFC Bank'
         },
         
-        # Fastag Recharge
+        # Fastag bbps
         'DL01AB1234': {
             'service_type': 'fastag',
             'vehicle_number': 'DL01AB1234',
             'vehicle_type': 'Car',
             'current_balance': 125.50,
-            'recharge_amount': 500.00,
+            'bbps_amount': 500.00,
             'customer_name': 'Sanjay Mehta',
             'fastag_provider': 'ICICI Bank'
         },
@@ -867,7 +867,7 @@ def fetch_bill_details_enhanced(request):
             'institute_name': 'Delhi Public School'
         },
         
-        # Mobile Recharge
+        # Mobile bbps
         '9876543210': {
             'service_type': 'mobile',
             'mobile_number': '9876543210',
@@ -877,7 +877,7 @@ def fetch_bill_details_enhanced(request):
             'plan_type': 'Prepaid'
         },
         
-        # DTH Recharge
+        # DTH bbps
         'DTH123456789': {
             'service_type': 'dth',
             'subscriber_id': 'DTH123456789',
@@ -1002,11 +1002,11 @@ def get_operators_for_subcategory(request, subcategory_id):
         
         # Service name से operator type mapping
         service_to_operator_map = {
-            'mobile_recharge': 'prepaid',
+            'mobile_bbps': 'prepaid',
             'mobile prepaid': 'prepaid',
             'mobile postpaid': 'postpaid',
             'dth': 'dth',
-            'dth recharge': 'dth',
+            'dth bbps': 'dth',
             'electricity': 'electricity',
             'electricity bill': 'electricity',
             'water': 'water',
@@ -1052,7 +1052,7 @@ def get_operators_for_subcategory(request, subcategory_id):
             ).order_by('operator_name')
         
         # Serialize operators
-        from recharge.serializers import OperatorSerializer
+        from bbps.serializers import OperatorSerializer
         serializer = OperatorSerializer(operators, many=True)
         
         return Response({

@@ -882,12 +882,12 @@ class CommissionStatsViewSet(viewsets.ViewSet):
 
 class CommissionManager:
     @staticmethod
-    def process_operator_commission(recharge_txn, wallet_transaction, operator_id):
-        """Process commission for a recharge transaction based on operator"""
+    def process_operator_commission(bbps_txn, wallet_transaction, operator_id):
+        """Process commission for a bbps transaction based on operator"""
         try:
             with db_transaction.atomic():
-                retailer_user = recharge_txn.user
-                transaction_amount = recharge_txn.amount
+                retailer_user = bbps_txn.user
+                transaction_amount = bbps_txn.amount
                 
                 # Get retailer's commission plan
                 try:
@@ -903,7 +903,7 @@ class CommissionManager:
                     operator_commission = OperatorCommission.objects.get(
                         operator__operator_id=operator_id,
                         commission_plan=commission_plan,
-                        operator_circle=recharge_txn.circle,  # recharge_txn से circle लें
+                        operator_circle=bbps_txn.circle,  # bbps_txn से circle लें
                         is_active=True
                     )
                 except OperatorCommission.DoesNotExist:
@@ -942,7 +942,7 @@ class CommissionManager:
                             commission_amount=amount,
                             transaction_type='credit',
                             status='success',
-                            description=f"Commission for {operator_commission.operator_name} recharge - {role}",
+                            description=f"Commission for {operator_commission.operator_name} bbps - {role}",
                             retailer_user=retailer_user,
                             original_transaction_amount=transaction_amount
                         )
@@ -959,7 +959,7 @@ class CommissionManager:
                             service_charge=0,
                             transaction_type='credit',
                             transaction_category='commission',
-                            description=f"Commission from {operator_commission.operator_name} recharge as {role}",
+                            description=f"Commission from {operator_commission.operator_name} bbps as {role}",
                             created_by=recipient_user,
                             status='success'
                         )
@@ -1208,7 +1208,7 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def operator_types(self, request):
         """Get all unique operator types"""
-        from recharge.models import Operator
+        from bbps.models import Operator
         
         operator_types = Operator.objects.values_list(
             'operator_type', flat=True
@@ -1252,16 +1252,16 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
             elif 'landline' in service_name_lower:
                 operator_types = ['landline']
             else:
-                from recharge.models import Operator
+                from bbps.models import Operator
                 operator_types = list(Operator.objects.values_list('operator_type', flat=True).distinct())
             
-            from recharge.models import Operator
+            from bbps.models import Operator
             queryset = Operator.objects.filter(
                 is_active=True,
                 operator_type__in=operator_types
             )
             
-            from recharge.serializers import OperatorSerializer
+            from bbps.serializers import OperatorSerializer
             serializer = OperatorSerializer(queryset, many=True)
             
             return Response({
