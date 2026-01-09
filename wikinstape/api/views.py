@@ -17,6 +17,15 @@ class SignUPRequestViewSet(viewsets.ModelViewSet):
     queryset = SignUPRequest.objects.all().order_by('-created_at')
     serializer_class = SignUPRequestSerializer
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        return Response({
+            "total_signup_requests": queryset.count(),
+            "results": serializer.data
+        })
+
 
 class HelpDeskViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
