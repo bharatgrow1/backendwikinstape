@@ -1221,65 +1221,25 @@ class OperatorCommissionViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def available_operators(self, request):
-        """Get operators filtered by service subcategory"""
-        service_subcategory_id = request.query_params.get('service_subcategory')
-        
-        if not service_subcategory_id:
-            return Response({
-                'error': 'service_subcategory parameter is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
         try:
-            from services.models import ServiceSubCategory
-            subcategory = ServiceSubCategory.objects.get(id=service_subcategory_id)
-            
-            service_name_lower = subcategory.name.lower()
-            
-            if 'prepaid' in service_name_lower:
-                operator_types = ['prepaid']
-            elif 'postpaid' in service_name_lower:
-                operator_types = ['postpaid']
-            elif 'dth' in service_name_lower:
-                operator_types = ['dth']
-            elif 'electricity' in service_name_lower:
-                operator_types = ['electricity']
-            elif 'water' in service_name_lower:
-                operator_types = ['water']
-            elif 'gas' in service_name_lower:
-                operator_types = ['gas']
-            elif 'broadband' in service_name_lower:
-                operator_types = ['broadband']
-            elif 'landline' in service_name_lower:
-                operator_types = ['landline']
-            else:
-                from bbps.models import Operator
-                operator_types = list(Operator.objects.values_list('operator_type', flat=True).distinct())
-            
             from bbps.models import Operator
-            queryset = Operator.objects.filter(
-                is_active=True,
-                operator_type__in=operator_types
-            )
-            
             from bbps.serializers import OperatorSerializer
+
+            queryset = Operator.objects.filter(is_active=True)
+
             serializer = OperatorSerializer(queryset, many=True)
-            
+
             return Response({
                 'success': True,
-                'service_name': subcategory.name,
-                'operator_types': operator_types,
                 'operators': serializer.data,
                 'count': queryset.count()
             })
-            
-        except ServiceSubCategory.DoesNotExist:
-            return Response({
-                'error': 'Service subcategory not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+
         except Exception as e:
             return Response({
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         
 
     
