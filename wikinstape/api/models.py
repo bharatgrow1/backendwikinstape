@@ -33,6 +33,7 @@ class HelpDeskTicket(models.Model):
     attachment = models.FileField(upload_to="helpdesk/",null=True,blank=True)
     status = models.CharField(max_length=10,choices=STATUS_CHOICES,default="OPEN")
     solved_by = models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name="solved_helpdesk_tickets")
+    admin_notes = models.TextField(null=True, blank=True)
     solved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
