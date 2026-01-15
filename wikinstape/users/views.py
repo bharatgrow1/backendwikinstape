@@ -2582,26 +2582,24 @@ class UserHierarchyViewSet(viewsets.ViewSet):
         if not user.can_create_user_with_role(target_role):
             return Response({"error": "Permission denied"}, status=403)
 
-        chain_roles = ROLE_CHAIN[target_role]
         chain = []
+        previous_parent_ids = [user.id]  # 👈 start from logged-in user
 
-        prev_users = User.objects.filter(id=user.id)
-
-        for role in chain_roles:
+        for role in ROLE_CHAIN[target_role]:
             qs = User.objects.filter(
                 role=role,
-                created_by__in=prev_users
+                parent_user_id__in=previous_parent_ids   # ✅ FIXED LINE
             )
+
+            users = [{"id": u.id, "username": u.username} for u in qs]
 
             chain.append({
                 "role": role,
-                "users": [
-                    {"id": u.id, "username": u.username}
-                    for u in qs
-                ]
+                "users": users
             })
 
-            prev_users = qs
+            # next level ke liye
+            previous_parent_ids = [u["id"] for u in users]
 
         return Response({
             "creator": {
@@ -2611,4 +2609,3 @@ class UserHierarchyViewSet(viewsets.ViewSet):
             },
             "chain": chain
         })
-
