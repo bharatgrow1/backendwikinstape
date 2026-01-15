@@ -240,7 +240,7 @@ class UserBankViewSet(viewsets.ModelViewSet):
             return UserBank.objects.all()
 
         if user.role in ["admin", "master", "dealer"]:
-            downline_users = User.objects.filter(created_by=user)
+            downline_users = User.objects.filter(parent_user=user)
             return UserBank.objects.filter(
                 Q(user=user) | Q(user__in=downline_users)
             )
@@ -266,9 +266,7 @@ class UserBankViewSet(viewsets.ModelViewSet):
             )
 
         if request_user.role in ["admin", "master", "dealer"]:
-            is_downline = (
-                target_user.created_by == request_user
-            )
+            is_downline = (target_user.parent_user == request_user)
 
             if target_user != request_user and not is_downline:
                 raise PermissionDenied(
@@ -841,32 +839,24 @@ class UserViewSet(DynamicModelViewSet):
         })
 
     def create(self, request, *args, **kwargs):
-        """Create user with role-based permissions"""
-        serializer = UserCreateSerializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        current_user = request.user
-
-
-        if current_user.role == 'retailer':
+        if request.user.role == 'retailer':
             return Response(
-                {'error': 'You do not have permission to create users'}, 
+                {'error': 'You do not have permission to create users'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
-        serializer = UserCreateSerializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        
-        
-        serializer.validated_data['created_by'] = request.user
-        
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        
-        return Response(
-            serializer.data, 
-            status=status.HTTP_201_CREATED, 
-            headers=headers
+
+        serializer = UserCreateSerializer(
+            data=request.data,
+            context={'request': request}
         )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        return Response(
+            UserSerializer(user).data,
+            status=status.HTTP_201_CREATED
+        )
+
     
 
     def get_queryset(self):
@@ -879,7 +869,8 @@ class UserViewSet(DynamicModelViewSet):
         elif user.role == 'master':
             return User.objects.filter(role__in=['master', 'dealer', 'retailer'])
         elif user.role == 'dealer':
-            return User.objects.filter(role='retailer', created_by=user)
+            return User.objects.filter(role='retailer', parent_user=user)
+
         else:
             return User.objects.filter(id=user.id)
     
@@ -1569,57 +1560,47 @@ class WalletViewSet(DynamicModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def direct_transfer(self, request):
-        """Direct wallet-to-wallet transfer (admin to user)"""
+
         serializer = DirectWalletTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         user_id = serializer.validated_data['user_id']
         amount = serializer.validated_data['amount']
         transaction_type = serializer.validated_data['transaction_type']
         pin = serializer.validated_data['pin']
         notes = serializer.validated_data.get('notes', '')
-        
+
         try:
             admin = request.user
             admin_wallet = admin.wallet
             target_user = User.objects.get(id=user_id)
             target_wallet = target_user.wallet
-            
-            # Permission check - Admin can only transfer to their downline
+
             if not admin.can_transfer_to_user(target_user):
                 return Response(
                     {'error': 'You do not have permission to transfer money to this user'},
                     status=status.HTTP_403_FORBIDDEN
                 )
-            
-            # Verify admin's PIN
+
             if not admin_wallet.verify_pin(pin):
                 return Response(
-                    {'error': 'Invalid PIN'}, 
+                    {'error': 'Invalid PIN'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
+
             with db_transaction.atomic():
-                # For CREDIT: Add money to target user (from admin)
+
                 if transaction_type == 'credit':
-                    # Check admin has sufficient balance
+
                     if not admin_wallet.has_sufficient_balance(amount):
                         return Response(
                             {'error': 'Insufficient balance in your wallet'},
                             status=status.HTTP_400_BAD_REQUEST
                         )
-                    
-                    # Deduct from admin
-                    admin_opening = admin_wallet.balance
+
                     admin_wallet.deduct_amount(amount, pin=pin)
-                    admin_closing = admin_wallet.balance
-                    
-                    # Add to target user
-                    target_opening = target_wallet.balance
                     target_wallet.add_amount(amount)
-                    target_closing = target_wallet.balance
-                    
-                    # Create admin transaction (debit)
+
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
@@ -1630,12 +1611,13 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct transfer to {target_user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=target_user,
-                        opening_balance=admin_opening,
-                        closing_balance=admin_closing,
-                        metadata={'notes': notes, 'transfer_type': 'credit_to_user', 'admin_id': admin.id}
+                        metadata={
+                            'notes': notes,
+                            'transfer_type': 'credit_to_user',
+                            'admin_id': admin.id
+                        }
                     )
-                    
-                    # Create user transaction (credit)
+
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
@@ -1646,36 +1628,23 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct transfer from {request.user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=request.user,
-                        opening_balance=target_opening,
-                        closing_balance=target_closing,
-                        metadata={'notes': notes, 'transfer_type': 'credit_from_admin', 'admin_id': admin.id}
+                        metadata={
+                            'notes': notes,
+                            'transfer_type': 'credit_from_admin',
+                            'admin_id': admin.id
+                        }
                     )
-                    
+
                     message = f"₹{amount} transferred to {target_user.username}"
-                    
-                # For DEBIT: Deduct money from target user (to admin)
+
                 else:
-                    # Check target user has sufficient balance
+
                     if not target_wallet.has_sufficient_balance(amount):
                         return Response(
                             {'error': 'User has insufficient balance'},
                             status=status.HTTP_400_BAD_REQUEST
                         )
-                    
-                    # Deduct from target user
-                    target_opening = target_wallet.balance
-                    # Target user's PIN not required as admin is performing this
-                    target_wallet.balance -= amount
-                    target_wallet.save()
-                    target_closing = target_wallet.balance
-                    
-                    # Add to admin
-                    admin_opening = admin_wallet.balance
-                    admin_wallet.balance += amount
-                    admin_wallet.save()
-                    admin_closing = admin_wallet.balance
-                    
-                    # Create user transaction (debit)
+
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
@@ -1686,12 +1655,13 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct deduction by {request.user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=request.user,
-                        opening_balance=target_opening,
-                        closing_balance=target_closing,
-                        metadata={'notes': notes, 'transfer_type': 'debit_by_admin', 'admin_id': admin.id}
+                        metadata={
+                            'notes': notes,
+                            'transfer_type': 'debit_by_admin',
+                            'admin_id': admin.id
+                        }
                     )
-                    
-                    # Create admin transaction (credit)
+
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
@@ -1702,37 +1672,45 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct deduction from {target_user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=target_user,
-                        opening_balance=admin_opening,
-                        closing_balance=admin_closing,
-                        metadata={'notes': notes, 'transfer_type': 'credit_from_user', 'admin_id': admin.id}
+                        metadata={
+                            'notes': notes,
+                            'transfer_type': 'credit_from_user',
+                            'admin_id': admin.id
+                        }
                     )
-                    
+
+                    target_wallet.balance -= amount
+                    target_wallet.save()
+
+                    admin_wallet.balance += amount
+                    admin_wallet.save()
+
                     message = f"₹{amount} deducted from {target_user.username}"
-                
-                return Response({
-                    'success': True,
-                    'message': message,
-                    'user_balance': target_wallet.balance,
-                    'admin_balance': admin_wallet.balance,
-                    'user_id': user_id,
-                    'amount': amount,
-                    'user_name': target_user.username,
-                    'admin_name': admin.username
-                })
-                
+
+            return Response({
+                'success': True,
+                'message': message,
+                'user_balance': target_wallet.balance,
+                'admin_balance': admin_wallet.balance,
+                'user_id': user_id,
+                'amount': amount,
+                'user_name': target_user.username,
+                'admin_name': admin.username
+            })
+
         except User.DoesNotExist:
             return Response(
                 {'error': 'User not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         except Exception as e:
             logger.error(f"Direct transfer failed: {str(e)}")
             return Response(
                 {'error': f'Transfer failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
         
 
 
@@ -2297,7 +2275,7 @@ class FundRequestViewSet(viewsets.ModelViewSet):
 
         # Master / Dealer → apni + downline ki
         if user.role in ["master", "dealer"]:
-            downline_users = User.objects.filter(created_by=user)
+            downline_users = User.objects.filter(parent_user=user)
             return FundRequest.objects.filter(
                 Q(user=user) | Q(user__in=downline_users)
             ).select_related(
@@ -2517,7 +2495,7 @@ class UserHierarchyViewSet(viewsets.ViewSet):
         
         def get_user_hierarchy(user, depth=0):
             """Recursively get user hierarchy"""
-            created_users = User.objects.filter(created_by=user)
+            created_users = User.objects.filter(parent_user=user)
             
             user_data = {
                 'id': user.id,
@@ -2589,3 +2567,48 @@ class UserHierarchyViewSet(viewsets.ViewSet):
             "count": len(users)
         })
     
+
+
+    @action(detail=False, methods=["get"])
+    def parent_chain(self, request):
+        target_role = request.query_params.get("role")
+        user = request.user
+
+        from users.utils import ROLE_CHAIN
+
+        if target_role not in ROLE_CHAIN:
+            return Response({"error": "Invalid role"}, status=400)
+
+        if not user.can_create_user_with_role(target_role):
+            return Response({"error": "Permission denied"}, status=403)
+
+        chain_roles = ROLE_CHAIN[target_role]
+        chain = []
+
+        prev_users = User.objects.filter(id=user.id)
+
+        for role in chain_roles:
+            qs = User.objects.filter(
+                role=role,
+                created_by__in=prev_users
+            )
+
+            chain.append({
+                "role": role,
+                "users": [
+                    {"id": u.id, "username": u.username}
+                    for u in qs
+                ]
+            })
+
+            prev_users = qs
+
+        return Response({
+            "creator": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role
+            },
+            "chain": chain
+        })
+

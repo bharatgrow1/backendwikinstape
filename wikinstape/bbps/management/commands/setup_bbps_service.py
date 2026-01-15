@@ -1,4 +1,3 @@
-# bbps/management/commands/setup_bbps_service.py
 from django.core.management.base import BaseCommand
 from services.models import ServiceCategory, ServiceSubCategory
 from commission.models import ServiceCommission, CommissionPlan

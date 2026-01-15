@@ -292,6 +292,14 @@ class UserServiceSerializer(serializers.ModelSerializer):
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
+
+    ROLE_PARENT_MAP = {
+        "admin": "superadmin",
+        "master": "admin",
+        "dealer": "master",
+        "retailer": "dealer",
+    }
+
     password = serializers.CharField(write_only=True, required=True)
     created_by_role = serializers.CharField(source='created_by.role', read_only=True)
     service_ids = serializers.ListField(
@@ -300,11 +308,18 @@ class UserCreateSerializer(serializers.ModelSerializer):
         required=False,
         allow_empty=True
     )
+    parent_user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True
+    )
+
+
 
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'email', 'password', 'role', 'created_by', 'created_by_role',
+            'id', 'username', 'email', 'password', 'role', 'parent_user', 'created_by', 'created_by_role',
             # Personal Information
             'first_name', 'last_name', 'phone_number', 'alternative_phone', 
             'aadhar_number', 'pan_number', 'date_of_birth', 'gender',
@@ -360,38 +375,73 @@ class UserCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"You cannot create users with {target_role} role")
         
         return value
+    
+
+
+    def validate(self, data):
+        request = self.context["request"]
+        creator = request.user
+        role = data.get("role")
+        parent_user = data.get("parent_user")
+
+        expected_parent_role = self.ROLE_PARENT_MAP.get(role)
+
+        # Admin ke liye parent optional (superadmin)
+        if role != "admin" and not parent_user:
+            raise serializers.ValidationError({
+                "parent_user": "Parent user is required"
+            })
+
+        if parent_user and parent_user.role != expected_parent_role:
+            raise serializers.ValidationError({
+                "parent_user": f"{role} must be created under {expected_parent_role}"
+            })
+
+        return data
+
 
     def create(self, validated_data):
-        service_ids = validated_data.pop('service_ids', [])
-        raw_password = validated_data['password']
+        request = self.context["request"]
+        creator = request.user
+
+        service_ids = validated_data.pop("service_ids", [])
+        raw_password = validated_data.pop("password")
+
+        parent_user = validated_data.pop("parent_user", None)
+
+        # Admin case: parent auto superadmin
+        if not parent_user:
+            parent_user = creator
 
         user = User(
-            username=validated_data['username'],
-            email=validated_data.get('email'),
-            role=validated_data['role'],
-            created_by=self.context['request'].user,
-            first_name=validated_data.get('first_name'),
-            last_name=validated_data.get('last_name'),
-            phone_number=validated_data.get('phone_number'),
-            alternative_phone=validated_data.get('alternative_phone'),
-            aadhar_number=validated_data.get('aadhar_number'),
-            pan_number=validated_data.get('pan_number'),
-            date_of_birth=validated_data.get('date_of_birth'),
-            gender=validated_data.get('gender'),
-            business_name=validated_data.get('business_name'),
-            business_nature=validated_data.get('business_nature'),
-            business_registration_number=validated_data.get('business_registration_number'),
-            gst_number=validated_data.get('gst_number'),
-            business_ownership_type=validated_data.get('business_ownership_type'),
-            address=validated_data.get('address'),
-            city=validated_data.get('city'),
-            state=validated_data.get('state'),
-            pincode=validated_data.get('pincode'),
-            landmark=validated_data.get('landmark'),
-            bank_name=validated_data.get('bank_name'),
-            account_number=validated_data.get('account_number'),
-            ifsc_code=validated_data.get('ifsc_code'),
-            account_holder_name=validated_data.get('account_holder_name'),
+            username=validated_data["username"],
+            email=validated_data.get("email"),
+            role=validated_data["role"],
+            created_by=creator,
+            parent_user=parent_user,
+
+            first_name=validated_data.get("first_name"),
+            last_name=validated_data.get("last_name"),
+            phone_number=validated_data.get("phone_number"),
+            alternative_phone=validated_data.get("alternative_phone"),
+            aadhar_number=validated_data.get("aadhar_number"),
+            pan_number=validated_data.get("pan_number"),
+            date_of_birth=validated_data.get("date_of_birth"),
+            gender=validated_data.get("gender"),
+            business_name=validated_data.get("business_name"),
+            business_nature=validated_data.get("business_nature"),
+            business_registration_number=validated_data.get("business_registration_number"),
+            gst_number=validated_data.get("gst_number"),
+            business_ownership_type=validated_data.get("business_ownership_type"),
+            address=validated_data.get("address"),
+            city=validated_data.get("city"),
+            state=validated_data.get("state"),
+            pincode=validated_data.get("pincode"),
+            landmark=validated_data.get("landmark"),
+            bank_name=validated_data.get("bank_name"),
+            account_number=validated_data.get("account_number"),
+            ifsc_code=validated_data.get("ifsc_code"),
+            account_holder_name=validated_data.get("account_holder_name"),
         )
 
         user.set_password(raw_password)
@@ -406,36 +456,85 @@ class UserCreateSerializer(serializers.ModelSerializer):
             except ServiceSubCategory.DoesNotExist:
                 pass
 
-        if user.email:
-            try:
-                send_welcome_email(user, raw_password)
-            except Exception as e:
-                print("Welcome email failed:", e)
-
         return user
 
+
+
 class UserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=False)
     wallet = WalletSerializer(read_only=True)
-    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    services = UserServiceSerializer(many=True, read_only=True, source='user_services')
+
+    created_by_username = serializers.CharField(
+        source='created_by.username',
+        read_only=True
+    )
+
+    parent_user_id = serializers.IntegerField(
+        source='parent_user.id',
+        read_only=True
+    )
+
+    parent_user_username = serializers.CharField(
+        source='parent_user.username',
+        read_only=True
+    )
+
+    parent_user_role = serializers.CharField(
+        source='parent_user.role',
+        read_only=True
+    )
+
+    services = UserServiceSerializer(
+        many=True,
+        read_only=True,
+        source='user_services'
+    )
 
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'profile_picture', 'email', 'password', 'role', 'wallet', 'created_by', 
-            'created_by_username', 'date_joined', 'services',
-            # Personal Information
-            'first_name', 'last_name', 'phone_number', 'alternative_phone', 
-            'aadhar_number', 'pan_number', 'date_of_birth', 'gender',
-            # Business Information
-            'business_name', 'business_nature', 'business_registration_number',
-            'gst_number', 'business_ownership_type',
-            # Address Information
-            'address', 'city', 'state', 'pincode', 'landmark',
-            # Bank Information
-            'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
+            'id',
+            'username',
+            'profile_picture',
+            'email',
+            'role',
+
+            # 🔥 hierarchy
+            'parent_user_id',
+            'parent_user_username',
+            'parent_user_role',
+
+            # audit
+            'created_by',
+            'created_by_username',
+
+            'wallet',
+            'date_joined',
+            'services',
+
+            # personal
+            'first_name',
+            'last_name',
+            'phone_number',
+            'alternative_phone',
+            'aadhar_number',
+            'pan_number',
+            'date_of_birth',
+            'gender',
+
+            # address
+            'address',
+            'city',
+            'state',
+            'pincode',
+            'landmark',
+
+            # bank
+            'bank_name',
+            'account_number',
+            'ifsc_code',
+            'account_holder_name',
         ]
+
         read_only_fields = ['created_by', 'date_joined']
 
     def create(self, validated_data):

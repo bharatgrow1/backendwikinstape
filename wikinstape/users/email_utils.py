@@ -75,7 +75,7 @@ Username: {user.username}
 Password: {raw_password}
 
 Login Portal:
-https://wikinstape.vercel.app
+https://retailer.gssmart.in
 
 Please change your password after first login.
 
