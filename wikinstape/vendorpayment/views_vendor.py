@@ -15,7 +15,7 @@ from .serializers import (
     VendorOTPVerifySerializer,
     VendorBankSerializer,
     AddVendorBankSerializer,
-    SearchVendorByMobileSerializer
+    SearchVendorByMobileSerializer, VerifyVendorBankSerializer
 )
 from .services.mobile_verification import vendor_mobile_verifier
 from .services.eko_vendor_service import bank_verifier
@@ -28,71 +28,81 @@ class VendorManagerViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def send_mobile_otp(self, request):
-        """Step 1: Send OTP to vendor mobile (Twilio / MSG91)"""
-
         serializer = VendorMobileVerificationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         mobile = serializer.validated_data['mobile']
+        vendor_name = serializer.validated_data['vendor_name']
         user = request.user
 
-        # 🔹 Check if already verified
-        already_verified = VendorBank.objects.filter(
-            user=user,
+        # ✅ Check OTP table instead of VendorBank
+        otp_record = VendorOTP.objects.filter(
             vendor_mobile=mobile,
-            is_mobile_verified=True
-        ).exists()
+            is_verified=True
+        ).first()
 
-        if already_verified:
+        if otp_record:
             return Response({
                 "success": True,
                 "message": "Mobile already verified",
+                "mobile": mobile,
+                "vendor_name": otp_record.vendor_name,
                 "next_step": "add_bank_details"
             })
 
-        # 🔹 Send OTP using OTP Router (Twilio or MSG91)
         result = otp_router.send_otp(mobile)
 
         if result.get("success"):
+            VendorOTP.objects.update_or_create(
+                vendor_mobile=mobile,
+                defaults={
+                    "vendor_name": vendor_name,
+                    "is_verified": False,
+                    "expires_at": timezone.now() + timezone.timedelta(minutes=10)
+                }
+            )
+
             return Response({
                 "success": True,
                 "message": "OTP sent successfully",
-                "mobile": mobile,
-                "provider": result.get("provider", settings.OTP_PROVIDER)
+                "mobile": mobile
             })
 
-        # 🔹 If failed
         return Response({
             "success": False,
-            "error": result.get("error", "Failed to send OTP")
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            "error": "Failed to send OTP"
+        }, status=500)
+
 
     
     @action(detail=False, methods=['post'])
     def verify_mobile_otp(self, request):
-        """Step 2: Verify OTP (Twilio / MSG91)"""
-
         serializer = VendorOTPVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         mobile = serializer.validated_data['mobile']
         otp = serializer.validated_data['otp']
-        user = request.user
 
-        # 🔹 Verify OTP using OTP Router
-        result = otp_router.verify_otp(mobile, otp)
+        record = VendorOTP.objects.filter(
+            vendor_mobile=mobile,
+            otp=otp,
+            is_verified=False
+        ).first()
 
-        if not result.get("success"):
+        if not record or record.is_expired():
             return Response({
                 "success": False,
-                "error": result.get("error", "Invalid or expired OTP")
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "error": "Invalid or expired OTP"
+            }, status=400)
+
+        record.is_verified = True
+        record.save()
 
         return Response({
             "success": True,
-            "message": "Mobile number verified successfully",
+            "message": "Mobile verified permanently",
             "mobile": mobile,
-            "verification_method": settings.OTP_PROVIDER.lower(),
+            "vendor_name": record.vendor_name,
             "next_step": "add_bank_details"
         })
 
@@ -100,130 +110,66 @@ class VendorManagerViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     @db_transaction.atomic
     def add_vendor_bank(self, request):
-        """Add and verify bank details WITHOUT OTP - Mobile automatically considered verified"""
+
         serializer = AddVendorBankSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         user = request.user
-        mobile = serializer.validated_data['mobile']
+
+        vendor_mobile = serializer.validated_data['mobile']
         recipient_name = serializer.validated_data['recipient_name']
         account_number = serializer.validated_data['account_number']
         ifsc_code = serializer.validated_data['ifsc_code'].upper()
-        
-        # ✅ 1. Check wallet balance for beneficiary fee
-        wallet = user.wallet
-        beneficiary_fee = Decimal('2.90')
-        
-        if wallet.balance < beneficiary_fee:
+
+        retailer_mobile = user.phone_number
+        if not retailer_mobile:
             return Response({
                 'success': False,
-                'error': f'Insufficient balance. ₹{beneficiary_fee} required for beneficiary verification. Available: ₹{wallet.balance}'
+                'error': 'Your mobile number is not found. Please update profile.'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # ✅ 2. Check if this bank already exists for this user+mobile
+
+        logger.info(
+            f"➕ Adding vendor bank | Retailer={retailer_mobile} | "
+            f"Vendor={vendor_mobile} | Account=****{account_number[-4:]}"
+        )
+
+        # 🔒 Duplicate bank protection
         existing_bank = VendorBank.objects.filter(
             user=user,
-            vendor_mobile=mobile,
+            vendor_mobile=vendor_mobile,
             account_number=account_number
         ).first()
-        
+
         if existing_bank:
             return Response({
                 'success': False,
                 'error': 'This bank account is already added for this mobile number.'
             }, status=status.HTTP_400_BAD_REQUEST)
+
+        is_verified = serializer.validated_data.get("is_verified", False)
         
-        # ✅ 3. Verify bank details using EKO API
-        logger.info(f"🔍 Verifying bank details for vendor: {mobile}")
-        verification_result = bank_verifier.verify_bank_details(
-            ifsc_code=ifsc_code,
-            account_number=account_number,
-            mobile=mobile,
-            customer_name=recipient_name
-        )
-        
-        if not verification_result['success']:
-            return Response({
-                'success': False,
-                'error': f"Bank verification failed: {verification_result.get('error', 'Unknown error')}"
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not verification_result['verified']:
-            return Response({
-                'success': False,
-                'error': 'Bank account verification failed. Please check details.',
-                'api_response': verification_result.get('data', {})
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # ✅ 4. Bank verified successfully
-        bank_name = verification_result.get('bank_name', '')
-        name_match = verification_result.get('name_match', False)
-        
-        if not name_match:
-            return Response({
-                'success': False,
-                'error': 'Account holder name does not match. Please check the name.',
-                'expected_name': verification_result.get('account_holder_name'),
-                'provided_name': recipient_name
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # ✅ 5. Deduct beneficiary fee from wallet WITHOUT PIN
-        try:
-            # Use new method that doesn't require PIN
-            deducted_amount = wallet.deduct_fee_without_pin(beneficiary_fee)
-            
-            # Create transaction record for fee deduction
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=Decimal('0.00'),
-                service_charge=deducted_amount,
-                net_amount=Decimal('0.00'),
-                transaction_type='debit',
-                transaction_category='beneficiary_verification',
-                description=f"Beneficiary verification fee for {recipient_name} - {account_number[-4:]}",
-                created_by=user,
-                status='success',
-                metadata={
-                    'vendor_mobile': mobile,
-                    'recipient_name': recipient_name,
-                    'account_number': account_number[-4:],
-                    'ifsc_code': ifsc_code,
-                    'bank_name': bank_name,
-                    'fee_type': 'beneficiary_verification'
-                }
-            )
-            
-            logger.info(f"✅ Beneficiary fee deducted (without PIN): ₹{deducted_amount} from {user.username}")
-            
-        except ValueError as e:
-            return Response({
-                'success': False,
-                'error': f'Failed to deduct beneficiary fee: {str(e)}'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # ✅ 6. Create VendorBank record with BOTH verified
         vendor_bank = VendorBank.objects.create(
             user=user,
-            vendor_mobile=mobile,
+            vendor_mobile=vendor_mobile,
             recipient_name=recipient_name,
             account_number=account_number,
             ifsc_code=ifsc_code,
-            bank_name=bank_name,
+            bank_name=request.data.get('bank_name', ''),
             is_mobile_verified=True,
-            is_bank_verified=True,
-            beneficiary_fee=beneficiary_fee,
-            verification_ref_id=verification_result.get('data', {}).get('tid', '')
+            is_bank_verified=is_verified,
         )
-        
-        logger.info(f"✅ Vendor bank added successfully (BOTH mobile and bank verified): {vendor_bank}")
-        
+
+        logger.info(
+            f"✅ Vendor bank added successfully | ID={vendor_bank.id} | "
+            f"User={user.username}"
+        )
+
         return Response({
             'success': True,
-            'message': f'Bank account verified and added successfully. ₹{beneficiary_fee} deducted as verification fee.',
-            'vendor_bank': VendorBankSerializer(vendor_bank).data,
-            'fee_deducted': float(beneficiary_fee),
-            'remaining_balance': float(wallet.balance)
-        })
+            'message': 'Bank account added successfully',
+            'vendor_bank': VendorBankSerializer(vendor_bank).data
+        }, status=status.HTTP_201_CREATED)
+
     
     @action(detail=False, methods=['post'])
     def search_vendor_by_mobile(self, request):
@@ -234,16 +180,23 @@ class VendorManagerViewSet(viewsets.ViewSet):
         mobile = serializer.validated_data['mobile']
         user = request.user
         
-        # Get ALL banks for this mobile number (any status)
         vendor_banks = VendorBank.objects.filter(
-            user=user,
+            # user=user,
             vendor_mobile=mobile
         ).order_by('-created_at')
+
+
+        otp_record = VendorOTP.objects.filter(
+            vendor_mobile=mobile,
+            is_verified=True
+        ).first()
+        vendor_name = otp_record.vendor_name if otp_record else ""
         
         if not vendor_banks.exists():
             return Response({
                 'success': True,
                 'message': 'No banks found for this mobile number',
+                'vendor_name': vendor_name,
                 'banks': [],
                 'mobile': mobile
             })
@@ -253,6 +206,7 @@ class VendorManagerViewSet(viewsets.ViewSet):
         return Response({
             'success': True,
             'message': f'Found {vendor_banks.count()} bank(s) for this mobile',
+            'vendor_name': vendor_name,
             'mobile': mobile,
             'banks': serializer.data
         })
@@ -268,9 +222,8 @@ class VendorManagerViewSet(viewsets.ViewSet):
         mobile = serializer.validated_data['mobile']
         user = request.user
         
-        # Get only FULLY verified banks
         vendor_banks = VendorBank.objects.filter(
-            user=user,
+            # user=user,
             vendor_mobile=mobile,
             is_mobile_verified=True,
             is_bank_verified=True
@@ -307,7 +260,6 @@ class VendorManagerViewSet(viewsets.ViewSet):
         try:
             vendor_bank = VendorBank.objects.get(id=pk, user=request.user)
             
-            # Check if this bank is used in any payments
             from .models import VendorPayment
             payments_count = VendorPayment.objects.filter(
                 recipient_account=vendor_bank.account_number,
@@ -332,3 +284,112 @@ class VendorManagerViewSet(viewsets.ViewSet):
                 'success': False,
                 'error': 'Vendor bank not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
+
+    @action(detail=False, methods=['post'])
+    @db_transaction.atomic
+    def verify_bank(self, request):
+
+        serializer = VerifyVendorBankSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        wallet = user.wallet
+
+        vendor_mobile = serializer.validated_data['mobile']
+        account_number = serializer.validated_data['account_number']
+
+        from dmt.models import EkoBank
+        data = serializer.validated_data
+
+        if data.get("ifsc_code"):
+            ifsc_code = data["ifsc_code"].upper()
+        else:
+            bank_code = data["bank_code"].upper()
+            bank = EkoBank.objects.filter(
+                bank_code=bank_code,
+                static_ifsc__isnull=False
+            ).first()
+
+            if not bank:
+                return Response({
+                    "success": False,
+                    "error": "Invalid bank code or IFSC not available"
+                }, status=400)
+
+            ifsc_code = bank.static_ifsc
+
+        existing_bank = VendorBank.objects.filter(
+            # user=user,
+            vendor_mobile=vendor_mobile,
+            account_number=account_number,
+            is_bank_verified=True
+        ).first()
+
+        if existing_bank:
+            return Response({
+                "success": True,
+                "already_verified": True,
+                "message": "Account already added & verified. No charges applied.",
+                "recipient_name": existing_bank.recipient_name,
+                "bank_name": existing_bank.bank_name,
+                "fee_deducted": 0,
+                "remaining_balance": float(wallet.balance)
+            })
+
+        # 🔍 pending bank
+        pending_bank = VendorBank.objects.filter(
+            # user=user,
+            vendor_mobile=vendor_mobile,
+            account_number=account_number,
+            is_bank_verified=False
+        ).first()
+
+        beneficiary_fee = Decimal("3.0")
+
+        if wallet.balance < beneficiary_fee:
+            return Response({
+                "success": False,
+                "error": "Insufficient balance"
+            }, status=400)
+
+        verification_result = bank_verifier.verify_bank_details(
+            ifsc_code=ifsc_code,
+            account_number=account_number,
+            retailer_mobile=user.phone_number,
+            customer_name=""
+        )
+
+        if not verification_result.get("success") or not verification_result.get("verified"):
+            return Response({
+                "success": False,
+                "error": "Bank verification failed"
+            }, status=400)
+
+        deducted = wallet.deduct_fee_without_pin(beneficiary_fee)
+
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=deducted,
+            service_charge=Decimal("0.00"),
+            net_amount=deducted,
+            transaction_type="debit",
+            transaction_category="beneficiary_verification",
+            description=f"Bank verification fee for ****{account_number[-4:]}",
+            created_by=user,
+            status="success",
+        )
+
+        # ✅ IMPORTANT FIX
+        if pending_bank:
+            pending_bank.is_bank_verified = True
+            pending_bank.save(update_fields=["is_bank_verified"])
+
+        return Response({
+            "success": True,
+            "verified": True,
+            "recipient_name": verification_result.get("account_holder_name"),
+            "bank_name": verification_result.get("bank_name"),
+            "fee_deducted": float(beneficiary_fee),
+            "remaining_balance": float(wallet.balance)
+        })

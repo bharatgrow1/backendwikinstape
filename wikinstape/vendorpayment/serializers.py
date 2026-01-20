@@ -52,6 +52,7 @@ class VendorPaymentResponseSerializer(serializers.ModelSerializer):
 
 class VendorMobileVerificationSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15, required=True)
+    vendor_name = serializers.CharField(max_length=255)
     
     def validate_mobile(self, value):
         value = value.strip()
@@ -87,6 +88,7 @@ class AddVendorBankSerializer(serializers.Serializer):
     recipient_name = serializers.CharField(required=True)
     account_number = serializers.CharField(required=True)
     ifsc_code = serializers.CharField(required=True)
+    is_verified = serializers.BooleanField(required=False, default=False)
     
     def validate_mobile(self, value):
         """Basic mobile validation"""
@@ -112,3 +114,34 @@ class AddVendorBankSerializer(serializers.Serializer):
 
 class SearchVendorByMobileSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15, required=True)
+
+
+
+
+class VerifyVendorBankSerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15, required=True)
+    account_number = serializers.CharField(required=True)
+
+    ifsc_code = serializers.CharField(required=False)
+    bank_code = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("ifsc_code") and not attrs.get("bank_code"):
+            raise serializers.ValidationError(
+                "Either ifsc_code or bank_code is required"
+            )
+        return attrs
+
+    def validate_ifsc_code(self, value):
+        value = value.upper()
+        if len(value) != 11 or value[4] != "0":
+            raise serializers.ValidationError("Invalid IFSC code")
+        return value
+
+    def validate_bank_code(self, value):
+        return value.upper()
+
+
+
+
+
