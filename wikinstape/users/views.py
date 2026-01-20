@@ -2572,8 +2572,9 @@ class UserHierarchyViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def parent_chain(self, request):
         target_role = request.query_params.get("role")
-        user = request.user
+        parent_id = request.query_params.get("parent_id")
 
+        user = request.user
         from users.utils import ROLE_CHAIN
 
         if target_role not in ROLE_CHAIN:
@@ -2582,30 +2583,45 @@ class UserHierarchyViewSet(viewsets.ViewSet):
         if not user.can_create_user_with_role(target_role):
             return Response({"error": "Permission denied"}, status=403)
 
-        chain = []
-        previous_parent_ids = [user.id]  # 👈 start from logged-in user
+        # Decide parent
+        if parent_id:
+            parent = User.objects.filter(id=parent_id).first()
+            if not parent:
+                return Response({"error": "Invalid parent"}, status=400)
+        else:
+            parent = user
 
-        for role in ROLE_CHAIN[target_role]:
-            qs = User.objects.filter(
-                role=role,
-                parent_user_id__in=previous_parent_ids   # ✅ FIXED LINE
-            )
+        role_chain = ROLE_CHAIN[target_role]
 
-            users = [{"id": u.id, "username": u.username} for u in qs]
+        # ================== ✅ FIX START ==================
 
-            chain.append({
-                "role": role,
-                "users": users
+        # CASE 1: chain empty → parent is silently current user
+        if not role_chain:
+            return Response({
+                "role": None,
+                "users": []
             })
 
-            # next level ke liye
-            previous_parent_ids = [u["id"] for u in users]
+        # CASE 2: first dropdown (parent == logged-in user)
+        if parent == user:
+            next_role = role_chain[0]
+
+        # CASE 3: cascading dropdown
+        else:
+            try:
+                idx = role_chain.index(parent.role)
+                next_role = role_chain[idx + 1]
+            except (ValueError, IndexError):
+                return Response({"role": None, "users": []})
+
+        # ================== ✅ FIX END ==================
+
+        users = User.objects.filter(
+            role=next_role,
+            parent_user=parent
+        ).values("id", "username")
 
         return Response({
-            "creator": {
-                "id": user.id,
-                "username": user.username,
-                "role": user.role
-            },
-            "chain": chain
+            "role": next_role,
+            "users": list(users)
         })
