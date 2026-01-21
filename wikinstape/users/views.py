@@ -47,6 +47,23 @@ from commission.models import CommissionTransaction
 
 import logging
 
+
+
+def get_downline_users(user, role):
+    users = []
+
+    def recurse(parent):
+        children = User.objects.filter(parent_user=parent)
+        for child in children:
+            if child.role == role:
+                users.append(child)
+            recurse(child)
+
+    recurse(user)
+    return users
+
+
+
 logger = logging.getLogger(__name__)
 sms_otp_provider = SMSDealNowOTPProvider()
 
@@ -2572,56 +2589,69 @@ class UserHierarchyViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def parent_chain(self, request):
         target_role = request.query_params.get("role")
-        parent_id = request.query_params.get("parent_id")
-
         user = request.user
-        from users.utils import ROLE_CHAIN
+        selected_master_id = request.query_params.get("master_id")
+        if target_role == "retailer":
 
-        if target_role not in ROLE_CHAIN:
-            return Response({"error": "Invalid role"}, status=400)
+            if user.role == "master":
+                dealers = User.objects.filter(
+                    role="dealer",
+                    parent_user=user
+                )
+                return Response({
+                    "step": "dealer",
+                    "role": "dealer",
+                    "users": [
+                        {"id": d.id, "username": d.username}
+                        for d in dealers
+                    ]
+                })
 
-        if not user.can_create_user_with_role(target_role):
-            return Response({"error": "Permission denied"}, status=403)
+            if not selected_master_id:
+                masters = get_downline_users(user, "master")
+                return Response({
+                    "step": "master",
+                    "role": "master",
+                    "users": [
+                        {"id": m.id, "username": m.username}
+                        for m in masters
+                    ]
+                })
 
-        # Decide parent
-        if parent_id:
-            parent = User.objects.filter(id=parent_id).first()
-            if not parent:
-                return Response({"error": "Invalid parent"}, status=400)
-        else:
-            parent = user
+            try:
+                master = User.objects.get(id=selected_master_id, role="master")
+            except User.DoesNotExist:
+                return Response({"error": "Invalid master"}, status=400)
 
-        role_chain = ROLE_CHAIN[target_role]
+            dealers = User.objects.filter(role="dealer", parent_user=master)
 
-        # ================== ✅ FIX START ==================
-
-        # CASE 1: chain empty → parent is silently current user
-        if not role_chain:
             return Response({
-                "role": None,
-                "users": []
+                "step": "dealer",
+                "role": "dealer",
+                "users": [
+                    {"id": d.id, "username": d.username}
+                    for d in dealers
+                ]
             })
 
-        # CASE 2: first dropdown (parent == logged-in user)
-        if parent == user:
-            next_role = role_chain[0]
+        ROLE_PARENT_MAP = {
+            "admin": "superadmin",
+            "master": "admin",
+            "dealer": "master",
+        }
 
-        # CASE 3: cascading dropdown
-        else:
-            try:
-                idx = role_chain.index(parent.role)
-                next_role = role_chain[idx + 1]
-            except (ValueError, IndexError):
-                return Response({"role": None, "users": []})
+        parent_role = ROLE_PARENT_MAP.get(target_role)
 
-        # ================== ✅ FIX END ==================
+        if not parent_role:
+            return Response({"users": []})
 
-        users = User.objects.filter(
-            role=next_role,
-            parent_user=parent
-        ).values("id", "username")
+        parents = get_downline_users(user, parent_role)
 
         return Response({
-            "role": next_role,
-            "users": list(users)
+            "step": "single",
+            "role": parent_role,
+            "users": [
+                {"id": u.id, "username": u.username}
+                for u in parents
+            ]
         })

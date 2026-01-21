@@ -236,6 +236,20 @@ class User(AbstractUser):
         return False
     
 
+
+    def is_in_downline_of(self, parent):
+        """
+        Check whether this user is in downline of given parent user
+        """
+        current = self.parent_user
+        while current:
+            if current == parent:
+                return True
+            current = current.parent_user
+        return False
+
+    
+
 class UserBank(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.CASCADE,related_name='banks')
     bank_name = models.CharField(max_length=255)
