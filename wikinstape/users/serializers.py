@@ -384,20 +384,46 @@ class UserCreateSerializer(serializers.ModelSerializer):
         role = data.get("role")
         parent_user = data.get("parent_user")
 
-        expected_parent_role = self.ROLE_PARENT_MAP.get(role)
+        ROLE_PARENT_MAP = {
+            "admin": "superadmin",
+            "master": "admin",
+            "dealer": "master",
+            "retailer": "dealer",
+        }
 
-        # Admin ke liye parent optional (superadmin)
-        if role != "admin" and not parent_user:
-            raise serializers.ValidationError({
-                "parent_user": "Parent user is required"
-            })
+        expected_parent_role = ROLE_PARENT_MAP.get(role)
+        
+        if not parent_user:
+            if (
+                (creator.role == "admin" and role == "master") or
+                (creator.role == "master" and role == "dealer") or
+                (creator.role == "dealer" and role == "retailer")
+            ):
+                data["parent_user"] = creator
+                return data
 
-        if parent_user and parent_user.role != expected_parent_role:
-            raise serializers.ValidationError({
-                "parent_user": f"{role} must be created under {expected_parent_role}"
-            })
+        # 🔹 MANUAL PARENT REQUIRED CASES
+        if expected_parent_role:
+            if not parent_user:
+                raise serializers.ValidationError({
+                    "parent_user": "Parent user is required"
+                })
+
+            # parent must be self OR from downline
+            if parent_user != creator and not parent_user.is_in_downline_of(creator):
+                raise serializers.ValidationError({
+                    "parent_user": "Parent must be from your downline"
+                })
+
+            # role check
+            if parent_user.role != expected_parent_role:
+                raise serializers.ValidationError({
+                    "parent_user": f"Parent must be a {expected_parent_role}"
+                })
 
         return data
+
+
 
 
     def create(self, validated_data):
