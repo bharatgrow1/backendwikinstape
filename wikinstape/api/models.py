@@ -30,9 +30,10 @@ class HelpDeskTicket(models.Model):
     created_by = models.ForeignKey(User,on_delete=models.CASCADE,related_name="helpdesk_tickets")
     service = models.CharField(max_length=100)
     description = models.TextField()
-    attachment = models.FileField(upload_to="helpdesk/",null=True,blank=True)
+    attachment = models.CharField(max_length=500,null=True,blank=True,help_text="Image URL generated from upload API")
     status = models.CharField(max_length=10,choices=STATUS_CHOICES,default="OPEN")
     solved_by = models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name="solved_helpdesk_tickets")
+    admin_notes = models.TextField(null=True, blank=True)
     solved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
