@@ -691,6 +691,34 @@ class UserViewSet(DynamicModelViewSet):
     permission_classes = [IsAuthenticated] 
 
 
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.role == 'superadmin':
+            qs = User.objects.all()
+        elif user.role == 'admin':
+            qs = User.objects.exclude(role='superadmin')
+        elif user.role == 'master':
+            qs = User.objects.filter(role__in=['master', 'dealer', 'retailer'])
+        elif user.role == 'dealer':
+            qs = User.objects.filter(role='retailer', parent_user=user)
+        else:
+            qs = User.objects.filter(id=user.id)
+
+        search = self.request.query_params.get("search")
+        if search:
+            if "-" in search:
+                qs = qs.filter(role_uid__iexact=search)
+            else:
+                qs = qs.filter(
+                    Q(username__icontains=search) |
+                    Q(phone_number__icontains=search)
+                )
+                
+        return qs
+
+
+
     def get_serializer_class(self):
         if self.action == 'create':
             return UserCreateSerializer
@@ -873,23 +901,6 @@ class UserViewSet(DynamicModelViewSet):
             UserSerializer(user).data,
             status=status.HTTP_201_CREATED
         )
-
-    
-
-    def get_queryset(self):
-        user = self.request.user
-        
-        if user.role == 'superadmin':
-            return User.objects.all()
-        elif user.role == 'admin':
-            return User.objects.exclude(role='superadmin')
-        elif user.role == 'master':
-            return User.objects.filter(role__in=['master', 'dealer', 'retailer'])
-        elif user.role == 'dealer':
-            return User.objects.filter(role='retailer', parent_user=user)
-
-        else:
-            return User.objects.filter(id=user.id)
     
 
     def destroy(self, request, *args, **kwargs):
@@ -2451,54 +2462,53 @@ class UserHierarchyViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['get'])
     def my_hierarchy(self, request):
-        """Get current user's hierarchy - who created them and who they created"""
-        user = request.user
-        
-        creator = user.created_by
-        
-        created_users = User.objects.filter(created_by=user).select_related('wallet')
-        
-        hierarchy_stats = {
-            'total_downline': created_users.count(),
-            'downline_by_role': created_users.values('role').annotate(count=Count('id')),
-            'total_commission_earned': CommissionTransaction.objects.filter(
-                user=user, status='success', transaction_type='credit'
-            ).aggregate(total=Sum('commission_amount'))['total'] or 0
-        }
-        
-        creator_data = None
-        if creator:
-            creator_data = {
-                'id': creator.id,
-                'username': creator.username,
-                'role': creator.role,
-                'phone_number': creator.phone_number,
-                'created_at': creator.date_joined
-            }
-        
-        created_users_data = []
-        for created_user in created_users:
-            user_data = {
-                'id': created_user.id,
-                'username': created_user.username,
-                'role': created_user.role,
-                'phone_number': created_user.phone_number,
-                'created_at': created_user.date_joined,
-                'wallet_balance': created_user.wallet.balance if hasattr(created_user, 'wallet') else 0,
-                'services_count': created_user.user_services.count()
-            }
-            created_users_data.append(user_data)
-        
+        """
+        Show ALL downline users:
+        - created by me
+        - OR created by someone under me
+        """
+        current_user = request.user
+
+        # 🔥 SUPERADMIN → sab dikhe (except self)
+        if current_user.role == "superadmin":
+            queryset = User.objects.exclude(id=current_user.id)
+
+        else:
+            # 🔥 Sab users except self
+            all_users = User.objects.exclude(id=current_user.id)
+
+            # 🔥 Downline filter (recursive parent_user chain)
+            queryset = [
+                u for u in all_users
+                if u.is_in_downline_of(current_user)
+            ]
+
+        users_data = []
+        for u in queryset:
+            users_data.append({
+                "id": u.id,
+                "public_id": u.role_uid,
+                "username": u.username,
+                "role": u.role,
+                "phone_number": u.phone_number,
+                "wallet_balance": u.wallet.balance if hasattr(u, "wallet") else "0.00",
+                "created_at": u.date_joined,
+
+                # 🔥 hierarchy clarity
+                "parent_user": u.parent_user.username if u.parent_user else None,
+                "parent_role": u.parent_user.role if u.parent_user else None,
+                "created_by": u.created_by.username if u.created_by else None,
+            })
+
         return Response({
-            'current_user': {
-                'id': user.id,
-                'username': user.username,
-                'role': user.role,
-                'created_at': user.date_joined
+            "current_user": {
+                "id": current_user.id,
+                "public_id": current_user.role_uid,
+                "username": current_user.username,
+                "role": current_user.role,
             },
-            'creator': creator_data,
-            'created_users': created_users_data,
-            'hierarchy_stats': hierarchy_stats
+            "total_users": len(users_data),
+            "created_users": users_data
         })
     
     @action(detail=False, methods=['get'])
@@ -2553,11 +2563,12 @@ class UserHierarchyViewSet(viewsets.ViewSet):
 
         def get_downline_recursive(parent):
             users = []
-            children = User.objects.filter(created_by=parent)
+            children = User.objects.filter(parent_user=parent)
 
             for child in children:
                 users.append({
                     "id": child.id,
+                    "public_id": child.role_uid,
                     "username": child.username,
                     "role": child.role,
                 })
@@ -2570,6 +2581,7 @@ class UserHierarchyViewSet(viewsets.ViewSet):
             data = [
                 {
                     "id": u.id,
+                    "public_id": u.role_uid,
                     "username": u.username,
                     "role": u.role
                 }
@@ -2602,7 +2614,7 @@ class UserHierarchyViewSet(viewsets.ViewSet):
                     "step": "dealer",
                     "role": "dealer",
                     "users": [
-                        {"id": d.id, "username": d.username}
+                        {"id": d.id, "public_id": d.role_uid, "username": d.username}
                         for d in dealers
                     ]
                 })
@@ -2613,7 +2625,7 @@ class UserHierarchyViewSet(viewsets.ViewSet):
                     "step": "master",
                     "role": "master",
                     "users": [
-                        {"id": m.id, "username": m.username}
+                        {"id": m.id, "public_id": m.role_uid,  "username": m.username}
                         for m in masters
                     ]
                 })
@@ -2629,7 +2641,7 @@ class UserHierarchyViewSet(viewsets.ViewSet):
                 "step": "dealer",
                 "role": "dealer",
                 "users": [
-                    {"id": d.id, "username": d.username}
+                    {"id": d.id, "public_id": d.role_uid, "username": d.username}
                     for d in dealers
                 ]
             })
@@ -2651,7 +2663,7 @@ class UserHierarchyViewSet(viewsets.ViewSet):
             "step": "single",
             "role": parent_role,
             "users": [
-                {"id": u.id, "username": u.username}
+                {"id": u.id, "public_id": u.role_uid, "username": u.username}
                 for u in parents
             ]
         })

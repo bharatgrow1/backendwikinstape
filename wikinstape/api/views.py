@@ -17,15 +17,6 @@ class SignUPRequestViewSet(viewsets.ModelViewSet):
     queryset = SignUPRequest.objects.all().order_by('-created_at')
     serializer_class = SignUPRequestSerializer
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-
-        return Response({
-            "total_signup_requests": queryset.count(),
-            "results": serializer.data
-        })
-
 
 class HelpDeskViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -58,24 +49,24 @@ class HelpDeskViewSet(viewsets.ViewSet):
     def solve(self, request, pk=None):
 
         if request.user.role not in ["admin", "superadmin"]:
-            return Response({"error": "Permission denied"}, status=403)
+            return Response(
+                {"error": "Permission denied"},
+                status=403
+            )
 
         ticket = HelpDeskTicket.objects.get(pk=pk)
 
         if ticket.status == "SOLVED":
-            return Response({"message": "Ticket already solved"})
+            return Response({
+                "message": "Ticket already solved"
+            })
 
         ticket.status = "SOLVED"
         ticket.solved_by = request.user
         ticket.solved_at = timezone.now()
-
-        ticket.admin_notes = request.data.get("admin_notes")
-
         ticket.save()
 
         return Response({
             "success": True,
-            "message": "Ticket marked as solved",
-            "admin_notes": ticket.admin_notes
+            "message": "Ticket marked as solved"
         })
-

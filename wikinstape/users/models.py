@@ -14,6 +14,12 @@ from decimal import Decimal
 from django.db.models.signals import post_save, pre_save  
 from django.dispatch import receiver
 
+import random
+
+def generate_5_digit():
+    return f"{random.randint(0, 99999):05d}"
+
+
 
 class MobileOTP(models.Model):
     mobile = models.CharField(max_length=15, unique=True)
@@ -63,6 +69,20 @@ class User(AbstractUser):
         ('retailer', 'Retailer'),
     )
 
+    ROLE_PREFIX = {
+        'superadmin': 'spw',
+        'admin': 'adw',
+        'master': 'maw',
+        'dealer': 'dew',
+        'retailer': 'rtw',
+    }
+
+
+    @property
+    def role_based_id(self):
+        prefix = self.ROLE_PREFIX.get(self.role, 'uid')
+        return f"{prefix}{self.id}"
+
     GENDER_CHOICES = (
         ('male', 'Male'),
         ('female', 'Female'),
@@ -87,6 +107,8 @@ class User(AbstractUser):
         ('franchise', 'Franchise'),
         ('other', 'Other'),
     )
+
+    role_uid = models.CharField(max_length=20, unique=True, blank=True, null=True, db_index=True)
     email = models.EmailField(unique=True,null=True,blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='retailer')
     created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,related_name='created_users')
@@ -855,34 +877,6 @@ class FundRequest(models.Model):
                     closing_balance=closing_balance  
                 )
 
-
-                # if approved_by.role != "superadmin":
-                #     admin_wallet = approved_by.wallet
-
-                #     if admin_wallet.balance < net_amount:
-                #         raise ValueError("Admin wallet has insufficient balance")
-
-                #     admin_opening_balance = admin_wallet.balance
-                #     admin_wallet.balance -= net_amount
-                #     admin_wallet.save()
-                #     admin_closing_balance = admin_wallet.balance
-
-                #     Transaction.objects.create(
-                #         wallet=admin_wallet,
-                #         amount=net_amount,
-                #         net_amount=net_amount,
-                #         service_charge=Decimal("0.00"),
-                #         transaction_type='debit',
-                #         transaction_category='fund_request',
-                #         description=(
-                #             f"Fund request approved for {self.user.username}: "
-                #             f"{self.reference_number}"
-                #         ),
-                #         created_by=approved_by,
-                #         opening_balance=admin_opening_balance,
-                #         closing_balance=admin_closing_balance
-                #     )
-
                 admin_wallet = approved_by.wallet
 
                 if admin_wallet.balance < net_amount:
@@ -964,3 +958,19 @@ def set_transaction_balances(sender, instance, **kwargs):
             total_deduction = instance.amount + instance.service_charge
             instance.opening_balance = wallet.balance + total_deduction
             instance.closing_balance = wallet.balance
+
+
+
+
+@receiver(pre_save, sender=User)
+def generate_role_uid(sender, instance, **kwargs):
+    if instance.role_uid:
+        return
+
+    prefix = User.ROLE_PREFIX.get(instance.role, 'uid')
+
+    while True:
+        uid = f"{prefix}-{generate_5_digit()}"
+        if not User.objects.filter(role_uid=uid).exists():
+            instance.role_uid = uid
+            break

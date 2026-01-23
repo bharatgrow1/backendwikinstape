@@ -392,37 +392,40 @@ class UserCreateSerializer(serializers.ModelSerializer):
         }
 
         expected_parent_role = ROLE_PARENT_MAP.get(role)
-        
-        if not parent_user:
-            if (
-                (creator.role == "admin" and role == "master") or
-                (creator.role == "master" and role == "dealer") or
-                (creator.role == "dealer" and role == "retailer")
-            ):
-                data["parent_user"] = creator
-                return data
 
-        # 🔹 MANUAL PARENT REQUIRED CASES
+        # 🔴 Superadmin creating admin → parent auto superadmin
+        if creator.role == "superadmin" and role == "admin":
+            data["parent_user"] = creator
+            return data
+
+        # 🔴 Superadmin creating others → parent REQUIRED
+        if creator.role == "superadmin" and role in ["master", "dealer", "retailer"]:
+            if not parent_user:
+                raise serializers.ValidationError({
+                    "parent_user": f"Parent {expected_parent_role} is required"
+                })
+
+        # 🔴 All other roles
         if expected_parent_role:
             if not parent_user:
                 raise serializers.ValidationError({
                     "parent_user": "Parent user is required"
                 })
 
-            # parent must be self OR from downline
-            if parent_user != creator and not parent_user.is_in_downline_of(creator):
-                raise serializers.ValidationError({
-                    "parent_user": "Parent must be from your downline"
-                })
-
-            # role check
             if parent_user.role != expected_parent_role:
                 raise serializers.ValidationError({
                     "parent_user": f"Parent must be a {expected_parent_role}"
                 })
 
-        return data
+            if (
+                creator != parent_user and
+                not parent_user.is_in_downline_of(creator)
+            ):
+                raise serializers.ValidationError({
+                    "parent_user": "Parent must be from your downline"
+                })
 
+        return data
 
 
 
@@ -433,16 +436,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
         service_ids = validated_data.pop("service_ids", [])
         raw_password = validated_data.pop("password")
 
-        parent_user = validated_data.pop("parent_user", None)
-
-        # Admin case: parent auto superadmin
-        if not parent_user:
-            parent_user = creator
+        parent_user = validated_data.pop("parent_user")
 
         user = User(
             username=validated_data["username"],
             email=validated_data.get("email"),
             role=validated_data["role"],
+
             created_by=creator,
             parent_user=parent_user,
 
@@ -454,16 +454,19 @@ class UserCreateSerializer(serializers.ModelSerializer):
             pan_number=validated_data.get("pan_number"),
             date_of_birth=validated_data.get("date_of_birth"),
             gender=validated_data.get("gender"),
+
             business_name=validated_data.get("business_name"),
             business_nature=validated_data.get("business_nature"),
             business_registration_number=validated_data.get("business_registration_number"),
             gst_number=validated_data.get("gst_number"),
             business_ownership_type=validated_data.get("business_ownership_type"),
+
             address=validated_data.get("address"),
             city=validated_data.get("city"),
             state=validated_data.get("state"),
             pincode=validated_data.get("pincode"),
             landmark=validated_data.get("landmark"),
+
             bank_name=validated_data.get("bank_name"),
             account_number=validated_data.get("account_number"),
             ifsc_code=validated_data.get("ifsc_code"),
@@ -477,17 +480,25 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
         for service_id in service_ids:
             try:
-                service = ServiceSubCategory.objects.get(id=service_id, is_active=True)
-                UserService.objects.create(user=user, service=service)
+                service = ServiceSubCategory.objects.get(
+                    id=service_id,
+                    is_active=True
+                )
+                UserService.objects.create(
+                    user=user,
+                    service=service
+                )
             except ServiceSubCategory.DoesNotExist:
-                pass
+                continue
 
         return user
 
 
 
+
 class UserSerializer(serializers.ModelSerializer):
     wallet = WalletSerializer(read_only=True)
+    role_uid = serializers.CharField(read_only=True)
 
     created_by_username = serializers.CharField(
         source='created_by.username',
@@ -523,6 +534,7 @@ class UserSerializer(serializers.ModelSerializer):
             'profile_picture',
             'email',
             'role',
+            'role_uid',
 
             # 🔥 hierarchy
             'parent_user_id',
@@ -562,15 +574,6 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = ['created_by', 'date_joined']
-
-    def create(self, validated_data):
-        password = validated_data.pop('password')
-        user = User(**validated_data)
-        user.set_password(password)
-        user.save()
-        Wallet.objects.get_or_create(user=user)
-        return user
-    
 
 
 class UserBankSerializer(serializers.ModelSerializer):
@@ -860,25 +863,6 @@ class ForgetPinRequestOTPSerializer(serializers.Serializer):
 class VerifyForgetPinOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
-
-class ResetPinWithForgetOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField(max_length=6)
-    new_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
-    confirm_pin = serializers.CharField(max_length=4, min_length=4, write_only=True)
-
-    def validate_new_pin(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("PIN must contain only digits")
-        if len(value) != 4:
-            raise serializers.ValidationError("PIN must be exactly 4 digits")
-        return value
-
-    def validate(self, data):
-        if data['new_pin'] != data['confirm_pin']:
-            raise serializers.ValidationError("PINs do not match")
-        return data
-    
 
 class ResetPinWithForgetOTPSerializer(serializers.ModelSerializer):
     class Meta:
