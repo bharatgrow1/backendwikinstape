@@ -2602,16 +2602,35 @@ class UserHierarchyViewSet(viewsets.ViewSet):
     def parent_chain(self, request):
         target_role = request.query_params.get("role")
         user = request.user
-        selected_master_id = request.query_params.get("master_id")
-        if target_role == "retailer":
 
-            if user.role == "master":
-                dealers = User.objects.filter(
-                    role="dealer",
-                    parent_user=user
-                )
+        admin_id = request.query_params.get("admin_id")
+        master_id = request.query_params.get("master_id")
+
+        if user.role == "superadmin":
+
+            if target_role in ["master", "dealer", "retailer"] and not admin_id:
+                admins = User.objects.filter(role="admin")
                 return Response({
-                    "step": "dealer",
+                    "role": "admin",
+                    "users": [
+                        {"id": a.id, "public_id": a.role_uid, "username": a.username}
+                        for a in admins
+                    ]
+                })
+
+            if target_role in ["dealer", "retailer"] and admin_id and not master_id:
+                masters = User.objects.filter(role="master", parent_user_id=admin_id)
+                return Response({
+                    "role": "master",
+                    "users": [
+                        {"id": m.id, "public_id": m.role_uid, "username": m.username}
+                        for m in masters
+                    ]
+                })
+
+            if target_role == "retailer" and master_id:
+                dealers = User.objects.filter(role="dealer", parent_user_id=master_id)
+                return Response({
                     "role": "dealer",
                     "users": [
                         {"id": d.id, "public_id": d.role_uid, "username": d.username}
@@ -2619,26 +2638,31 @@ class UserHierarchyViewSet(viewsets.ViewSet):
                     ]
                 })
 
-            if not selected_master_id:
-                masters = get_downline_users(user, "master")
+        if user.role == "admin":
+
+            if target_role in ["dealer", "retailer"] and not master_id:
+                masters = User.objects.filter(role="master", parent_user=user)
                 return Response({
-                    "step": "master",
                     "role": "master",
                     "users": [
-                        {"id": m.id, "public_id": m.role_uid,  "username": m.username}
+                        {"id": m.id, "public_id": m.role_uid, "username": m.username}
                         for m in masters
                     ]
                 })
 
-            try:
-                master = User.objects.get(id=selected_master_id, role="master")
-            except User.DoesNotExist:
-                return Response({"error": "Invalid master"}, status=400)
+            if target_role == "retailer" and master_id:
+                dealers = User.objects.filter(role="dealer", parent_user_id=master_id)
+                return Response({
+                    "role": "dealer",
+                    "users": [
+                        {"id": d.id, "public_id": d.role_uid, "username": d.username}
+                        for d in dealers
+                    ]
+                })
 
-            dealers = User.objects.filter(role="dealer", parent_user=master)
-
+        if user.role == "master" and target_role == "retailer":
+            dealers = User.objects.filter(role="dealer", parent_user=user)
             return Response({
-                "step": "dealer",
                 "role": "dealer",
                 "users": [
                     {"id": d.id, "public_id": d.role_uid, "username": d.username}
@@ -2646,24 +2670,4 @@ class UserHierarchyViewSet(viewsets.ViewSet):
                 ]
             })
 
-        ROLE_PARENT_MAP = {
-            "admin": "superadmin",
-            "master": "admin",
-            "dealer": "master",
-        }
-
-        parent_role = ROLE_PARENT_MAP.get(target_role)
-
-        if not parent_role:
-            return Response({"users": []})
-
-        parents = get_downline_users(user, parent_role)
-
-        return Response({
-            "step": "single",
-            "role": parent_role,
-            "users": [
-                {"id": u.id, "public_id": u.role_uid, "username": u.username}
-                for u in parents
-            ]
-        })
+        return Response({"users": []})
