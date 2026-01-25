@@ -1,0 +1,146 @@
+Operator ID,Operator Name,Operator Type,Service Subcategory,Commission Type,B2B Commission BELOW 5K
+159,ACT Fibernet,broadband,Insurance,fixed,2.40
+185,Tikona Infinet Pvt Ltd ,broadband,Water,fixed,1.65
+186,TTN BroadBand,broadband,Insurance,fixed,0.88
+201,Asianet Broadband,broadband,Insurance,fixed,0.88
+308,Alliance Broadband Services Pvt. Ltd.,broadband,Broadband,fixed,0.99
+344,Limras Eronet,broadband,Broadband,fixed,0.99
+362,DEN Broadband,broadband,Insurance,fixed,2.40
+367,Digiway Net Pvt. Ltd.,broadband,Broadband,fixed,0.99
+371,DWAN Supports Private Ltd,broadband,Broadband,fixed,0.99
+382,Excell Broadband,broadband,Broadband,fixed,0.99
+385,Ficus Telecom Pvt Ltd,broadband,Broadband,fixed,0.99
+414,GTPL KCBPL Broadband Pvt Ltd,broadband,Broadband,fixed,0.99
+467,Kerala Vision Broadband Pvt Ltd,broadband,Broadband,fixed,0.99
+467,Kerala Vision Broadband Pvt Ltd,broadband,Insurance,fixed,2.40
+469,Kings Broadband,broadband,Broadband,fixed,0.99
+478,Linkio Fibernet Pvt. Ltd.,broadband,Broadband,fixed,0.99
+525,Netplus Broadband,broadband,Broadband,fixed,0.99
+525,Netplus Broadband,broadband,Insurance,fixed,0.88
+558,AirJaldi - Rural Broadband,broadband,Broadband,fixed,0.99
+594,TIC Fiber Pvt.Ltd.,broadband,Broadband,fixed,0.99
+616,Wish Net Pvt Ltd,broadband,Broadband,fixed,0.99
+20,Tata Sky,dth,DTH Recharge,fixed,0.99
+21,Airtel DTH,dth,DTH Recharge,fixed,0.99
+28,Mahanagar Gas,gas,Landline,fixed,0.99
+128,Tripura Natural Gas,gas,Insurance,fixed,2.40
+191,Vadodara Gas Limited,gas,Landline,fixed,0.99
+248,IRM Energy Private Limited,gas,Insurance,fixed,2.40
+394,GAIL India Limited,gas,Insurance,fixed,2.40
+396,Green Gas Limited(GGL),gas,Water,fixed,1.65
+16,Dish TV,dth,DTH Recharge,fixed,0.99
+95,Videocon D2H,dth,DTH Recharge,fixed,0.99
+258,Ahmedabad Municipal Corporation,tax,Water,fixed,1.65
+5300,Bank of Maharashtra Credit Card,credit,FASTag,fixed,1.54
+5304,Axis Bank Credit Card,credit,FASTag,fixed,1.54
+22,BSES Rajdhani,electricity,DTH Recharge,fixed,0.99
+56,Bangalore Electricity (BESCOM),electricity,Landline,fixed,0.99
+131,Uttar Pradesh Power Corp Ltd - URBAN,electricity,Landline,fixed,0.99
+133,Uttarakhand Power Corporation Limited (Old),electricity,Landline,fixed,0.99
+230,HDFC Bank Credit Card,electricity,FASTag,fixed,1.54
+238,Sikkim Power - URBAN,electricity,Insurance,fixed,2.40
+239,Sikkim Power - RURAL,electricity,Insurance,fixed,2.40
+465,Kanan Devan Hills Plantations Company Private Limited,electricity,Insurance,fixed,2.40
+26,Airtel Landline,landline,Landline,fixed,0.99
+27,MTNL Delhi,landline,Landline,fixed,0.99
+253,MTNL Mumbai,landline,Landline,fixed,0.99
+116,Uttarakhand Jal Sansthan,water,Water,fixed,1.65
+117,Pune Municipal Corporation - Water,water,Water,fixed,1.65
+130,Delhi Jal Board,water,Water,fixed,1.65
+135,Municipal Corporation of Gurugram,water,Water,fixed,1.65
+161,Bangalore Water Supply and Sewerage Board,water,Water,fixed,1.65
+162,Bhopal Municipal Corporation - Water,water,Water,fixed,1.65
+165,Gwalior Municipal Corporation - Water,water,Water,fixed,1.65
+167,Hyderabad Metropolitan Water Supply and Sewerage Board,water,Water,fixed,1.65
+173,Municipal Corporation Ludhiana - Water,water,Water,fixed,1.65
+179,New Delhi Municipal Council (NDMC) - Water,water,Water,fixed,1.65
+183,Surat Municipal Corporation - Water,water,Water,fixed,1.65
+187,Urban Improvement Trust (UIT) - Bhiwadi,water,Water,fixed,1.65
+193,Ujjain Nagar Nigam - PHED,water,Water,fixed,1.65
+194,Greater Warangal Municipal Corporation - Water,water,Water,fixed,1.65
+361,Delhi Development Authority (DDA) - Water,water,Water,fixed,1.65
+363,"Department of Public Health Engineering-Water, Mizoram",water,Insurance,fixed,2.40
+363,"Department of Public Health Engineering-Water, Mizoram",water,Water,fixed,1.65
+451,Jalkal Vibhag Nagar Nigam Prayagraj,water,Water,fixed,1.65
+453,Jammu Kashmir Water Billing-JKPHE Kashmir,water,Water,fixed,1.65
+454,Jammu Kashmir Water Billing-JKPHE Jammu,water,Water,fixed,1.65
+459,Jabalpur Municipal Corporation - Water,water,Water,fixed,1.65
+466,Kerala Water Authority (KWA),water,Insurance,fixed,2.40
+466,Kerala Water Authority (KWA),water,Water,fixed,1.65
+483,Madhya Pradesh Urban (e-Nagarpalika) - Water,water,Water,fixed,1.65
+495,Municipal Corporation of Amritsar,water,Water,fixed,1.65
+496,Mysuru City Corporation,water,Water,fixed,1.65
+497,MCGM Water Department,water,Water,fixed,1.65
+509,Municipal Corporation Chandigarh,water,Water,fixed,1.65
+540,Punjab Municipal Corporations/Councils,water,Water,fixed,1.65
+541,Port Blair Municipal Council - Water,water,Water,fixed,1.65
+547,"Public Health Engineering Department, Haryana",water,Water,fixed,1.65
+566,Shivamoga City Corporation - Water Tax,water,Water,fixed,1.65
+577,Silvassa Municipal Council,water,Insurance,fixed,2.40
+577,Silvassa Municipal Council,water,Water,fixed,1.65
+605,Vasai Virar Municipal Corporation - Water,water,Water,fixed,1.65
+608,Vatva Industrial Estate Infrastructure Development Ltd,water,Water,fixed,1.65
+610,Vijayapura Water Board,water,Water,fixed,1.65
+3015,Punjab Municipal Corporations Councils Sewerage,water,Water,fixed,1.65
+5146,City Municipal Council Ranebennur,water,Water,fixed,1.65
+319,Asso Of Appt Ownrs Of Star Court Cluster,society,Insurance,fixed,2.40
+323,Avalon Residency Welfare Society,society,Insurance,fixed,0.88
+255,India Today,ott,Insurance,fixed,2.40
+405,Valpoi Municipal council,municipal_tax,Insurance,fixed,2.40
+417,Gulbarga City Corporation,municipal_tax,Insurance,fixed,2.40
+523,Nagar Nigam Mathura-Vrindavan,municipal_tax,Broadband,fixed,0.99
+549,Rajkot Municipal Corporation,municipal_tax,Broadband,fixed,0.99
+272,Hathway Digital Cable TV,cable,Insurance,fixed,0.88
+275,Bharat Gas (BPCL),lpg,Insurance,fixed,0.88
+36,ICICI Prudential Life Insurance,insurance,Insurance,fixed,2.40
+103,Exide Life Insurance,insurance,Insurance,fixed,2.40
+112,Max Bupa Health Insurance,insurance,Insurance,fixed,2.40
+114,TATA AIA Life Insurance,insurance,Insurance,fixed,2.40
+203,Shriram General Insurance,insurance,Insurance,fixed,2.40
+262,Star Union Dai Ichi Life Insurance,insurance,Insurance,fixed,2.40
+262,Star Union Dai Ichi Life Insurance,insurance,Water,fixed,1.65
+263,Shriram Life Insurance Co Ltd,insurance,Insurance,fixed,2.40
+271,HDFC Life Insurance Co. Ltd.,insurance,Insurance,fixed,2.40
+303,Aditya Birla Sun Life Insurance,insurance,Insurance,fixed,2.40
+305,Aditya Birla Health Insurance Co Limited,insurance,Insurance,fixed,2.40
+305,Aditya Birla Health Insurance Co Limited,insurance,Broadband,fixed,0.99
+306,Aegon Life Insurance,insurance,Insurance,fixed,0.88
+325,Aviva Life Insurance,insurance,Insurance,fixed,2.40
+333,Bajaj Allianz General Insurance,insurance,Insurance,fixed,0.88
+335,Bajaj Allianz Life Insurance Company Limited,insurance,Insurance,fixed,2.40
+392,Future Generali India Life Insurance Company Limited,insurance,Insurance,fixed,2.40
+412,Go Digit Insurance,insurance,Insurance,fixed,2.40
+471,Kotak Life Insurance Company Limited,insurance,Insurance,fixed,2.40
+485,Magma HDI - Motor Insurance,insurance,Insurance,fixed,2.40
+486,Magma HDI - Health Insurance,insurance,Insurance,fixed,2.40
+492,Manipal Cigna Health Insurance,insurance,Insurance,fixed,2.40
+493,Max Life Insurance Company Limited,insurance,Insurance,fixed,2.40
+542,Pramerica Life Insurance Limited,insurance,Insurance,fixed,2.40
+550,Reliance General Insurance Company Limited (Health),insurance,Insurance,fixed,2.40
+551,Reliance Nippon Life Insurance,insurance,Insurance,fixed,2.40
+556,Royal Sundaram General Insurance Co. Limited,insurance,Insurance,fixed,2.40
+561,SBI Life Insurance Company Limited,insurance,Insurance,fixed,2.40
+315,Aptus Finance India Private Limited,loan,Insurance,fixed,2.40
+328,Axis Bank Limited - Retail Loan,loan,Insurance,fixed,2.40
+373,Eduvanz Financing Pvt. Ltd.,loan,Water,fixed,1.65
+430,ICICI BANK - Interest Repayment Loans,loan,FASTag,fixed,1.54
+468,Khush Housing Finance Pvt Ltd,loan,Insurance,fixed,2.40
+519,NABARD FINANCIAL SERVICES LIMITED,loan,Broadband,fixed,0.99
+588,Tata Motors Finance Limited,loan,Broadband,fixed,0.99
+589,Thazhayil Nidhi Ltd,loan,Broadband,fixed,0.99
+607,Vastu Housing Finance Corporation Limited,loan,Insurance,fixed,2.40
+5622,State Bank of India(SBI) - Loans,loan,FASTag,fixed,1.54
+337,Bank of Baroda - Fastag,fastag,FASTag,fixed,1.54
+379,Equitas FASTag Recharge,fastag,FASTag,fixed,1.54
+431,IDBI Bank Fastag,fastag,FASTag,fixed,1.54
+433,IDFC FIRST Bank - FasTag,fastag,FASTag,fixed,1.54
+448,IOB Fastag,fastag,FASTag,fixed,1.54
+455,Jammu and Kashmir Bank FASTag,fastag,FASTag,fixed,1.54
+472,Kotak Mahindra Bank - Fastag,fastag,FASTag,fixed,1.54
+536,Paul Merchants,fastag,FASTag,fixed,1.54
+537,Paytm Payments Bank FASTag,fastag,FASTag,fixed,1.54
+537,Paytm Payments Bank FASTag,fastag,Insurance,fixed,2.40
+599,Transcorp International Limited,fastag,FASTag,fixed,1.54
+600,"Transaction Analyst (T Wallet, TA Wallet and TAG-ITI Wallet)",fastag,FASTag,fixed,1.54
+601,UCO Bank Fastag,fastag,FASTag,fixed,1.54
+265,Port Blair Municipal Council,municipal_services,Insurance,fixed,2.40
