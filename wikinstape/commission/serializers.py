@@ -425,4 +425,3 @@ class OperatorCommissionSerializer(serializers.ModelSerializer):
 
 
         return data
-
