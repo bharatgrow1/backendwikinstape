@@ -137,18 +137,17 @@ class ServiceCommissionViewSet(viewsets.ModelViewSet):
         """Check if user has permission to edit specific commission fields"""
         user_role = user.role
         
-        # Define editable fields for each role
         editable_fields_map = {
             'superadmin': ['admin_commission'],
-            'admin': ['master_commission'],
-            'master': ['dealer_commission'],
+            'admin': ['master_commission', 'dealer_commission', 'retailer_commission'],
+            'master': ['dealer_commission', 'retailer_commission'],
             'dealer': ['retailer_commission'],
             'retailer': []
         }
+
         
         editable_fields = editable_fields_map.get(user_role, [])
         
-        # Check each field in data
         for field in data.keys():
             if field.endswith('_commission') and field != 'superadmin_commission':
                 if field not in editable_fields:
