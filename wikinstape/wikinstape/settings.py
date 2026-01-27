@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-_rs_n@k9*(e1!w=j=4&#h(h00lz0-$6d4--5(m^yq&si8taj9k'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
@@ -152,8 +152,9 @@ CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
     "http://localhost:8000",
-    "https://bharatgrow.shop",
+    "https://wikinapi.gssmart.in",
 ]
 
 AUTH_USER_MODEL = 'users.User'
