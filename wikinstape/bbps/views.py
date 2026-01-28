@@ -387,50 +387,38 @@ class bbpsViewSet(viewsets.ViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
-
     @staticmethod
     def get_all_child_users(user):
-        role = user.role
+        """
+        Return self + all downline users (unlimited level)
+        Uses parent_user (same as User module)
+        """
+        users = [user]
+        queue = [user]
 
-        if role == "superadmin":
-            return User.objects.all()
+        while queue:
+            current = queue.pop(0)
+            children = User.objects.filter(parent_user=current)
+            for child in children:
+                if child not in users:
+                    users.append(child)
+                    queue.append(child)
 
-        if role == "admin":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(created_by__created_by=user) |
-                Q(created_by__created_by__created_by=user) |
-                Q(id=user.id)
-            )
-
-        if role == "master":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(created_by__created_by=user) |
-                Q(id=user.id)
-            )
-
-        if role == "dealer":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(id=user.id)
-            )
-
-        return User.objects.filter(id=user.id)
-    
+        return User.objects.filter(id__in=[u.id for u in users])
 
 
     @action(detail=False, methods=['get'], url_path='bill_reports_history')
     def bill_reports_history(self, request):
 
-        allowed_users = self.get_all_child_users(request.user)
+        user = request.user
+
+        allowed_users = self.get_all_child_users(user)
 
         queryset = bbpsTransaction.objects.filter(
             user__in=allowed_users
-        ).order_by('-initiated_at')
+        ).select_related('user').order_by('-initiated_at')
 
-        # ----- Filters -----
+
         status_filter = request.GET.get('status')
         if status_filter:
             queryset = queryset.filter(status=status_filter)
@@ -445,6 +433,7 @@ class bbpsViewSet(viewsets.ViewSet):
 
         date_from = request.GET.get('from')
         date_to = request.GET.get('to')
+
         if date_from:
             queryset = queryset.filter(initiated_at__date__gte=date_from)
         if date_to:
@@ -454,6 +443,18 @@ class bbpsViewSet(viewsets.ViewSet):
         if category:
             queryset = queryset.filter(operator_type=category)
 
+        role_filter = request.GET.get('role')
+        if role_filter:
+            queryset = queryset.filter(user__role=role_filter)
+
+        user_id = request.GET.get('user_id')
+        if user_id:
+            queryset = queryset.filter(
+                user__id=user_id,
+                user__in=allowed_users
+            )
+
+
         serializer = bbpsTransactionSerializer(queryset, many=True)
 
         return Response({
@@ -461,7 +462,6 @@ class bbpsViewSet(viewsets.ViewSet):
             "count": queryset.count(),
             "reports": serializer.data
         })
-
 
 
 
