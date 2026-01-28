@@ -830,17 +830,17 @@ class FundRequest(models.Model):
 
     
     def approve(self, approved_by, notes=""):
-        """Approve the fund request and add balance to user's wallet"""
+
         if self.status != 'pending':
             return False, "Request already processed"
-        
+
         try:
             with db_transaction.atomic():
 
                 charge = (self.amount * Decimal("0.0001")).quantize(Decimal("0.01"))
                 if charge < Decimal("0.01"):
                     charge = Decimal("0.01")
-                    
+
                 net_amount = self.amount - charge
 
                 self.status = 'approved'
@@ -850,17 +850,13 @@ class FundRequest(models.Model):
                 self.service_charge = charge
                 self.wallet_credit = net_amount
                 self.save()
-                
 
-                wallet, created = Wallet.objects.get_or_create(user=self.user)
+                user_wallet, _ = Wallet.objects.get_or_create(user=self.user)
 
-                opening_balance = wallet.balance
-                wallet.balance += net_amount
-                wallet.save()
-                closing_balance = wallet.balance
-                
+                user_wallet.add_amount(net_amount)
+
                 Transaction.objects.create(
-                    wallet=wallet,
+                    wallet=user_wallet,
                     amount=net_amount,
                     net_amount=net_amount,
                     service_charge=charge,
@@ -871,19 +867,15 @@ class FundRequest(models.Model):
                         f"(0.01% charge ₹{charge})"
                     ),
                     created_by=approved_by,
-                    opening_balance=opening_balance,
-                    closing_balance=closing_balance  
+                    status='success'
                 )
 
-                admin_wallet = approved_by.wallet
+                admin_wallet, _ = Wallet.objects.get_or_create(user=approved_by)
 
-                if admin_wallet.balance < net_amount:
+                if not admin_wallet.has_sufficient_balance(net_amount):
                     raise ValueError("Admin wallet has insufficient balance")
 
-                admin_opening_balance = admin_wallet.balance
-                admin_wallet.balance -= net_amount
-                admin_wallet.save()
-                admin_closing_balance = admin_wallet.balance
+                admin_wallet.deduct_amount(net_amount)
 
                 Transaction.objects.create(
                     wallet=admin_wallet,
@@ -897,12 +889,11 @@ class FundRequest(models.Model):
                         f"{self.reference_number}"
                     ),
                     created_by=approved_by,
-                    opening_balance=admin_opening_balance,
-                    closing_balance=admin_closing_balance
+                    status='success'
                 )
 
                 return True, "Fund request approved successfully"
-                    
+
         except Exception as e:
             print(f"Error approving fund request: {str(e)}")
             return False, f"Error approving request: {str(e)}"
@@ -945,18 +936,22 @@ def ensure_wallet_exists(sender, instance, **kwargs):
 
 @receiver(pre_save, sender=Transaction)
 def set_transaction_balances(sender, instance, **kwargs):
-    """Automatically set opening and closing balances"""
-    if not instance.pk:
-        wallet = instance.wallet
-        
-        if instance.transaction_type == 'credit':
-            instance.opening_balance = wallet.balance
-            instance.closing_balance = wallet.balance + instance.amount
-        else:
-            total_deduction = instance.amount + instance.service_charge
-            instance.opening_balance = wallet.balance + total_deduction
-            instance.closing_balance = wallet.balance
 
+    if instance.pk:
+        return
+
+    if instance.opening_balance is not None or instance.closing_balance is not None:
+        return
+
+    wallet = instance.wallet
+
+    if instance.transaction_type == 'credit':
+        instance.opening_balance = wallet.balance - instance.amount
+        instance.closing_balance = wallet.balance
+    else:
+        total_deduction = instance.amount + instance.service_charge
+        instance.opening_balance = wallet.balance + total_deduction
+        instance.closing_balance = wallet.balance
 
 
 
