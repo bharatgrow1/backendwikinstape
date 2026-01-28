@@ -1511,26 +1511,18 @@ class WalletViewSet(DynamicModelViewSet):
         amount = request.data.get("amount")
 
         if not amount:
-            return Response(
-                {"error": "Amount is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Amount is required"}, status=400)
 
         try:
             amount = Decimal(str(amount))
             if amount <= 0:
                 raise ValueError
         except Exception:
-            return Response(
-                {"error": "Invalid amount"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Invalid amount"}, status=400)
 
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
 
-        opening_balance = wallet.balance
-        wallet.balance += amount
-        wallet.save()
+        wallet.add_amount(amount)
 
         Transaction.objects.create(
             wallet=wallet,
@@ -1541,8 +1533,7 @@ class WalletViewSet(DynamicModelViewSet):
             transaction_category="manual_topup",
             description="Manual top-up by SuperAdmin",
             created_by=request.user,
-            opening_balance=opening_balance,
-            closing_balance=wallet.balance
+            status="success"
         )
 
         return Response({
@@ -1550,6 +1541,7 @@ class WalletViewSet(DynamicModelViewSet):
             "message": "Balance added successfully",
             "balance": str(wallet.balance)
         })
+
 
 
 
@@ -1588,7 +1580,6 @@ class WalletViewSet(DynamicModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def direct_transfer(self, request):
-
         serializer = DirectWalletTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1598,33 +1589,24 @@ class WalletViewSet(DynamicModelViewSet):
         pin = serializer.validated_data['pin']
         notes = serializer.validated_data.get('notes', '')
 
+        admin = request.user
+        admin_wallet = admin.wallet
+        target_user = get_object_or_404(User, id=user_id)
+        target_wallet = target_user.wallet
+
+        if not admin.can_transfer_to_user(target_user):
+            return Response({'error': 'Permission denied'}, status=403)
+
+        if not admin_wallet.verify_pin(pin):
+            return Response({'error': 'Invalid PIN'}, status=400)
+
         try:
-            admin = request.user
-            admin_wallet = admin.wallet
-            target_user = User.objects.get(id=user_id)
-            target_wallet = target_user.wallet
-
-            if not admin.can_transfer_to_user(target_user):
-                return Response(
-                    {'error': 'You do not have permission to transfer money to this user'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-            if not admin_wallet.verify_pin(pin):
-                return Response(
-                    {'error': 'Invalid PIN'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             with db_transaction.atomic():
 
                 if transaction_type == 'credit':
 
                     if not admin_wallet.has_sufficient_balance(amount):
-                        return Response(
-                            {'error': 'Insufficient balance in your wallet'},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
+                        return Response({'error': 'Insufficient balance'}, status=400)
 
                     admin_wallet.deduct_amount(amount, pin=pin)
                     target_wallet.add_amount(amount)
@@ -1632,114 +1614,61 @@ class WalletViewSet(DynamicModelViewSet):
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
-                        net_amount=amount,
-                        service_charge=Decimal('0.00'),
                         transaction_type='debit',
                         transaction_category='direct_transfer',
-                        description=f"Direct transfer to {target_user.username}: {notes}",
-                        created_by=request.user,
-                        recipient_user=target_user,
-                        metadata={
-                            'notes': notes,
-                            'transfer_type': 'credit_to_user',
-                            'admin_id': admin.id
-                        }
+                        description=f"Transfer to {target_user.username}: {notes}",
+                        created_by=admin,
+                        recipient_user=target_user
                     )
 
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
-                        net_amount=amount,
-                        service_charge=Decimal('0.00'),
                         transaction_type='credit',
                         transaction_category='direct_transfer',
-                        description=f"Direct transfer from {request.user.username}: {notes}",
-                        created_by=request.user,
-                        recipient_user=request.user,
-                        metadata={
-                            'notes': notes,
-                            'transfer_type': 'credit_from_admin',
-                            'admin_id': admin.id
-                        }
+                        description=f"Received from {admin.username}: {notes}",
+                        created_by=admin,
+                        recipient_user=admin
                     )
 
                     message = f"₹{amount} transferred to {target_user.username}"
 
                 else:
-
                     if not target_wallet.has_sufficient_balance(amount):
-                        return Response(
-                            {'error': 'User has insufficient balance'},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
+                        return Response({'error': 'User has insufficient balance'}, status=400)
+
+                    target_wallet.deduct_amount(amount)
+                    admin_wallet.add_amount(amount)
 
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
-                        net_amount=amount,
-                        service_charge=Decimal('0.00'),
                         transaction_type='debit',
                         transaction_category='direct_transfer',
-                        description=f"Direct deduction by {request.user.username}: {notes}",
-                        created_by=request.user,
-                        recipient_user=request.user,
-                        metadata={
-                            'notes': notes,
-                            'transfer_type': 'debit_by_admin',
-                            'admin_id': admin.id
-                        }
+                        description=f"Deducted by {admin.username}: {notes}",
+                        created_by=admin
                     )
 
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
-                        net_amount=amount,
-                        service_charge=Decimal('0.00'),
                         transaction_type='credit',
                         transaction_category='direct_transfer',
-                        description=f"Direct deduction from {target_user.username}: {notes}",
-                        created_by=request.user,
-                        recipient_user=target_user,
-                        metadata={
-                            'notes': notes,
-                            'transfer_type': 'credit_from_user',
-                            'admin_id': admin.id
-                        }
+                        description=f"Received from {target_user.username}: {notes}",
+                        created_by=admin
                     )
-
-                    target_wallet.balance -= amount
-                    target_wallet.save()
-
-                    admin_wallet.balance += amount
-                    admin_wallet.save()
 
                     message = f"₹{amount} deducted from {target_user.username}"
 
             return Response({
                 'success': True,
                 'message': message,
-                'user_balance': target_wallet.balance,
                 'admin_balance': admin_wallet.balance,
-                'user_id': user_id,
-                'amount': amount,
-                'user_name': target_user.username,
-                'admin_name': admin.username
+                'user_balance': target_wallet.balance
             })
 
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'User not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
         except Exception as e:
-            logger.error(f"Direct transfer failed: {str(e)}")
-            return Response(
-                {'error': f'Transfer failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        
+            return Response({'error': str(e)}, status=500)
 
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
@@ -1798,49 +1727,41 @@ class TransactionViewSet(DynamicModelViewSet):
         return queryset.none()
 
     def create(self, request, *args, **kwargs):
-        """Create a new transaction with PIN verification and service charges"""
-        serializer = TransactionCreateSerializer(data=request.data, context={'request': request})
+        serializer = TransactionCreateSerializer(
+            data=request.data,
+            context={'request': request}
+        )
         serializer.is_valid(raise_exception=True)
-        
+
         data = serializer.validated_data
         wallet = request.user.wallet
-        
+
         if data['transaction_type'] == 'debit':
             pin = data.get('pin')
             if not pin:
                 return Response({'error': 'PIN required for debit transactions'}, status=400)
-            
             if not wallet.verify_pin(pin):
                 return Response({'error': 'Invalid PIN'}, status=400)
-        
+
         pin = data.get('pin')
         amount = data['amount']
         service_charge = data['service_charge']
         service_submission_id = data.get('service_submission_id')
-        
+
         try:
             with db_transaction.atomic():
-                opening_balance = wallet.balance
 
                 if data['transaction_type'] == 'debit':
-                    total_deducted = wallet.deduct_amount(amount, service_charge, pin)
+                    wallet.deduct_amount(amount, service_charge, pin)
                 else:
-                    # For credit transactions, just add amount
                     wallet.add_amount(amount)
-                    total_deducted = 0
 
-
-                closing_balance = wallet.balance
-                
-                # Get service submission if provided
                 service_submission = None
                 if service_submission_id:
-                    try:
-                        service_submission = ServiceSubmission.objects.get(id=service_submission_id)
-                    except ServiceSubmission.DoesNotExist:
-                        pass
-                
-                # Create transaction record
+                    service_submission = ServiceSubmission.objects.filter(
+                        id=service_submission_id
+                    ).first()
+
                 transaction = Transaction.objects.create(
                     wallet=wallet,
                     amount=amount,
@@ -1853,101 +1774,77 @@ class TransactionViewSet(DynamicModelViewSet):
                     recipient_user=data.get('recipient_user'),
                     service_submission=service_submission,
                     service_name=data.get('service_name'),
-                    status='success',
-                    opening_balance=opening_balance,
-                    closing_balance=closing_balance
+                    status='success'
                 )
-                
-                # If there's a recipient for money transfer, add amount to their wallet
-                recipient_user = data.get('recipient_user')
-                if recipient_user and data['transaction_type'] == 'debit' and data.get('transaction_category') == 'money_transfer':
-                    recipient_wallet = recipient_user.wallet
 
-                    recipient_opening_balance = recipient_wallet.balance
-                
+                recipient_user = data.get('recipient_user')
+                if (
+                    recipient_user
+                    and data['transaction_type'] == 'debit'
+                    and data.get('transaction_category') == 'money_transfer'
+                ):
+                    recipient_wallet = recipient_user.wallet
                     recipient_wallet.add_amount(amount)
-                    
-                    recipient_closing_balance = recipient_wallet.balance
-                    
-                    # Create credit transaction for recipient
+
                     Transaction.objects.create(
                         wallet=recipient_wallet,
                         amount=amount,
                         net_amount=amount,
-                        service_charge=0.00,
+                        service_charge=Decimal("0.00"),
                         transaction_type='credit',
                         transaction_category='money_transfer',
                         description=f"Received from {request.user.username}",
                         created_by=request.user,
                         recipient_user=recipient_user,
                         status='success',
-                        opening_balance=recipient_opening_balance,
-                        closing_balance=recipient_closing_balance,
                         metadata={'sender_transaction_id': transaction.id}
                     )
-                
-                response_serializer = TransactionSerializer(transaction)
+
                 return Response({
                     'message': 'Transaction completed successfully',
-                    'data': response_serializer.data,
-                    'service_charge': service_charge,
-                    'total_deducted': total_deducted if data['transaction_type'] == 'debit' else 0,
+                    'data': TransactionSerializer(transaction).data,
                     'new_balance': wallet.balance
                 }, status=status.HTTP_201_CREATED)
-                
+
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': str(e)}, status=400)
         except Exception as e:
-            return Response(
-                {'error': f'Transaction failed: {str(e)}'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'error': f'Transaction failed: {str(e)}'}, status=500)
+
 
     @action(detail=False, methods=['post'])
     def pay_for_service(self, request):
-        """Special endpoint to pay for services with PIN verification"""
         serializer = TransactionCreateSerializer(
-            data=request.data, 
+            data=request.data,
             context={'request': request}
         )
         serializer.is_valid(raise_exception=True)
-        
+
         data = serializer.validated_data
         wallet = request.user.wallet
         pin = data.get('pin')
         amount = data['amount']
         service_charge = data['service_charge']
         service_submission_id = data.get('service_submission_id')
-        
-        # Validate service submission
+
         if not service_submission_id:
             return Response(
-                {'error': 'service_submission_id is required for service payments'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'service_submission_id is required'},
+                status=400
             )
-        
-        try:
-            service_submission = ServiceSubmission.objects.get(id=service_submission_id)
-        except ServiceSubmission.DoesNotExist:
-            return Response(
-                {'error': 'Service submission not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
+
+        service_submission = get_object_or_404(
+            ServiceSubmission, id=service_submission_id
+        )
+
+        if not wallet.verify_pin(pin):
+            return Response({'error': 'Invalid PIN'}, status=400)
+
         try:
             with db_transaction.atomic():
-                opening_balance = wallet.balance
-                total_deducted = wallet.deduct_amount(amount, service_charge, pin)
-                closing_balance = wallet.balance
-                if isinstance(amount, float):
-                    amount = Decimal(str(amount))
-                if isinstance(service_charge, float):
-                    service_charge = Decimal(str(service_charge))
-                
-                # Deduct amount including service charge
-                total_deducted = wallet.deduct_amount(amount, service_charge, pin)
-                
-                # Create transaction record
+
+                wallet.deduct_amount(amount, service_charge, pin)
+
                 transaction = Transaction.objects.create(
                     wallet=wallet,
                     amount=amount,
@@ -1955,41 +1852,29 @@ class TransactionViewSet(DynamicModelViewSet):
                     service_charge=service_charge,
                     transaction_type='debit',
                     transaction_category='service_payment',
-                    description=f"Payment for {service_submission.service_form.name if service_submission.service_form else 'Service'}",
+                    description=f"Payment for {service_submission.service_form.name}",
                     created_by=request.user,
                     service_submission=service_submission,
-                    service_name=service_submission.service_form.name if service_submission.service_form else 'Service Payment',
-                    status='success',
-                    opening_balance=opening_balance,
-                    closing_balance=closing_balance  
+                    service_name=service_submission.service_form.name,
+                    status='success'
                 )
-                
-                # Update service submission payment status
+
                 service_submission.payment_status = 'paid'
                 service_submission.transaction_id = transaction.reference_number
                 service_submission.save()
-                
-                response_serializer = TransactionSerializer(transaction)
+
                 return Response({
                     'message': 'Service payment completed successfully',
-                    'data': response_serializer.data,
-                    'service_charge': service_charge,
-                    'total_deducted': total_deducted,
-                    'new_balance': wallet.balance,
-                    'service_submission': {
-                        'id': service_submission.id,
-                        'submission_id': service_submission.submission_id,
-                        'payment_status': 'paid'
-                    }
-                }, status=status.HTTP_201_CREATED)
-                
-        except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                    'data': TransactionSerializer(transaction).data,
+                    'new_balance': wallet.balance
+                }, status=201)
+
         except Exception as e:
             return Response(
-                {'error': f'Service payment failed: {str(e)}'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'error': f'Service payment failed: {str(e)}'},
+                status=500
             )
+
 
     @action(detail=False, methods=['get'])
     def filter_transactions(self, request):

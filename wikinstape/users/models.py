@@ -764,13 +764,13 @@ class FundRequest(models.Model):
         ('processing', 'Processing'),
     )
     
-    # Request details
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='fund_requests'
     )
     amount = models.DecimalField(max_digits=15, decimal_places=2)
+    txn_date = models.DateTimeField(null=True, blank=True,help_text="Transaction / Deposit Date provided by user")
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE_CHOICES)
     deposit_bank = models.CharField(max_length=300)
     Your_Bank = models.CharField(max_length=255)
@@ -781,12 +781,10 @@ class FundRequest(models.Model):
     remarks = models.TextField(blank=True, null=True)
     screenshot = models.FileField(upload_to='fund_requests/screenshots/', blank=True, null=True)
     
-    # Status and tracking
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # Approval information
     processed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
