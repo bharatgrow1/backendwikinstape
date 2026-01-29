@@ -242,21 +242,26 @@ class User(AbstractUser):
 
 
     def can_transfer_to_user(self, target_user):
-        """Check if user can directly transfer money to target user"""
         if self.role == 'superadmin':
             return True
-        
+
         if self.role == 'admin':
             return target_user.role in ['admin', 'master', 'dealer', 'retailer']
-        
+
         if self.role == 'master':
-            return target_user.created_by == self and target_user.role in ['dealer', 'retailer']
-        
+            return (
+                target_user.role in ['dealer', 'retailer']
+                and target_user.is_in_downline_of(self)
+            )
+
         if self.role == 'dealer':
-            return target_user.created_by == self and target_user.role == 'retailer'
-        
+            return (
+                target_user.role == 'retailer'
+                and target_user.is_in_downline_of(self)
+            )
+
         return False
-    
+
 
 
     def is_in_downline_of(self, parent):
@@ -471,6 +476,15 @@ class Wallet(models.Model):
         total_amount = amount + service_charge
         return self.balance >= total_amount
 
+    def add_amount(self, amount):
+        """Add amount to wallet"""
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
+        elif isinstance(amount, int):
+            amount = Decimal(amount)
+        self.balance += amount
+        self.save()
+
     def deduct_amount(self, amount, service_charge=0, pin=None):
         """Deduct amount from wallet with PIN verification"""
         if self.is_pin_set and not pin:
@@ -479,11 +493,15 @@ class Wallet(models.Model):
         if self.is_pin_set and not self.verify_pin(pin):
             raise ValueError("Invalid PIN")
         
-        # Convert both to Decimal to ensure type consistency
         if isinstance(amount, float):
             amount = Decimal(str(amount))
+        elif isinstance(amount, int):
+            amount = Decimal(amount)
+        
         if isinstance(service_charge, float):
             service_charge = Decimal(str(service_charge))
+        elif isinstance(service_charge, int):
+            service_charge = Decimal(service_charge)
         
         total_amount = amount + service_charge
         
@@ -493,13 +511,6 @@ class Wallet(models.Model):
         self.balance -= total_amount
         self.save()
         return total_amount
-
-    def add_amount(self, amount):
-        """Add amount to wallet"""
-        if isinstance(amount, float):
-            amount = Decimal(str(amount))
-        self.balance += amount
-        self.save()
 
 
     def deduct_fee_without_pin(self, fee_amount):
@@ -519,8 +530,26 @@ class Wallet(models.Model):
         self.balance -= fee_amount
         self.save()
         return fee_amount
+    
 
+    def system_deduct_amount(self, amount):
+        """
+        Deduct amount WITHOUT PIN
+        Only for admin/system initiated transactions
+        """
+        if isinstance(amount, float):
+            amount = Decimal(str(amount))
+        elif isinstance(amount, int):
+            amount = Decimal(amount)
 
+        if amount <= 0:
+            raise ValueError("Invalid amount")
+
+        if self.balance < amount:
+            raise ValueError("Insufficient balance")
+
+        self.balance -= amount
+        self.save()
 
 
 class PinHistory(models.Model):
@@ -775,6 +804,7 @@ class FundRequest(models.Model):
     deposit_bank = models.CharField(max_length=300)
     Your_Bank = models.CharField(max_length=255)
     account_number = models.CharField(max_length=50, blank=True, null=True)
+    utr_number = models.CharField(max_length=100,blank=True,null=True,help_text="UTR / Bank Reference Number provided by user")
     reference_number = models.CharField(max_length=100, unique=True)
     service_charge = models.DecimalField(max_digits=15,decimal_places=2,default=0.00)
     wallet_credit = models.DecimalField(max_digits=15,decimal_places=2,default=0.00)
@@ -853,7 +883,9 @@ class FundRequest(models.Model):
 
                 user_wallet, _ = Wallet.objects.get_or_create(user=self.user)
 
+                user_opening_balance = user_wallet.balance
                 user_wallet.add_amount(net_amount)
+                user_closing_balance = user_wallet.balance
 
                 Transaction.objects.create(
                     wallet=user_wallet,
@@ -867,15 +899,19 @@ class FundRequest(models.Model):
                         f"(0.01% charge ₹{charge})"
                     ),
                     created_by=approved_by,
+                    opening_balance=user_opening_balance,
+                    closing_balance=user_closing_balance,
                     status='success'
                 )
 
                 admin_wallet, _ = Wallet.objects.get_or_create(user=approved_by)
 
-                if not admin_wallet.has_sufficient_balance(net_amount):
+                if admin_wallet.balance < net_amount:
                     raise ValueError("Admin wallet has insufficient balance")
 
-                admin_wallet.deduct_amount(net_amount)
+                admin_opening_balance = admin_wallet.balance
+                admin_wallet.system_deduct_amount(net_amount)
+                admin_closing_balance = admin_wallet.balance
 
                 Transaction.objects.create(
                     wallet=admin_wallet,
@@ -889,6 +925,8 @@ class FundRequest(models.Model):
                         f"{self.reference_number}"
                     ),
                     created_by=approved_by,
+                    opening_balance=admin_opening_balance,
+                    closing_balance=admin_closing_balance,
                     status='success'
                 )
 
@@ -897,7 +935,7 @@ class FundRequest(models.Model):
         except Exception as e:
             print(f"Error approving fund request: {str(e)}")
             return False, f"Error approving request: {str(e)}"
-
+        
 
     
     def reject(self, rejected_by, notes=""):
@@ -936,23 +974,27 @@ def ensure_wallet_exists(sender, instance, **kwargs):
 
 @receiver(pre_save, sender=Transaction)
 def set_transaction_balances(sender, instance, **kwargs):
-
-    if instance.pk:
-        return
-
-    if instance.opening_balance is not None or instance.closing_balance is not None:
-        return
-
-    wallet = instance.wallet
-
-    if instance.transaction_type == 'credit':
-        instance.opening_balance = wallet.balance - instance.amount
-        instance.closing_balance = wallet.balance
-    else:
-        total_deduction = instance.amount + instance.service_charge
-        instance.opening_balance = wallet.balance + total_deduction
-        instance.closing_balance = wallet.balance
-
+    """Automatically set opening and closing balances"""
+    if not instance.pk:
+        wallet = instance.wallet
+        
+        if isinstance(instance.amount, float):
+            instance.amount = Decimal(str(instance.amount))
+        elif isinstance(instance.amount, int):
+            instance.amount = Decimal(instance.amount)
+        
+        if isinstance(instance.service_charge, float):
+            instance.service_charge = Decimal(str(instance.service_charge))
+        elif isinstance(instance.service_charge, int):
+            instance.service_charge = Decimal(instance.service_charge)
+        
+        if instance.transaction_type == 'credit':
+            instance.opening_balance = wallet.balance
+            instance.closing_balance = wallet.balance + instance.amount
+        else:
+            total_deduction = instance.amount + instance.service_charge
+            instance.opening_balance = wallet.balance + total_deduction
+            instance.closing_balance = wallet.balance
 
 
 @receiver(pre_save, sender=User)
