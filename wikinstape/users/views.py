@@ -256,13 +256,8 @@ class UserBankViewSet(viewsets.ModelViewSet):
         if user.role == "superadmin":
             return UserBank.objects.all()
 
-        if user.role in ["admin", "master", "dealer"]:
-            downline_users = User.objects.filter(parent_user=user)
-            return UserBank.objects.filter(
-                Q(user=user) | Q(user__in=downline_users)
-            )
-
         return UserBank.objects.filter(user=user)
+
 
     def perform_create(self, serializer):
         """
@@ -295,10 +290,24 @@ class UserBankViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def admin_banks(self, request):
-        admin_users = User.objects.filter(role__in=['admin', 'superadmin'], is_active=True)
-        banks = UserBank.objects.filter(user__in=admin_users)
+        user = request.user
+
+        if user.role == "superadmin":
+            banks = UserBank.objects.filter(user=user)
+
+        elif user.role == "admin":
+            banks = UserBank.objects.filter(user__role="superadmin")
+
+        else:
+            parent = user.parent_user
+            while parent and parent.role not in ["admin", "superadmin"]:
+                parent = parent.parent_user
+
+            banks = UserBank.objects.filter(user=parent) if parent else UserBank.objects.none()
+
         serializer = UserBankSerializer(banks, many=True)
         return Response(serializer.data)
+
 
 
 
@@ -1578,97 +1587,155 @@ class WalletViewSet(DynamicModelViewSet):
     
 
 
+    
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def direct_transfer(self, request):
         serializer = DirectWalletTransferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
+        
         user_id = serializer.validated_data['user_id']
         amount = serializer.validated_data['amount']
         transaction_type = serializer.validated_data['transaction_type']
         pin = serializer.validated_data['pin']
         notes = serializer.validated_data.get('notes', '')
-
-        admin = request.user
-        admin_wallet = admin.wallet
-        target_user = get_object_or_404(User, id=user_id)
-        target_wallet = target_user.wallet
-
-        if not admin.can_transfer_to_user(target_user):
-            return Response({'error': 'Permission denied'}, status=403)
-
-        if not admin_wallet.verify_pin(pin):
-            return Response({'error': 'Invalid PIN'}, status=400)
-
+        
         try:
+            admin = request.user
+            admin_wallet = admin.wallet
+            target_user = User.objects.get(id=user_id)
+            target_wallet = target_user.wallet
+            
+            if not admin.can_transfer_to_user(target_user):
+                return Response(
+                    {'error': 'You do not have permission to transfer money to this user'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            if not admin_wallet.verify_pin(pin):
+                return Response(
+                    {'error': 'Invalid PIN'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             with db_transaction.atomic():
-
                 if transaction_type == 'credit':
-
                     if not admin_wallet.has_sufficient_balance(amount):
-                        return Response({'error': 'Insufficient balance'}, status=400)
-
+                        return Response(
+                            {'error': 'Insufficient balance in your wallet'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    admin_opening = admin_wallet.balance
                     admin_wallet.deduct_amount(amount, pin=pin)
+                    admin_closing = admin_wallet.balance
+                    
+                    target_opening = target_wallet.balance
                     target_wallet.add_amount(amount)
-
+                    target_closing = target_wallet.balance
+                    
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
                         transaction_type='debit',
                         transaction_category='direct_transfer',
-                        description=f"Transfer to {target_user.username}: {notes}",
-                        created_by=admin,
-                        recipient_user=target_user
+                        description=f"Direct transfer to {target_user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=target_user,
+                        opening_balance=admin_opening,
+                        closing_balance=admin_closing,
+                        metadata={'notes': notes, 'transfer_type': 'credit_to_user', 'admin_id': admin.id}
                     )
-
+                    
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
                         transaction_type='credit',
                         transaction_category='direct_transfer',
-                        description=f"Received from {admin.username}: {notes}",
-                        created_by=admin,
-                        recipient_user=admin
+                        description=f"Direct transfer from {request.user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=request.user,
+                        opening_balance=target_opening,
+                        closing_balance=target_closing,
+                        metadata={'notes': notes, 'transfer_type': 'credit_from_admin', 'admin_id': admin.id}
                     )
-
+                    
                     message = f"₹{amount} transferred to {target_user.username}"
-
+                    
                 else:
                     if not target_wallet.has_sufficient_balance(amount):
-                        return Response({'error': 'User has insufficient balance'}, status=400)
-
-                    target_wallet.deduct_amount(amount)
+                        return Response(
+                            {'error': 'User has insufficient balance'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    target_opening = target_wallet.balance
+                    target_wallet.system_deduct_amount(amount)
+                    target_closing = target_wallet.balance
+                    
+                    admin_opening = admin_wallet.balance
                     admin_wallet.add_amount(amount)
-
+                    admin_closing = admin_wallet.balance
+                    
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
                         transaction_type='debit',
                         transaction_category='direct_transfer',
-                        description=f"Deducted by {admin.username}: {notes}",
-                        created_by=admin
+                        description=f"Direct deduction by {request.user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=request.user,
+                        opening_balance=target_opening,
+                        closing_balance=target_closing,
+                        metadata={'notes': notes, 'transfer_type': 'debit_by_admin', 'admin_id': admin.id}
                     )
-
+                    
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
+                        net_amount=amount,
+                        service_charge=Decimal('0.00'),
                         transaction_type='credit',
                         transaction_category='direct_transfer',
-                        description=f"Received from {target_user.username}: {notes}",
-                        created_by=admin
+                        description=f"Direct deduction from {target_user.username}: {notes}",
+                        created_by=request.user,
+                        recipient_user=target_user,
+                        opening_balance=admin_opening,
+                        closing_balance=admin_closing,
+                        metadata={'notes': notes, 'transfer_type': 'credit_from_user', 'admin_id': admin.id}
                     )
-
+                    
                     message = f"₹{amount} deducted from {target_user.username}"
-
-            return Response({
-                'success': True,
-                'message': message,
-                'admin_balance': admin_wallet.balance,
-                'user_balance': target_wallet.balance
-            })
-
+                
+                return Response({
+                    'success': True,
+                    'message': message,
+                    'user_balance': target_wallet.balance,
+                    'admin_balance': admin_wallet.balance,
+                    'user_id': user_id,
+                    'amount': amount,
+                    'user_name': target_user.username,
+                    'admin_name': admin.username
+                })
+                
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=500)
+            logger.error(f"Direct transfer failed: {str(e)}")
+            return Response(
+                {'error': f'Transfer failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
