@@ -264,33 +264,17 @@ class VendorPaymentViewSet(viewsets.ViewSet):
 
     @staticmethod
     def get_all_child_users(user):
-        role = user.role
+        users = [user]
 
-        if role == "superadmin":
-            return User.objects.all()
+        def recurse(parent):
+            children = User.objects.filter(parent_user=parent)
+            for child in children:
+                users.append(child)
+                recurse(child)
 
-        if role == "admin":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(created_by__created_by=user) |
-                Q(created_by__created_by__created_by=user) |
-                Q(id=user.id)
-            )
+        recurse(user)
+        return users
 
-        if role == "master":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(created_by__created_by=user) |
-                Q(id=user.id)
-            )
-
-        if role == "dealer":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(id=user.id)
-            )
-
-        return User.objects.filter(id=user.id)
         
     
     @action(detail=False, methods=["get"])

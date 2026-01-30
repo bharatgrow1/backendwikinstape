@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.db import models
 from rest_framework.permissions import IsAdminUser
 from dmt.permissions import IsSuperAdmin
-
+User = get_user_model()
 
 
 from .services.dmt_manager import dmt_manager
@@ -285,33 +285,17 @@ class DMTTransactionViewSet(viewsets.ViewSet):
 
     @staticmethod
     def get_all_child_users(user):
-        """Simple hierarchy logic - same as vendor"""
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
-        role = user.role
+        users = [user]
 
-        if role == "superadmin":
-            return User.objects.all()
-        elif role == "admin":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(created_by__created_by=user) |
-                Q(created_by__created_by__created_by=user) |
-                Q(id=user.id)
-            )
-        elif role == "master":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(created_by__created_by=user) |
-                Q(id=user.id)
-            )
-        elif role == "dealer":
-            return User.objects.filter(
-                Q(created_by=user) |
-                Q(id=user.id)
-            )
-        else:
-            return User.objects.filter(id=user.id)
+        def recurse(parent):
+            children = User.objects.filter(parent_user=parent)
+            for child in children:
+                users.append(child)
+                recurse(child)
+
+        recurse(user)
+        return users
+
     
     @action(detail=False, methods=['get'])
     def report(self, request):
