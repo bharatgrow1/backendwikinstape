@@ -288,7 +288,7 @@ class bbpsManager:
             "data": response
         }
     
-    def fetch_bill_details(self, operator_id, mobile, account_no=None, sender_name="Customer"):
+    def fetch_bill_details(self, operator_id, mobile, account_no=None, sender_name="Customer", dob=None):
         """Fetch bill details for postpaid/utility"""
         from uuid import uuid4
         
@@ -300,7 +300,8 @@ class bbpsManager:
             utility_acc_no=utility_acc_no,
             mobile_no=mobile,
             sender_name=sender_name,
-            client_ref_id=client_ref_id
+            client_ref_id=client_ref_id,
+            dob7=dob 
         )
         
         if isinstance(response, dict):
