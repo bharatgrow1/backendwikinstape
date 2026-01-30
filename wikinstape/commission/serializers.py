@@ -385,6 +385,7 @@ class OperatorCommissionSerializer(serializers.ModelSerializer):
                 "Only Superadmin can change commission value"
             )
 
+
         editable_map = {
             'superadmin': [
                 'admin_commission',
@@ -401,11 +402,11 @@ class OperatorCommissionSerializer(serializers.ModelSerializer):
                 'dealer_commission',
                 'retailer_commission',
             ],
-            'dealer': [
-                'retailer_commission',
-            ],
+            'dealer': [],
             'retailer': []
         }
+
+
 
         allowed_fields = editable_map.get(user.role, [])
 
@@ -421,32 +422,26 @@ class OperatorCommissionSerializer(serializers.ModelSerializer):
         retailer = data.get('retailer_commission', instance.retailer_commission if instance else 0)
 
         if user:
-
             if user.role == 'superadmin':
                 if admin + master + dealer + retailer > 100:
                     raise serializers.ValidationError(
                         "Total commission cannot exceed 100%"
                     )
 
-            elif user.role == 'admin':
+            # elif user.role == 'master':
+            #     if dealer + retailer > master:
+            #         raise serializers.ValidationError(
+            #             f"Master can distribute max {master}%, but tried {dealer + retailer}%"
+            #         )
+
+
+            elif user.role == 'master':
                 total_pool = (
-                    instance.admin_commission +
                     instance.master_commission +
                     instance.dealer_commission +
                     instance.retailer_commission
                 )
 
-                downline = master + dealer + retailer
-
-                if downline > total_pool:
-                    raise serializers.ValidationError(
-                        f"Admin can distribute max {total_pool}%, but tried {downline}%"
-                    )
-
-                data['admin_commission'] = total_pool - downline
-
-            elif user.role == 'master':
-                total_pool = instance.master_commission
                 downline = dealer + retailer
 
                 if downline > total_pool:
@@ -455,17 +450,14 @@ class OperatorCommissionSerializer(serializers.ModelSerializer):
                     )
 
                 data['master_commission'] = total_pool - downline
+                
 
             elif user.role == 'dealer':
-                total_pool = instance.dealer_commission
-                downline = retailer
-
-                if downline > total_pool:
+                if retailer > dealer:
                     raise serializers.ValidationError(
-                        f"Dealer can distribute max {total_pool}%, but tried {downline}%"
+                        f"Dealer can distribute max {dealer}%, but tried {retailer}%"
                     )
 
-                data['dealer_commission'] = total_pool - downline
 
         if instance and 'commission_value' in data:
             if user.role != 'superadmin':
@@ -473,6 +465,23 @@ class OperatorCommissionSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         "Commission value exceeds system cap"
                     )
+                
+        elif user.role == 'admin':
+            total_pool = (
+                instance.admin_commission +
+                instance.master_commission +
+                instance.dealer_commission +
+                instance.retailer_commission
+            )
+
+            downline = master + dealer + retailer
+
+            if downline > total_pool:
+                raise serializers.ValidationError(
+                    f"Admin can distribute max {total_pool}%, but tried {downline}%"
+                )
+
+            data['admin_commission'] = total_pool - downline
+
 
         return data
-

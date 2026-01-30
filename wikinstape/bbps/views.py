@@ -390,22 +390,16 @@ class bbpsViewSet(viewsets.ViewSet):
 
     @staticmethod
     def get_all_child_users(user):
-        """
-        Return self + all downline users (unlimited level)
-        Uses parent_user (same as User module)
-        """
         users = [user]
-        queue = [user]
 
-        while queue:
-            current = queue.pop(0)
-            children = User.objects.filter(parent_user=current)
+        def recurse(parent):
+            children = User.objects.filter(parent_user=parent)
             for child in children:
-                if child not in users:
-                    users.append(child)
-                    queue.append(child)
+                users.append(child)
+                recurse(child)
 
-        return User.objects.filter(id__in=[u.id for u in users])
+        recurse(user)
+        return users
 
 
     @action(detail=False, methods=['get'], url_path='bill_reports_history')
