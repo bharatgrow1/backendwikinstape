@@ -168,13 +168,12 @@ class EkobbpsService:
         endpoint = "/billpayments/operators_location"
         return self._make_request("GET", endpoint)
     
-    def fetch_bill(self, operator_id, utility_acc_no, mobile_no, sender_name, client_ref_id, dob7):
+    def fetch_bill(self, operator_id, utility_acc_no, mobile_no, sender_name, client_ref_id):
         """Fetch bill details (for postpaid/utility bills)"""
         endpoint = f"/billpayments/fetchbill?initiator_id={self.initiator_id}"
         
         payload = {
             "source_ip": "121.121.1.1",
-            "dob":dob7,
             "user_code": self.user_code,
             "client_ref_id": client_ref_id,
             "utility_acc_no": utility_acc_no,
@@ -288,7 +287,7 @@ class bbpsManager:
             "data": response
         }
     
-    def fetch_bill_details(self, operator_id, mobile, account_no=None, sender_name="Customer", dob=None):
+    def fetch_bill_details(self, operator_id, mobile, account_no=None, sender_name="Customer"):
         """Fetch bill details for postpaid/utility"""
         from uuid import uuid4
         
@@ -300,8 +299,7 @@ class bbpsManager:
             utility_acc_no=utility_acc_no,
             mobile_no=mobile,
             sender_name=sender_name,
-            client_ref_id=client_ref_id,
-            dob7=dob 
+            client_ref_id=client_ref_id
         )
         
         if isinstance(response, dict):
