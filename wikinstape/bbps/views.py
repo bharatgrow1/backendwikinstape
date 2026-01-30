@@ -93,7 +93,8 @@ class bbpsViewSet(viewsets.ViewSet):
             operator_id=data['operator_id'],
             mobile=data['mobile_no'],
             account_no=data.get('utility_acc_no'),
-            sender_name=data.get('sender_name', 'Customer')
+            sender_name=data.get('sender_name', 'Customer'),
+            dob7=data.get('dob7')
         )
         
         response_serializer = EKOBillFetchResponseSerializer(result)
