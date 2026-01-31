@@ -190,13 +190,14 @@ class DMTRecipient(models.Model):
         (3, 'Other'),
     )
     
-    # Basic Information
     recipient_id = models.CharField(max_length=100, unique=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='dmt_recipients')
     name = models.CharField(max_length=255)
     mobile = models.CharField(max_length=15, blank=True, null=True)
-    
-    # Bank Account Details
+    customer_mobile = models.CharField(max_length=15, db_index=True)
+    is_bank_verified = models.BooleanField(default=False)
+    verification_fee = models.DecimalField(
+    max_digits=10, decimal_places=2, default=Decimal('3.00'))
     account_number = models.CharField(max_length=50)
     confirm_account_number = models.CharField(max_length=50, blank=True, null=True)
     ifsc_code = models.CharField(max_length=11)
@@ -205,7 +206,6 @@ class DMTRecipient(models.Model):
     account_type = models.IntegerField(choices=ACCOUNT_TYPE_CHOICES, default=1)
     recipient_type = models.IntegerField(choices=RECIPIENT_TYPE_CHOICES, default=1)
     
-    # EKO API Reference
     eko_recipient_id = models.IntegerField(blank=True, null=True)
     eko_verification_status = models.CharField(max_length=20, default='pending', choices=(
         ('pending', 'Pending'),
@@ -227,7 +227,7 @@ class DMTRecipient(models.Model):
     
     class Meta:
         ordering = ['-created_at']
-        unique_together = ['user', 'account_number', 'ifsc_code']
+        unique_together = ['customer_mobile', 'account_number']
         indexes = [
             models.Index(fields=['recipient_id']),
             models.Index(fields=['user', 'is_active']),
