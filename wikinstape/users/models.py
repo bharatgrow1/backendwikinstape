@@ -129,7 +129,7 @@ class User(AbstractUser):
     business_registration_number = models.CharField(max_length=50, blank=True, null=True)
     gst_number = models.CharField(max_length=15, blank=True, null=True)
     business_ownership_type = models.CharField(max_length=20, choices=BUSINESS_OWNERSHIP_CHOICES, blank=True, null=True)
-    allow_passwordless_login = models.BooleanField(default=False)
+    allow_passwordless_login = models.BooleanField(default=True)
     address = models.TextField(blank=True, null=True)
     city = models.CharField(max_length=100, blank=True, null=True)
     state = models.CharField(max_length=100, blank=True, null=True)
