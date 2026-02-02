@@ -14,6 +14,8 @@ from vendorpayment.views import VendorPaymentViewSet
 from vendorpayment.views_vendor import VendorManagerViewSet
 from aeps.views import AEPSMerchantViewSet
 
+from cms.views import CMSViewSet
+
 router = DefaultRouter()
 
 
@@ -69,3 +71,4 @@ router.register(r'vendor-manager', VendorManagerViewSet, basename='vendor-manage
 # aeps
 router.register(r'merchants', AEPSMerchantViewSet, basename='aeps-merchant')
 
+router.register(r"cms", CMSViewSet, basename="cms")

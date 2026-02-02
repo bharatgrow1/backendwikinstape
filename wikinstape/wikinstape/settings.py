@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'bbps',
     'vendorpayment',
     'aeps',
+    'cms',
 ]
 
 
