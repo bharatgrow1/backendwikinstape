@@ -203,23 +203,6 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         )
         return Response(response)
     
-
-
-    @action(detail=False, methods=['post'])
-    def verify_recipient(self, request):
-        recipient_id = request.data.get('recipient_id')
-
-        if not recipient_id:
-            return Response({"status": 1, "message": "recipient_id required"})
-
-        response = dmt_manager.verify_recipient_bank(
-            user=request.user,
-            recipient_id=recipient_id
-        )
-        return Response(response)
-    
-
-    
     @action(detail=False, methods=['post'])
     def get_recipient_list(self, request):
         """
@@ -232,7 +215,6 @@ class DMTRecipientViewSet(viewsets.ViewSet):
         response = dmt_manager.get_recipient_list(
             serializer.validated_data['customer_id']
         )
-
         return Response(response)
 
 class DMTTransactionViewSet(viewsets.ViewSet):

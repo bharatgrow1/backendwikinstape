@@ -138,7 +138,9 @@ class DMTWalletTransactionSerializer(serializers.Serializer):
     otp = serializers.CharField(max_length=6, required=True)
     otp_ref_id = serializers.CharField(required=True)
     pin = serializers.CharField(max_length=4, min_length=4, write_only=True, required=True)
-
+    recipient_name = serializers.CharField(required=False)
+    account = serializers.CharField(required=False)
+    ifsc = serializers.CharField(required=False)
 
     def validate_amount(self, value):
         if isinstance(value, float):

@@ -41,7 +41,8 @@ from users.serializers import (LoginSerializer, OTPVerifySerializer, WalletSeria
         StateSerializer, CitySerializer, FundRequestCreateSerializer, FundRequestUpdateSerializer, FundRequestApproveSerializer,
         FundRequestRejectSerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer, SetWalletPinWithOTPSerializer,
         UserBankSerializer, GoogleLoginSerializer, DirectWalletTransferSerializer, UserProfileUpdateSerializer,
-        UserKYCSerializer, MobileOTPLoginSerializer, DirectTransferHistorySerializer, UserPermissionSerializer, ResetWalletPinWithOTPSerializer)
+        UserKYCSerializer, MobileOTPLoginSerializer, DirectTransferHistorySerializer, UserPermissionSerializer, 
+        ResetWalletPinWithOTPSerializer, PasswordlessLoginInitiateSerializer)
 
 from commission.models import CommissionTransaction
 
@@ -670,6 +671,186 @@ class AuthViewSet(viewsets.ViewSet):
 
 
 
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def initiate_passwordless_login(self, request):
+        """Step 1: Request OTP for passwordless login"""
+        serializer = PasswordlessLoginInitiateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = serializer.validated_data['user']
+        
+        # Rate limiting
+        cache_key = f"passwordless_login_{user.id}"
+        if cache.get(cache_key):
+            return Response(
+                {'error': 'Please wait 30 seconds before requesting new OTP'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        
+        # Generate and send OTP via email
+        otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
+        otp = otp_obj.generate_otp()
+        
+        try:
+            send_otp_email(
+                user.email, 
+                otp, 
+                is_password_reset=False,
+                purpose='passwordless_login'
+            )
+        except Exception as e:
+            logger.error(f"Failed to send passwordless login OTP: {e}")
+            return Response(
+                {'error': 'Failed to send OTP. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # Set rate limit
+        cache.set(cache_key, True, 30)
+        
+        return Response({
+            'success': True,
+            'message': 'OTP sent to your registered email',
+            'identifier': request.data['username_or_email'],
+            'email': user.email if '@' not in request.data['username_or_email'] else 'hidden'
+        })
+    
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def verify_passwordless_login(self, request):
+        """Step 2: Verify OTP and login without password"""
+        username_or_email = request.data.get('username_or_email')
+        otp = request.data.get('otp')
+        
+        if not username_or_email or not otp:
+            return Response(
+                {'error': 'Username/email and OTP are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find user
+        user = None
+        if '@' in username_or_email:
+            user = User.objects.filter(email__iexact=username_or_email).first()
+        else:
+            user = User.objects.filter(username__iexact=username_or_email).first()
+            if not user:
+                user = User.objects.filter(role_uid=username_or_email).first()
+        
+        if not user:
+            return Response(
+                {'error': 'Invalid credentials'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if passwordless login is allowed
+        if not hasattr(user, 'allow_passwordless_login') or not user.allow_passwordless_login:
+            return Response(
+                {'error': 'Passwordless login is not enabled for this account'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Verify OTP
+        try:
+            otp_obj = EmailOTP.objects.get(user=user, otp=otp)
+        except EmailOTP.DoesNotExist:
+            return Response(
+                {'error': 'Invalid OTP'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if otp_obj.is_expired():
+            return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Clean up OTP
+        otp_obj.delete()
+        
+        # Login the user
+        refresh = RefreshToken.for_user(user)
+        
+        needs_pin_setup = not hasattr(user, 'wallet') or not user.wallet.is_pin_set
+        
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'role': user.role,
+            'user_id': user.id,
+            'username': user.username,
+            'needs_pin_setup': needs_pin_setup,
+            'is_pin_set': user.wallet.is_pin_set if hasattr(user, 'wallet') else False,
+            'permissions': list(user.get_all_permissions()),
+            'message': 'Login successful'
+        })
+    
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def initiate_mobile_passwordless_login(self, request):
+        """Passwordless login using mobile OTP"""
+        serializer = MobileOTPLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        mobile = serializer.validated_data['mobile']
+        cleaned_mobile = self._clean_mobile_number(mobile)
+        
+        # Find user
+        try:
+            user = User.objects.get(phone_number=cleaned_mobile)
+        except User.DoesNotExist:
+            # Try various formats
+            users = User.objects.filter(
+                Q(phone_number=cleaned_mobile) |
+                Q(phone_number=f"+91{cleaned_mobile}") |
+                Q(phone_number=f"91{cleaned_mobile}") |
+                Q(phone_number__endswith=cleaned_mobile[-8:])
+            )
+            
+            if users.exists():
+                user = users.first()
+            else:
+                return Response(
+                    {'error': 'No account found with this mobile number'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        
+        # Check if passwordless login is allowed
+        if not hasattr(user, 'allow_passwordless_login') or not user.allow_passwordless_login:
+            return Response(
+                {'error': 'Passwordless login is not enabled for this account'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Send OTP via SMS
+        sms_mobile = f"+91{cleaned_mobile}"
+        result = sms_otp_provider.send_otp(sms_mobile)
+        
+        if not result.get("success"):
+            return Response(
+                {'error': result.get('error', 'Failed to send OTP')},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        return Response({
+            'success': True,
+            'message': 'OTP sent to your mobile',
+            'mobile': cleaned_mobile
+        })
+    
+    def _clean_mobile_number(self, mobile):
+        """Helper to clean mobile number"""
+        mobile = str(mobile).strip()
+        
+        if mobile.startswith('+'):
+            mobile = mobile[1:]
+        
+        if mobile.startswith('91') and len(mobile) == 12:
+            mobile = mobile[2:]
+        
+        mobile = ''.join(filter(str.isdigit, mobile))
+        if len(mobile) > 10:
+            mobile = mobile[-10:]
+        
+        return mobile
+
+
+
 class DynamicModelViewSet(viewsets.ModelViewSet):
     """
     Base ViewSet that automatically handles model permissions
@@ -1083,6 +1264,51 @@ class UserViewSet(DynamicModelViewSet):
             },
             'bank_details': bank_data
         })
+    
+
+
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def toggle_passwordless_login(self, request):
+        """Enable/disable passwordless login"""
+        user = request.user
+        enable = request.data.get('enable', False)
+        
+        if not hasattr(user, 'allow_passwordless_login'):
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    ALTER TABLE users_user 
+                    ADD COLUMN IF NOT EXISTS allow_passwordless_login BOOLEAN DEFAULT FALSE
+                """)
+            user.refresh_from_db()
+        
+        user.allow_passwordless_login = enable
+        user.save()
+        
+        return Response({
+            'message': f'Passwordless login {"enabled" if enable else "disabled"}',
+            'allow_passwordless_login': user.allow_passwordless_login
+        })
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def login_preferences(self, request):
+        """Get user's login preferences"""
+        user = request.user
+        
+        return Response({
+            'allow_passwordless_login': getattr(user, 'allow_passwordless_login', False),
+            'has_password_set': user.has_usable_password(),
+            'has_mobile_verified': bool(user.phone_number),
+            'has_email_verified': bool(user.email),
+            'available_login_methods': [
+                'password_with_otp',
+                'passwordless_email',
+                'passwordless_mobile' if user.phone_number else None,
+                'mobile_otp'
+            ]
+        })
+    
 
 class WalletViewSet(DynamicModelViewSet):
     serializer_class = WalletSerializer
