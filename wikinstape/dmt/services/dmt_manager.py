@@ -4,8 +4,6 @@ import logging
 from .eko_service import eko_service
 from dmt.models import DMTTransaction, DMTRecipient, DMTChargeScheme, DMTTransactionCharge
 from django.contrib.auth import get_user_model
-from django.utils import timezone
-
 
 
 logger = logging.getLogger(__name__)
@@ -45,52 +43,6 @@ class DMTManager:
     def verify_ekyc_otp(self, customer_id, otp, otp_ref_id, kyc_request_id):
         """Verify KYC OTP"""
         return self.eko_service.verify_ekyc_otp(customer_id, otp, otp_ref_id, kyc_request_id)
-    
-
-    def verify_recipient_bank(self, user, recipient_id):
-        recipient = DMTRecipient.objects.filter(
-            id=recipient_id,
-            is_verified=False,
-            eko_verification_status='pending'
-        ).first()
-
-
-
-        if not recipient:
-            return {"status": 1, "message": "Invalid recipient"}
-
-        wallet = user.wallet
-        fee = recipient.verification_fee
-
-        if wallet.balance < fee:
-            return {"status": 1, "message": "Insufficient balance"}
-
-        wallet.balance -= fee
-        wallet.save(update_fields=["balance"])
-
-        from users.models import Transaction
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=fee,
-            transaction_type='debit',
-            transaction_category='dmt_recipient_verify',
-            description=f"DMT recipient verification ****{recipient.account_number[-4:]}",
-            created_by=user,
-            status='success'
-        )
-
-        recipient.is_verified = True
-        recipient.is_bank_verified = True
-        recipient.eko_verification_status = 'verified'
-        recipient.verified_at = timezone.now()
-        recipient.save()
-
-        return {
-            "status": 0,
-            "message": "Recipient verified successfully"
-        }
-
-
 
     def add_recipient(self, customer_id, recipient_data, user=None):
         """Add recipient to both EKO and local database"""
@@ -139,12 +91,10 @@ class DMTManager:
                             bank_id=recipient_data.get('bank_id', 11),
                             account_type=recipient_data.get('account_type', 1),
                             recipient_type=recipient_data.get('recipient_type', 3),
-                            customer_mobile=customer_id,
                             eko_recipient_id=eko_response.get('data', {}).get('recipient_id'),
-                            is_verified=False,
-                            eko_verification_status='pending'
+                            is_verified=True,
+                            eko_verification_status='verified'
                         )
-
                         
                         logger.info(f"Recipient saved to local database: {recipient.name} (User: {target_user.username})")
                     else:
@@ -161,11 +111,8 @@ class DMTManager:
         
 
     def get_recipient_list(self, customer_id):
-        return DMTRecipient.objects.filter(
-            customer_mobile=customer_id,
-            is_active=True
-        ).order_by('-created_at')
-
+        """Get recipient list"""
+        return self.eko_service.get_recipient_list(customer_id)
 
     def send_transaction_otp(self, customer_id, recipient_id, amount):
         """Send transaction OTP"""
@@ -294,22 +241,27 @@ class DMTManager:
                 wallet.balance = wallet_balance - total_deduction
                 wallet.save(update_fields=["balance"])
                 
-                recipient = DMTRecipient.objects.get(
-                    id=transaction_data['recipient_id'],
-                    is_verified=True,
-                    is_active=True
+                recipient, created = DMTRecipient.objects.get_or_create(
+                    user=user,
+                    account_number=transaction_data.get('account'),
+                    ifsc_code=transaction_data.get('ifsc'),
+                    defaults={
+                        'name': transaction_data.get('recipient_name'),
+                        'mobile': transaction_data.get('customer_id'),
+                        'eko_recipient_id': transaction_data.get('recipient_id'),
+                        'is_active': True,
+                    }
                 )
-
-
+                
                 dmt_transaction = DMTTransaction.objects.create(
                     user=user,
                     recipient=recipient,
                     amount=transfer_amount,
-                    recipient_name=recipient.name,
-                    recipient_account=recipient.account_number,
-                    recipient_ifsc=recipient.ifsc_code,
+                    recipient_name=transaction_data.get('recipient_name'),
+                    recipient_account=transaction_data.get('account'),
+                    recipient_ifsc=transaction_data.get('ifsc'),
                     sender_mobile=transaction_data.get('customer_id'),
-                    eko_recipient_id=recipient.eko_recipient_id,
+                    eko_recipient_id=transaction_data.get('recipient_id'),
                     status='initiated'
                 )
                 
@@ -333,7 +285,7 @@ class DMTManager:
                     amount=total_deduction,
                     transaction_type='debit',
                     transaction_category='dmt_transfer',
-                    description=f"DMT transfer + charges to {recipient.name}",
+                    description=f"DMT transfer + charges to {transaction_data.get('recipient_name')}",
                     created_by=user,
                     status='success',
                     metadata={
