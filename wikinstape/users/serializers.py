@@ -1070,11 +1070,6 @@ class PasswordlessLoginInitiateSerializer(serializers.Serializer):
                 "No user found with this username/email"
             )
         
-        if not hasattr(user, 'allow_passwordless_login') or not user.allow_passwordless_login:
-            raise serializers.ValidationError(
-                "Passwordless login is not enabled for this user"
-            )
-        
         data['user'] = user
         return data
 

@@ -741,14 +741,7 @@ class AuthViewSet(viewsets.ViewSet):
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Check if passwordless login is allowed
-        if not hasattr(user, 'allow_passwordless_login') or not user.allow_passwordless_login:
-            return Response(
-                {'error': 'Passwordless login is not enabled for this account'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+   
         # Verify OTP
         try:
             otp_obj = EmailOTP.objects.get(user=user, otp=otp)
@@ -810,12 +803,6 @@ class AuthViewSet(viewsets.ViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
         
-        # Check if passwordless login is allowed
-        if not hasattr(user, 'allow_passwordless_login') or not user.allow_passwordless_login:
-            return Response(
-                {'error': 'Passwordless login is not enabled for this account'},
-                status=status.HTTP_403_FORBIDDEN
-            )
         
         # Send OTP via SMS
         sms_mobile = f"+91{cleaned_mobile}"
