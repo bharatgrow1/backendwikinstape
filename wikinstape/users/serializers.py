@@ -1040,3 +1040,45 @@ class DirectTransferHistorySerializer(serializers.ModelSerializer):
 
     def get_notes(self, obj):
         return obj.metadata.get("notes") if obj.metadata else None
+    
+
+
+
+class PasswordlessLoginInitiateSerializer(serializers.Serializer):
+    username_or_email = serializers.CharField(required=True)
+    
+    def validate(self, data):
+        identifier = data['username_or_email']
+        
+        user = None
+        if '@' in identifier:
+            try:
+                user = User.objects.get(email__iexact=identifier)
+            except User.DoesNotExist:
+                pass
+        else:
+            try:
+                user = User.objects.get(username__iexact=identifier)
+            except User.DoesNotExist:
+                try:
+                    user = User.objects.get(role_uid=identifier)
+                except User.DoesNotExist:
+                    pass
+        
+        if not user:
+            raise serializers.ValidationError(
+                "No user found with this username/email"
+            )
+        
+        if not hasattr(user, 'allow_passwordless_login') or not user.allow_passwordless_login:
+            raise serializers.ValidationError(
+                "Passwordless login is not enabled for this user"
+            )
+        
+        data['user'] = user
+        return data
+
+
+class PasswordlessLoginVerifySerializer(serializers.Serializer):
+    username_or_email = serializers.CharField(required=True)
+    otp = serializers.CharField(max_length=6, required=True)
