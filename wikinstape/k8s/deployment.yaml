@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: priteshrao3/wikinstape-backend:latest
+          image: priteshrao3/wikinstape-backend
           ports:
             - containerPort: 8000
 

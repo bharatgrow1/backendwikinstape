@@ -5,7 +5,14 @@ from django.conf.urls.static import static
 from .routers import router
 from django.http import JsonResponse
 
+
+
+def health(request):
+    return JsonResponse({"status": "ok"})
+
+
 urlpatterns = [
+    path("health/", health),
     path('admin/', admin.site.urls),
     path('api-auth/', include('rest_framework.urls')),
     path('api/services/', include('services.urls')),
@@ -14,7 +21,6 @@ urlpatterns = [
     path('apis/bbps/', include('bbps.urls')),
     path('apis/vendorpayment/', include('vendorpayment.urls')),
     path('apis/commission/', include('commission.urls')), 
-    path("health/", lambda r: JsonResponse({"status": "ok"})),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
