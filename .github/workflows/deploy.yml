@@ -17,7 +17,7 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Build & Push Image
+    - name: Build & Push Docker Image
       working-directory: wikinstape
       run: |
         docker build -t priteshrao3/wikinstape-backend:latest .
