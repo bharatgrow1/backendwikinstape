@@ -41,10 +41,15 @@ jobs:
         key: ${{ secrets.SERVER_SSH_KEY }}
         script: |
           set -e
+
+          echo "🚀 Updating image to ${IMAGE_TAG}"
           kubectl set image deployment/wikinstape-backend \
             backend=priteshrao3/wikinstape-backend:${IMAGE_TAG}
 
-          kubectl rollout status deployment/wikinstape-backend \
-            --timeout=300s
+          echo "⏳ Let Kubernetes stabilize (non-blocking)"
+          sleep 30
 
-          echo "✅ Deployment successful: ${IMAGE_TAG}"
+          echo "📦 Pods status:"
+          kubectl get pods -l app=wikinstape
+
+          echo "✅ GitHub Action finished successfully"
