@@ -21,7 +21,7 @@ jobs:
 
     - name: Build and Push Docker Image
       run: |
-        docker build -t priteshrao3/wikinstape-backend:latest .
+        docker build -t priteshrao3/wikinstape-backend:latest ./wikinstape
         docker push priteshrao3/wikinstape-backend:latest
 
     - name: Deploy to Server via SSH
