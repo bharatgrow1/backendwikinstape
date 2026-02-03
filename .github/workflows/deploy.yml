@@ -21,10 +21,13 @@ jobs:
 
     - name: Build and Push Docker Image
       run: |
-        docker build -t priteshrao3/wikinstape-backend:latest ./wikinstape
+        docker build \
+          -f wikinstape/Dockerfile \
+          -t priteshrao3/wikinstape-backend:latest \
+          wikinstape
         docker push priteshrao3/wikinstape-backend:latest
 
-    - name: Deploy to Server via SSH
+    - name: Deploy to Kubernetes via SSH
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SERVER_HOST }}
