@@ -45,6 +45,6 @@ jobs:
             backend=priteshrao3/wikinstape-backend:${IMAGE_TAG}
 
           kubectl rollout status deployment/wikinstape-backend \
-            --timeout=120s
+            --timeout=300s
 
           echo "✅ Deployment successful: ${IMAGE_TAG}"
