@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wikinstape-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wikinstape
+  template:
+    metadata:
+      labels:
+        app: wikinstape
+    spec:
+      containers:
+        - name: backend
+          image: priteshrao3/wikinstape-backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_NAME
+              value: wikinstape_db
+            - name: DB_USER
+              value: postgres
+            - name: DB_PASSWORD
+              value: postgres
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
