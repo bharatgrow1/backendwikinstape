@@ -3,6 +3,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .routers import router
+from django.http import JsonResponse
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -13,6 +14,7 @@ urlpatterns = [
     path('apis/bbps/', include('bbps.urls')),
     path('apis/vendorpayment/', include('vendorpayment.urls')),
     path('apis/commission/', include('commission.urls')), 
+    path("health/", lambda r: JsonResponse({"status": "ok"})),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
