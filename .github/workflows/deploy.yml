@@ -24,16 +24,27 @@ jobs:
     - name: Build and Push Docker Image
       working-directory: wikinstape
       run: |
-        docker build -t priteshrao3/wikinstape-backend:${IMAGE_TAG} .
+        docker build \
+          -t priteshrao3/wikinstape-backend:${IMAGE_TAG} \
+          -t priteshrao3/wikinstape-backend:latest \
+          .
         docker push priteshrao3/wikinstape-backend:${IMAGE_TAG}
+        docker push priteshrao3/wikinstape-backend:latest
 
     - name: Deploy to Kubernetes
       uses: appleboy/ssh-action@v1.0.3
+      env:
+        IMAGE_TAG: ${{ env.IMAGE_TAG }}
       with:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         script: |
+          set -e
           kubectl set image deployment/wikinstape-backend \
             backend=priteshrao3/wikinstape-backend:${IMAGE_TAG}
-          kubectl rollout status deployment/wikinstape-backend
+
+          kubectl rollout status deployment/wikinstape-backend \
+            --timeout=120s
+
+          echo "✅ Deployment successful: ${IMAGE_TAG}"
