@@ -4,6 +4,11 @@ metadata:
   name: wikinstape-backend
 spec:
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: wikinstape
@@ -17,14 +22,41 @@ spec:
           image: priteshrao3/wikinstape-backend:latest
           ports:
             - containerPort: 8000
+
           env:
             - name: DB_NAME
-              value: wikinstape_db
+              valueFrom:
+                secretKeyRef:
+                  name: wikinstape-secrets
+                  key: DB_NAME
             - name: DB_USER
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: wikinstape-secrets
+                  key: DB_USER
             - name: DB_PASSWORD
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: wikinstape-secrets
+                  key: DB_PASSWORD
             - name: DB_HOST
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: wikinstape-secrets
+                  key: DB_HOST
             - name: DB_PORT
               value: "5432"
+
+          readinessProbe:
+            httpGet:
+              path: /health/
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
