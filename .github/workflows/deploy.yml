@@ -33,23 +33,23 @@ jobs:
 
     - name: Deploy to Kubernetes
       uses: appleboy/ssh-action@v1.0.3
-      env:
-        IMAGE_TAG: ${{ env.IMAGE_TAG }}
       with:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
+        envs: IMAGE_TAG
         script: |
           set -e
-
           echo "🚀 Updating image to ${IMAGE_TAG}"
+    
           kubectl set image deployment/wikinstape-backend \
             backend=priteshrao3/wikinstape-backend:${IMAGE_TAG}
-
-          echo "⏳ Let Kubernetes stabilize (non-blocking)"
-          sleep 30
-
+    
+          echo "⏳ Waiting for rollout"
+          kubectl rollout status deployment/wikinstape-backend --timeout=300s
+    
           echo "📦 Pods status:"
           kubectl get pods -l app=wikinstape
+    
+          echo "✅ Deployment completed"
 
-          echo "✅ GitHub Action finished successfully"
