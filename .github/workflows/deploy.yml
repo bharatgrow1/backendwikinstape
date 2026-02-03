@@ -18,11 +18,14 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
+    - name: Set Image Tag
+      run: echo "IMAGE_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
     - name: Build and Push Docker Image
       working-directory: wikinstape
       run: |
-        docker build -t priteshrao3/wikinstape-backend:latest .
-        docker push priteshrao3/wikinstape-backend:latest
+        docker build -t priteshrao3/wikinstape-backend:${IMAGE_TAG} .
+        docker push priteshrao3/wikinstape-backend:${IMAGE_TAG}
 
     - name: Deploy to Kubernetes
       uses: appleboy/ssh-action@v1.0.3
@@ -32,5 +35,5 @@ jobs:
         key: ${{ secrets.SERVER_SSH_KEY }}
         script: |
           kubectl set image deployment/wikinstape-backend \
-            wikinstape-backend=priteshrao3/wikinstape-backend:latest
+            backend=priteshrao3/wikinstape-backend:${IMAGE_TAG}
           kubectl rollout status deployment/wikinstape-backend
