@@ -157,7 +157,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "https://wikinapi.gssmart.in",
     "https://retailer.gssmart.in",
-    "15.206.159.70",
 ]
 
 AUTH_USER_MODEL = 'users.User'

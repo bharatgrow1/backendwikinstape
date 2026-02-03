@@ -1,29 +1,32 @@
-# Python compiled files
+__pycache__/
 *.pyc
 *.pyo
-__pycache__/
+*.pyd
+*.sqlite3
 
-# Django stuff:
-db.sqlite3
-/media/
-*.log
-*.pot
-*.py[cod]
-*.so
+# Env
+.env
 
-# Environments
+# Virtualenv
+wikinbkdenv/
 venv/
-wikinenv/
-env/
+.env/
 
-# IDEs
-.vscode/
-.idea/
+# Media & Static (generated)
+media/
+static/
 
-# System files
+# Docker
+*.log
+*.pid
+
+# OS
 .DS_Store
-Thumbs.db
 
-# Migrations (optional if you don’t want to push them)
-# wikinstape/**/migrations/
+# Excel / CSV dumps
+*.csv
+*.xlsx
+
+# Minikube
+minikube-linux-amd64
 
