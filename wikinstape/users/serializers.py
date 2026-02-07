@@ -650,7 +650,6 @@ class UserBankSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_verified"]
 
 
-
 class PermissionSerializer(serializers.ModelSerializer):
     content_type_name = serializers.CharField(source='content_type.model', read_only=True)
     app_label = serializers.CharField(source='content_type.app_label', read_only=True)

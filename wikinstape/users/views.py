@@ -1744,8 +1744,6 @@ class WalletViewSet(DynamicModelViewSet):
 
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
 
-        wallet.add_amount(amount)
-
         Transaction.objects.create(
             wallet=wallet,
             amount=amount,
@@ -1757,6 +1755,8 @@ class WalletViewSet(DynamicModelViewSet):
             created_by=request.user,
             status="success"
         )
+        wallet.add_amount(amount)
+
 
         return Response({
             "success": True,
@@ -1838,14 +1838,6 @@ class WalletViewSet(DynamicModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
-                    admin_opening = admin_wallet.balance
-                    admin_wallet.deduct_amount(amount, pin=pin)
-                    admin_closing = admin_wallet.balance
-                    
-                    target_opening = target_wallet.balance
-                    target_wallet.add_amount(amount)
-                    target_closing = target_wallet.balance
-                    
                     Transaction.objects.create(
                         wallet=admin_wallet,
                         amount=amount,
@@ -1856,11 +1848,9 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct transfer to {target_user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=target_user,
-                        opening_balance=admin_opening,
-                        closing_balance=admin_closing,
                         metadata={'notes': notes, 'transfer_type': 'credit_to_user', 'admin_id': admin.id}
                     )
-                    
+
                     Transaction.objects.create(
                         wallet=target_wallet,
                         amount=amount,
@@ -1871,11 +1861,15 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct transfer from {request.user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=request.user,
-                        opening_balance=target_opening,
-                        closing_balance=target_closing,
                         metadata={'notes': notes, 'transfer_type': 'credit_from_admin', 'admin_id': admin.id}
                     )
-                    
+
+                    admin_wallet.system_deduct_amount(amount)
+                    target_wallet.add_amount(amount)
+
+                    admin_wallet.refresh_from_db()
+                    target_wallet.refresh_from_db()
+
                     message = f"₹{amount} transferred to {target_user.username}"
                     
                 else:
@@ -1885,13 +1879,6 @@ class WalletViewSet(DynamicModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
-                    target_opening = target_wallet.balance
-                    target_wallet.system_deduct_amount(amount)
-                    target_closing = target_wallet.balance
-                    
-                    admin_opening = admin_wallet.balance
-                    admin_wallet.add_amount(amount)
-                    admin_closing = admin_wallet.balance
                     
                     Transaction.objects.create(
                         wallet=target_wallet,
@@ -1903,8 +1890,6 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct deduction by {request.user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=request.user,
-                        opening_balance=target_opening,
-                        closing_balance=target_closing,
                         metadata={'notes': notes, 'transfer_type': 'debit_by_admin', 'admin_id': admin.id}
                     )
                     
@@ -1918,10 +1903,10 @@ class WalletViewSet(DynamicModelViewSet):
                         description=f"Direct deduction from {target_user.username}: {notes}",
                         created_by=request.user,
                         recipient_user=target_user,
-                        opening_balance=admin_opening,
-                        closing_balance=admin_closing,
                         metadata={'notes': notes, 'transfer_type': 'credit_from_user', 'admin_id': admin.id}
                     )
+                    target_wallet.system_deduct_amount(amount)
+                    admin_wallet.add_amount(amount)
                     
                     message = f"₹{amount} deducted from {target_user.username}"
                 
@@ -2031,11 +2016,6 @@ class TransactionViewSet(DynamicModelViewSet):
         try:
             with db_transaction.atomic():
 
-                if data['transaction_type'] == 'debit':
-                    wallet.deduct_amount(amount, service_charge, pin)
-                else:
-                    wallet.add_amount(amount)
-
                 service_submission = None
                 if service_submission_id:
                     service_submission = ServiceSubmission.objects.filter(
@@ -2056,6 +2036,11 @@ class TransactionViewSet(DynamicModelViewSet):
                     service_name=data.get('service_name'),
                     status='success'
                 )
+
+                if data['transaction_type'] == 'debit':
+                    wallet.deduct_amount(amount, service_charge, pin)
+                else:
+                    wallet.add_amount(amount)
 
                 recipient_user = data.get('recipient_user')
                 if (
@@ -2123,7 +2108,6 @@ class TransactionViewSet(DynamicModelViewSet):
         try:
             with db_transaction.atomic():
 
-                wallet.deduct_amount(amount, service_charge, pin)
 
                 transaction = Transaction.objects.create(
                     wallet=wallet,
@@ -2138,6 +2122,7 @@ class TransactionViewSet(DynamicModelViewSet):
                     service_name=service_submission.service_form.name,
                     status='success'
                 )
+                wallet.deduct_amount(amount, service_charge, pin)
 
                 service_submission.payment_status = 'paid'
                 service_submission.transaction_id = transaction.reference_number
