@@ -107,12 +107,32 @@ class bbpsTransaction(models.Model):
     def __str__(self):
         return f"bbps-{self.transaction_id} - {self.mobile_number} - ₹{self.amount}"
     
+    # def save(self, *args, **kwargs):
+    #     if not self.transaction_id:
+    #         self.transaction_id = f"RECH{uuid.uuid4().hex[:12].upper()}"
+    #     if not self.total_amount:
+    #         self.total_amount = self.amount + self.service_charge
+    #     super().save(*args, **kwargs)
+
+
+
     def save(self, *args, **kwargs):
         if not self.transaction_id:
             self.transaction_id = f"RECH{uuid.uuid4().hex[:12].upper()}"
-        if not self.total_amount:
+
+        if self.amount is not None and self.service_charge is not None:
             self.total_amount = self.amount + self.service_charge
+
+        if not self.operator_name and self.operator_id:
+            try:
+                from .models import Operator
+                operator = Operator.objects.get(operator_id=self.operator_id)
+                self.operator_name = operator.operator_name
+            except Operator.DoesNotExist:
+                pass 
+
         super().save(*args, **kwargs)
+
     
     def mark_processing(self):
         self.status = 'processing'
