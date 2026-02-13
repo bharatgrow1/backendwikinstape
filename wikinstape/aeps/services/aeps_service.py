@@ -191,7 +191,18 @@ class EkoAEPSService:
         }
 
         resp = requests.put(url, headers=headers, data=form_data, files=files)
-        return resp.json()
+        print("EKO STATUS:", resp.status_code)
+        print("EKO RESPONSE:", resp.text)
+
+        try:
+            return resp.json()
+        except:
+            return {
+                "error": "Invalid JSON from EKO",
+                "status_code": resp.status_code,
+                "raw": resp.text
+            }
+
 
 
 

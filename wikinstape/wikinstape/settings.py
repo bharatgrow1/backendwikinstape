@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'vendorpayment',
     'aeps',
     'cms',
+    'creditlinks',
 ]
 
 
