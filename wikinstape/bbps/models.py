@@ -48,7 +48,8 @@ class bbpsTransaction(models.Model):
     operator_name = models.CharField(max_length=100, blank=True, null=True)
     operator_type = models.CharField(max_length=20, choices=OPERATOR_TYPES, default='prepaid')
     circle = models.CharField(max_length=100, blank=True, null=True)
-    
+    wallet_transaction = models.OneToOneField("users.Transaction",on_delete=models.SET_NULL,null=True,blank=True,related_name="bbps_transaction")
+
     # Customer Details
     mobile_number = models.CharField(max_length=15)
     consumer_number = models.CharField(max_length=50, blank=True, null=True)  # For electricity, water bills
