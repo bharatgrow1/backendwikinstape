@@ -2959,20 +2959,28 @@ class BrandingViewSet(viewsets.ViewSet):
         admin = getattr(request, "admin_user", None)
 
         if not admin:
-            return Response({"error": "Invalid domain"}, status=404)
+            return Response({"error": "Invalid domain"}, status=400)
 
         branding = AdminBranding.objects.filter(admin=admin).first()
 
         if not branding:
-            return Response({"error": "Branding not found"}, status=404)
+            return Response({
+                "project_name": admin.username,
+                "company_name": admin.username,
+                "primary_color": "#1E3A8A",
+                "secondary_color": "#10B981",
+                "theme_color": "#1E3A8A",
+                "sidebar_color": "#1E3A8A",
+                "navbar_color": "#FFFFFF",
+                "background_color": "#FFFFFF",
+                "font_size": "14px",
+                "logo": None,
+                "fevicon_icon": None,
+                "main_image": None,
+            })
 
-        serializer = AdminBrandingSerializer(
-            branding,
-            context={"request": request}
-        )
-
+        serializer = AdminBrandingSerializer(branding, context={"request": request})
         return Response(serializer.data)
-
 
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])

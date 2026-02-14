@@ -3,17 +3,21 @@ from users.models import User
 
 class AdminDomainMiddleware:
 
+    ALLOWED_SYSTEM_DOMAINS = [
+        "wikinapi.gssmart.in",
+    ]
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
 
-        forwarded_host = request.META.get("HTTP_X_FORWARDED_HOST")
-        host = forwarded_host if forwarded_host else request.get_host()
-        host = host.split(":")[0].lower()
+        host = request.get_host().split(":")[0].lower()
 
-        if host == "wikinapi.gssmart.in":
+        if host in self.ALLOWED_SYSTEM_DOMAINS:
             return self.get_response(request)
+
+        admin_user = None
 
         admin_user = User.objects.filter(
             role="admin",
@@ -22,15 +26,19 @@ class AdminDomainMiddleware:
 
         if not admin_user:
             parts = host.split(".")
-            if len(parts) > 2:
+            if len(parts) == 3:
                 subdomain = parts[0]
+
                 admin_user = User.objects.filter(
                     role="admin",
-                    subdomain__iexact=subdomain
+                    subdomain=subdomain
                 ).first()
 
         if not admin_user:
-            return JsonResponse({"error": "Invalid domain"}, status=404)
+            return JsonResponse(
+                {"error": "Invalid domain"},
+                status=404
+            )
 
         request.admin_user = admin_user
 
