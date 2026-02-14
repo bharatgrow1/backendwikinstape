@@ -2989,7 +2989,15 @@ class BrandingViewSet(viewsets.ViewSet):
         if request.user.role != "admin":
             return Response({"error": "Permission denied"}, status=403)
 
-        branding, _ = AdminBranding.objects.get_or_create(admin=request.user)
+        admin_id = request.data.get("admin_id")
+
+        if not admin_id:
+            return Response({"error": "admin_id required"}, status=400)
+
+        admin_user = User.objects.get(id=admin_id, role="admin")
+
+        branding, _ = AdminBranding.objects.get_or_create(admin=admin_user)
+
 
         custom_domain = request.data.get("custom_domain")
 
