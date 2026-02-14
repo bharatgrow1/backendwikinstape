@@ -2959,18 +2959,12 @@ class BrandingViewSet(viewsets.ViewSet):
         admin = getattr(request, "admin_user", None)
 
         if not admin:
-            return Response(
-                {"error": "Invalid domain"},
-                status=404
-            )
+            return Response({"error": "Invalid domain"}, status=404)
 
         branding = AdminBranding.objects.filter(admin=admin).first()
 
         if not branding:
-            return Response(
-                {"error": "Branding not found"},
-                status=404
-            )
+            return Response({"error": "Branding not found"}, status=404)
 
         serializer = AdminBrandingSerializer(
             branding,
