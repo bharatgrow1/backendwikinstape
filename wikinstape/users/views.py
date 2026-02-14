@@ -2951,20 +2951,26 @@ class RefundViewSet(viewsets.ViewSet):
 
 
 
-
 class BrandingViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
     def list(self, request):
         admin = getattr(request, "admin_user", None)
 
+        # HARD BLOCK
         if not admin:
-            return Response({"error": "Invalid domain"}, status=404)
+            return Response(
+                {"error": "Invalid domain"},
+                status=404
+            )
 
         branding = AdminBranding.objects.filter(admin=admin).first()
 
         if not branding:
-            return Response({"error": "Branding not found"}, status=404)
+            return Response(
+                {"error": "Branding not found"},
+                status=404
+            )
 
         serializer = AdminBrandingSerializer(
             branding,
@@ -2972,7 +2978,6 @@ class BrandingViewSet(viewsets.ViewSet):
         )
 
         return Response(serializer.data)
-
 
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
