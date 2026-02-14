@@ -1149,9 +1149,10 @@ class PasswordlessLoginVerifySerializer(serializers.Serializer):
 
 
 class AdminBrandingSerializer(serializers.ModelSerializer):
-    logo = serializers.ImageField(required=False)
-    fevicon_icon = serializers.ImageField(required=False)
-    main_image = serializers.ImageField(required=False)
+
+    logo = serializers.URLField(required=False, allow_null=True, allow_blank=True)
+    fevicon_icon = serializers.URLField(required=False, allow_null=True, allow_blank=True)
+    main_image = serializers.URLField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = AdminBranding
@@ -1169,3 +1170,26 @@ class AdminBrandingSerializer(serializers.ModelSerializer):
             "fevicon_icon",
             "main_image",
         ]
+
+    def validate_primary_color(self, value):
+        if not value.startswith("#"):
+            raise serializers.ValidationError("Primary color must be hex format (e.g. #1E3A8A)")
+        return value
+
+    def validate_secondary_color(self, value):
+        if not value.startswith("#"):
+            raise serializers.ValidationError("Secondary color must be hex format")
+        return value
+
+    def validate(self, data):
+        """
+        Extra safety validations
+        """
+        for field in ["logo", "fevicon_icon", "main_image"]:
+            url = data.get(field)
+            if url and not url.startswith("http"):
+                raise serializers.ValidationError({
+                    field: "Image URL must be a valid absolute URL"
+                })
+
+        return data
