@@ -13,7 +13,6 @@ import secrets
 from decimal import Decimal
 from django.db.models.signals import post_save, pre_save  
 from django.dispatch import receiver
-
 import random
 
 def generate_5_digit():
@@ -111,6 +110,8 @@ class User(AbstractUser):
     role_uid = models.CharField(max_length=20, unique=True, blank=True, null=True, db_index=True)
     email = models.EmailField(unique=True,null=True,blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='retailer')
+    subdomain = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    custom_domain = models.CharField(max_length=255, unique=True, null=True, blank=True, db_index=True)
     created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,related_name='created_users')
     parent_user = models.ForeignKey( 'self',on_delete=models.SET_NULL, null=True, blank=True, related_name='child_users')
     profile_picture = models.CharField(max_length=500, null=True, blank=True)
@@ -392,15 +393,6 @@ class Wallet(models.Model):
 
     def __str__(self):
         return f"{self.user.username}'s Wallet - ₹{self.balance}"
-
-    # def set_pin(self, pin):
-    #     """Set wallet PIN"""
-    #     if len(pin) != 4 or not pin.isdigit():
-    #         raise ValueError("PIN must be 4 digits")
-        
-    #     self.pin_hash = hashlib.sha256(pin.encode()).hexdigest()
-    #     self.is_pin_set = True
-    #     self.save()
 
 
     def set_pin(self, pin):
@@ -1049,3 +1041,37 @@ class RefundRequest(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+
+
+class AdminBranding(models.Model):
+    admin = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        limit_choices_to={'role': 'admin'}
+    )
+
+    logo = models.URLField(blank=True, null=True)
+    fevicon_icon = models.URLField(blank=True, null=True)
+    main_image = models.URLField(blank=True, null=True)
+
+    project_name = models.CharField(max_length=200, default="My Project")
+    company_name = models.CharField(max_length=255, blank=True, null=True)
+
+    primary_color = models.CharField(max_length=20, default="#1E3A8A")
+    secondary_color = models.CharField(max_length=20, default="#10B981")
+    theme_color = models.CharField(max_length=20, default="#1E3A8A")
+    sidebar_color = models.CharField(max_length=20, default="#10B981")
+    navbar_color = models.CharField(max_length=20, default="#10B981")
+    background_color = models.CharField(max_length=20, default="#FFFFFF")
+
+    font_size = models.CharField(max_length=20, default="14px")
+
+    def __str__(self):
+        return f"{self.admin.username} Branding"
+
+
+
+@receiver(post_save, sender=User)
+def create_admin_branding(sender, instance, created, **kwargs):
+    if created and instance.role == "admin":
+        AdminBranding.objects.create(admin=instance)

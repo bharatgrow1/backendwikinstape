@@ -24,11 +24,12 @@ from django.core.cache import cache
 from rest_framework.exceptions import PermissionDenied
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+from rest_framework.views import APIView
 
 
 from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
                           RolePermission, State, City, FundRequest, EmailOTP, ForgotPasswordOTP, 
-                           MobileOTP, ForgetPinOTP, WalletPinOTP, UserBank, RefundRequest )
+                           MobileOTP, ForgetPinOTP, WalletPinOTP, UserBank, RefundRequest, AdminBranding )
 
 from services.models import ServiceSubCategory
 from users.permissions import (IsSuperAdmin, IsAdminUser)
@@ -42,7 +43,7 @@ from users.serializers import (LoginSerializer, OTPVerifySerializer, WalletSeria
         FundRequestRejectSerializer, RequestWalletPinOTPSerializer, VerifyWalletPinOTPSerializer, SetWalletPinWithOTPSerializer,
         UserBankSerializer, GoogleLoginSerializer, DirectWalletTransferSerializer, UserProfileUpdateSerializer,
         UserKYCSerializer, MobileOTPLoginSerializer, DirectTransferHistorySerializer, UserPermissionSerializer, 
-        ResetWalletPinWithOTPSerializer, PasswordlessLoginInitiateSerializer)
+        ResetWalletPinWithOTPSerializer, PasswordlessLoginInitiateSerializer, AdminBrandingSerializer)
 
 from commission.models import CommissionTransaction
 
@@ -2948,3 +2949,69 @@ class RefundViewSet(viewsets.ViewSet):
 
         return Response({"message": "Refund Rejected"})
 
+
+
+
+class BrandingViewSet(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+
+    def list(self, request):
+        admin = getattr(request, "admin_user", None)
+
+        if not admin:
+            return Response({"error": "Invalid domain"}, status=400)
+
+        branding = AdminBranding.objects.filter(admin=admin).first()
+
+        if not branding:
+            return Response({
+                "project_name": admin.username,
+                "company_name": admin.username,
+                "primary_color": "#1E3A8A",
+                "secondary_color": "#10B981",
+                "theme_color": "#1E3A8A",
+                "sidebar_color": "#1E3A8A",
+                "navbar_color": "#FFFFFF",
+                "background_color": "#FFFFFF",
+                "font_size": "14px",
+                "logo": None,
+                "fevicon_icon": None,
+                "main_image": None,
+            })
+
+        serializer = AdminBrandingSerializer(branding, context={"request": request})
+        return Response(serializer.data)
+
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def update_branding(self, request):
+
+        if request.user.role != "admin":
+            return Response({"error": "Permission denied"}, status=403)
+
+        branding, _ = AdminBranding.objects.get_or_create(admin=request.user)
+
+        custom_domain = request.data.get("custom_domain")
+
+        if custom_domain:
+            custom_domain = custom_domain.replace("http://", "").replace("https://", "").strip()
+
+            if User.objects.filter(custom_domain__iexact=custom_domain).exclude(id=request.user.id).exists():
+                return Response({"error": "Domain already in use"}, status=400)
+
+            request.user.custom_domain = custom_domain
+            request.user.save()
+
+        serializer = AdminBrandingSerializer(
+            branding,
+            data=request.data,
+            partial=True
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response({
+            "message": "Branding updated successfully",
+            "data": serializer.data
+        })
