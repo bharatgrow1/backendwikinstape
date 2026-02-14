@@ -2959,27 +2959,24 @@ class BrandingViewSet(viewsets.ViewSet):
         admin = getattr(request, "admin_user", None)
 
         if not admin:
-            return Response({"error": "Invalid domain"}, status=400)
+            return Response(
+                {"error": "Invalid domain"},
+                status=404
+            )
 
         branding = AdminBranding.objects.filter(admin=admin).first()
 
         if not branding:
-            return Response({
-                "project_name": admin.username,
-                "company_name": admin.username,
-                "primary_color": "#1E3A8A",
-                "secondary_color": "#10B981",
-                "theme_color": "#1E3A8A",
-                "sidebar_color": "#1E3A8A",
-                "navbar_color": "#FFFFFF",
-                "background_color": "#FFFFFF",
-                "font_size": "14px",
-                "logo": None,
-                "fevicon_icon": None,
-                "main_image": None,
-            })
+            return Response(
+                {"error": "Branding not found"},
+                status=404
+            )
 
-        serializer = AdminBrandingSerializer(branding, context={"request": request})
+        serializer = AdminBrandingSerializer(
+            branding,
+            context={"request": request}
+        )
+
         return Response(serializer.data)
 
 
@@ -2992,24 +2989,36 @@ class BrandingViewSet(viewsets.ViewSet):
         admin_id = request.data.get("user_id")
 
         if not admin_id:
-            return Response({"error": "admin_id required"}, status=400)
+            return Response({"error": "user_id required"}, status=400)
 
-        admin_user = User.objects.get(id=admin_id, role="admin")
+        try:
+            admin_user = User.objects.get(id=admin_id, role="admin")
+        except User.DoesNotExist:
+            return Response({"error": "Admin not found"}, status=404)
 
         branding, _ = AdminBranding.objects.get_or_create(admin=admin_user)
-
 
         custom_domain = request.data.get("custom_domain")
 
         if custom_domain:
-            custom_domain = custom_domain.replace("http://", "").replace("https://", "").strip()
+            custom_domain = (
+                custom_domain
+                .replace("http://", "")
+                .replace("https://", "")
+                .strip()
+                .lower()
+            )
 
-            if User.objects.filter(custom_domain__iexact=custom_domain).exclude(id=request.user.id).exists():
-                return Response({"error": "Domain already in use"}, status=400)
+            if User.objects.filter(
+                custom_domain__iexact=custom_domain
+            ).exclude(id=admin_user.id).exists():
+                return Response(
+                    {"error": "Domain already in use"},
+                    status=400
+                )
 
             admin_user.custom_domain = custom_domain
-            admin_user.save()
-
+            admin_user.save(update_fields=["custom_domain"])
 
         serializer = AdminBrandingSerializer(
             branding,
