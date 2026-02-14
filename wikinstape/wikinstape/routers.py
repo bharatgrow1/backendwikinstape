@@ -5,7 +5,7 @@ from services.views import (ServiceCategoryViewSet, DirectServiceFormViewSet, Se
     ServiceFormViewSet, ServiceSubmissionViewSet, ServiceImageViewSet)
 from users.views import (PermissionViewSet, AuthViewSet, UserViewSet, WalletViewSet, UserBankViewSet,
         TransactionViewSet, UserHierarchyViewSet, OnBoardServiceViewSet, FundRequestViewSet, ServiceChargeViewSet,
-        StateViewSet, CityViewSet, RefundViewSet)
+        StateViewSet, CityViewSet, RefundViewSet, BrandingViewSet)
 from commission.views import (CommissionPlanViewSet, ServiceCommissionViewSet, CommissionTransactionViewSet,
         UserCommissionPlanViewSet, CommissionPayoutViewSet, CommissionStatsViewSet, DealerRetailerCommissionViewSet, 
         CommissionDashboardViewSet, OperatorCommissionViewSet)
@@ -74,3 +74,4 @@ router.register(r'vendor-manager', VendorManagerViewSet, basename='vendor-manage
 router.register(r'merchants', AEPSMerchantViewSet, basename='aeps-merchant')
 
 router.register(r"cms", CMSViewSet, basename="cms")
+router.register(r'branding', BrandingViewSet, basename='branding')

@@ -7,7 +7,7 @@ from users.email_utils import send_welcome_email
 import re
 
 from users.models import (Wallet, Transaction,  ServiceCharge, FundRequest, UserService, User, 
-                          RolePermission, State, City, FundRequest, UserBank)
+                          RolePermission, State, City, FundRequest, UserBank, AdminBranding)
 
 
 class LoginSerializer(serializers.Serializer):
@@ -1144,3 +1144,28 @@ class PasswordlessLoginInitiateSerializer(serializers.Serializer):
 class PasswordlessLoginVerifySerializer(serializers.Serializer):
     username_or_email = serializers.CharField(required=True)
     otp = serializers.CharField(max_length=6, required=True)
+
+
+
+
+class AdminBrandingSerializer(serializers.ModelSerializer):
+    logo = serializers.ImageField(required=False)
+    fevicon_icon = serializers.ImageField(required=False)
+    main_image = serializers.ImageField(required=False)
+
+    class Meta:
+        model = AdminBranding
+        fields = [
+            "project_name",
+            "company_name",
+            "primary_color",
+            "secondary_color",
+            "theme_color",
+            "sidebar_color",
+            "navbar_color",
+            "background_color",
+            "font_size",
+            "logo",
+            "fevicon_icon",
+            "main_image",
+        ]
