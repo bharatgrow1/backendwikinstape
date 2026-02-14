@@ -2980,6 +2980,7 @@ class BrandingViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
 
+
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def update_branding(self, request):
 

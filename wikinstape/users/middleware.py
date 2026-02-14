@@ -3,6 +3,10 @@ from users.models import User
 
 class AdminDomainMiddleware:
 
+    ALLOWED_SYSTEM_DOMAINS = [
+        "wikinapi.gssmart.in",
+    ]
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -10,13 +14,10 @@ class AdminDomainMiddleware:
 
         host = request.get_host().split(":")[0].lower()
 
-        ALLOWED_SYSTEM_DOMAINS = [
-            "wikinapi.gssmart.in",
-        ]
-
-        if host in ALLOWED_SYSTEM_DOMAINS:
+        if host in self.ALLOWED_SYSTEM_DOMAINS:
             return self.get_response(request)
 
+        admin_user = None
 
         admin_user = User.objects.filter(
             role="admin",
@@ -25,8 +26,9 @@ class AdminDomainMiddleware:
 
         if not admin_user:
             parts = host.split(".")
-            if len(parts) > 2:
+            if len(parts) == 3:
                 subdomain = parts[0]
+
                 admin_user = User.objects.filter(
                     role="admin",
                     subdomain=subdomain
