@@ -10,14 +10,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-_rs_n@k9*(e1!w=j=4&#h(h00lz0-$6d4--5(m^yq&si8taj9k'
 
-DEBUG = False
+DEBUG = True
 
-ALLOWED_HOSTS = [
-    "gssmart.in",
-    "wikinapi.gssmart.in",
-    ".gssmart.in",
-]
-
+ALLOWED_HOSTS = ['*']
 
 
 INSTALLED_APPS = [
@@ -46,7 +41,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'users.middleware.AdminDomainMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -54,6 +48,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'users.middleware.AdminDomainMiddleware',
 ]
 
 ROOT_URLCONF = 'wikinstape.urls'
