@@ -1,3 +1,4 @@
+from django.http import JsonResponse
 from users.models import User
 
 class AdminDomainMiddleware:
@@ -9,7 +10,13 @@ class AdminDomainMiddleware:
 
         host = request.get_host().split(":")[0].lower()
 
-        admin_user = None
+        ALLOWED_SYSTEM_DOMAINS = [
+            "wikinapi.gssmart.in",
+        ]
+
+        if host in ALLOWED_SYSTEM_DOMAINS:
+            return self.get_response(request)
+
 
         admin_user = User.objects.filter(
             role="admin",
@@ -24,6 +31,12 @@ class AdminDomainMiddleware:
                     role="admin",
                     subdomain=subdomain
                 ).first()
+
+        if not admin_user:
+            return JsonResponse(
+                {"error": "Invalid domain"},
+                status=404
+            )
 
         request.admin_user = admin_user
 
