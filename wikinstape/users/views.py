@@ -2986,10 +2986,10 @@ class BrandingViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def update_branding(self, request):
 
-        if request.user.role != "admin":
+        if request.user.role not in ["admin", "superadmin"]:
             return Response({"error": "Permission denied"}, status=403)
 
-        admin_id = request.data.get("admin_id")
+        admin_id = request.data.get("user_id")
 
         if not admin_id:
             return Response({"error": "admin_id required"}, status=400)
@@ -3007,8 +3007,9 @@ class BrandingViewSet(viewsets.ViewSet):
             if User.objects.filter(custom_domain__iexact=custom_domain).exclude(id=request.user.id).exists():
                 return Response({"error": "Domain already in use"}, status=400)
 
-            request.user.custom_domain = custom_domain
-            request.user.save()
+            admin_user.custom_domain = custom_domain
+            admin_user.save()
+
 
         serializer = AdminBrandingSerializer(
             branding,
