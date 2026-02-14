@@ -123,13 +123,15 @@ MEDIA_ROOT = BASE_DIR / "api/media"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    "https://gssmart.in",
+    "http://localhost:3000",
+    "http://localhost:8000",
     "https://wikinapi.gssmart.in",
+    "https://retailer.gssmart.in",
 ]
-
 
 AUTH_USER_MODEL = 'users.User'
 
