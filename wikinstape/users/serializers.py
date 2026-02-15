@@ -331,7 +331,8 @@ class UserCreateSerializer(serializers.ModelSerializer):
             # Bank Information
             'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
             # Services
-            'service_ids'
+            'service_ids', 'subdomain', 'custom_domain',
+
         ]
         read_only_fields = ['created_by']
 
@@ -442,6 +443,9 @@ class UserCreateSerializer(serializers.ModelSerializer):
             username=validated_data["username"],
             email=validated_data.get("email"),
             role=validated_data["role"],
+
+            subdomain=validated_data.get("subdomain"),
+            custom_domain=validated_data.get("custom_domain"),
 
             created_by=creator,
             parent_user=parent_user,
