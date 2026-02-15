@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from users.permissions import DomainIsolationPermission
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import Permission
@@ -328,6 +329,22 @@ class AuthViewSet(viewsets.ViewSet):
         user = authenticate(username=username, password=password)
         if not user:
             return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        host_admin = getattr(request, "admin_user", None)
+
+        if not host_admin:
+            return Response(
+                {"error": "Invalid domain"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if user.role != "superadmin":
+            if not user.root_admin or user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
 
         otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
         otp = otp_obj.generate_otp()
@@ -355,13 +372,31 @@ class AuthViewSet(viewsets.ViewSet):
 
         otp_obj.delete()
 
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role != "superadmin":
+            if not user.root_admin or user.root_admin != host_admin:
+                return Response(
+                    {"error": "Unauthorized domain"},
+                    status=403
+                )
+
         try:
             wallet = user.wallet
         except Wallet.DoesNotExist:
             wallet = Wallet.objects.create(user=user, balance=0.00)
 
         refresh = RefreshToken.for_user(user)
-        
+
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role != "superadmin":
+            if not user.root_admin or user.root_admin != host_admin:
+                return Response(
+                    {"error": "Unauthorized domain"},
+                    status=403
+                )
+            
         needs_pin_setup = not wallet.is_pin_set
         
         return Response({
@@ -575,8 +610,27 @@ class AuthViewSet(viewsets.ViewSet):
         record.mark_verified()
 
         user = User.objects.get(phone_number__endswith=mobile)
+
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role != "superadmin":
+            if not user.root_admin or user.root_admin != host_admin:
+                return Response(
+                    {"error": "Unauthorized domain"},
+                    status=403
+                )
+
         wallet, _ = Wallet.objects.get_or_create(user=user)
         refresh = RefreshToken.for_user(user)
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role != "superadmin":
+            if not user.root_admin or user.root_admin != host_admin:
+                return Response(
+                    {"error": "Unauthorized domain"},
+                    status=403
+                )
+
 
         return Response({
             "access": str(refresh.access_token),
@@ -760,6 +814,15 @@ class AuthViewSet(viewsets.ViewSet):
         
         # Login the user
         refresh = RefreshToken.for_user(user)
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role != "superadmin":
+            if not user.root_admin or user.root_admin != host_admin:
+                return Response(
+                    {"error": "Unauthorized domain"},
+                    status=403
+                )
+
         
         needs_pin_setup = not hasattr(user, 'wallet') or not user.wallet.is_pin_set
         
@@ -840,12 +903,8 @@ class AuthViewSet(viewsets.ViewSet):
 
 
 class DynamicModelViewSet(viewsets.ModelViewSet):
-    """
-    Base ViewSet that automatically handles model permissions
-    Extend this for any model that needs permission control
-    """
-    permission_classes = [IsAuthenticated]
-    
+    permission_classes = [IsAuthenticated, DomainIsolationPermission]
+
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
