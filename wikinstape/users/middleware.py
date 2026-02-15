@@ -31,9 +31,11 @@ class AdminDomainMiddleware:
                     subdomain=subdomain
                 ).first()
 
-        if not admin_user and host == "wikinapi.gssmart.in":
-            request.admin_user = None
+        if host == "wikinapi.gssmart.in":
+            superadmin = User.objects.filter(role="superadmin").first()
+            request.admin_user = superadmin
             return self.get_response(request)
+
 
         if not admin_user:
             return JsonResponse(
