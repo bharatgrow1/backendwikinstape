@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>404 - Deployment Not Found</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        body {
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, #1e3a8a, #0f172a);
+            color: #fff;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            padding: 50px 40px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+            animation: fadeIn 0.6s ease-in-out;
+        }
+
+        h1 {
+            font-size: 72px;
+            margin-bottom: 10px;
+            font-weight: 700;
+            letter-spacing: 2px;
+        }
+
+        h2 {
+            font-size: 22px;
+            margin-bottom: 20px;
+            font-weight: 400;
+            color: #e2e8f0;
+        }
+
+        p {
+            font-size: 15px;
+            color: #cbd5e1;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 28px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            background: #10b981;
+            color: #fff;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #059669;
+            transform: translateY(-2px);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media(max-width: 480px) {
+            h1 {
+                font-size: 50px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>404</h1>
+        <h2>Deployment Not Found</h2>
+        <p>The domain or subdomain you are trying to access does not exist in our system.</p>
+        <a href="https://gssmart.in" class="btn">Go to Main Website</a>
+    </div>
+
+</body>
+</html>
