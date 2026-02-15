@@ -15,6 +15,11 @@ class AdminDomainMiddleware:
             request.admin_user = superadmin
             return self.get_response(request)
 
+        if host == "wikinapi.gssmart.in":
+            superadmin = User.objects.filter(role="superadmin").first()
+            request.admin_user = superadmin
+            return self.get_response(request)
+
         admin_user = None
 
         admin_user = User.objects.filter(
@@ -31,12 +36,6 @@ class AdminDomainMiddleware:
                     subdomain=subdomain
                 ).first()
 
-        if host == "wikinapi.gssmart.in":
-            superadmin = User.objects.filter(role="superadmin").first()
-            request.admin_user = superadmin
-            return self.get_response(request)
-
-
         if not admin_user:
             return JsonResponse(
                 {"error": "Invalid domain"},
@@ -44,5 +43,4 @@ class AdminDomainMiddleware:
             )
 
         request.admin_user = admin_user
-
         return self.get_response(request)

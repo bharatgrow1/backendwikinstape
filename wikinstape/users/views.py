@@ -338,13 +338,23 @@ class AuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if user.role != "superadmin":
-            if not user.root_admin or user.root_admin != host_admin:
+        
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
                 return Response(
                     {"error": "You are not allowed to login from this domain"},
-                    status=status.HTTP_403_FORBIDDEN
+                    status=403
                 )
 
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
 
         otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
         otp = otp_obj.generate_otp()
@@ -374,10 +384,20 @@ class AuthViewSet(viewsets.ViewSet):
 
         host_admin = getattr(request, "admin_user", None)
 
-        if user.role != "superadmin":
-            if not user.root_admin or user.root_admin != host_admin:
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
                 return Response(
-                    {"error": "Unauthorized domain"},
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
                     status=403
                 )
 
@@ -390,10 +410,20 @@ class AuthViewSet(viewsets.ViewSet):
 
         host_admin = getattr(request, "admin_user", None)
 
-        if user.role != "superadmin":
-            if not user.root_admin or user.root_admin != host_admin:
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
                 return Response(
-                    {"error": "Unauthorized domain"},
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
                     status=403
                 )
             
@@ -613,10 +643,20 @@ class AuthViewSet(viewsets.ViewSet):
 
         host_admin = getattr(request, "admin_user", None)
 
-        if user.role != "superadmin":
-            if not user.root_admin or user.root_admin != host_admin:
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
                 return Response(
-                    {"error": "Unauthorized domain"},
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
                     status=403
                 )
 
@@ -624,10 +664,20 @@ class AuthViewSet(viewsets.ViewSet):
         refresh = RefreshToken.for_user(user)
         host_admin = getattr(request, "admin_user", None)
 
-        if user.role != "superadmin":
-            if not user.root_admin or user.root_admin != host_admin:
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
                 return Response(
-                    {"error": "Unauthorized domain"},
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
                     status=403
                 )
 
@@ -809,20 +859,27 @@ class AuthViewSet(viewsets.ViewSet):
         if otp_obj.is_expired():
             return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Clean up OTP
         otp_obj.delete()
         
-        # Login the user
         refresh = RefreshToken.for_user(user)
         host_admin = getattr(request, "admin_user", None)
 
-        if user.role != "superadmin":
-            if not user.root_admin or user.root_admin != host_admin:
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
                 return Response(
-                    {"error": "Unauthorized domain"},
+                    {"error": "You are not allowed to login from this domain"},
                     status=403
                 )
 
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
         
         needs_pin_setup = not hasattr(user, 'wallet') or not user.wallet.is_pin_set
         
