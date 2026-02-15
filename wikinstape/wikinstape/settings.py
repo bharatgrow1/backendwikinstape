@@ -10,10 +10,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-_rs_n@k9*(e1!w=j=4&#h(h00lz0-$6d4--5(m^yq&si8taj9k'
 
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ['*']
-
+ALLOWED_HOSTS = [
+    ".gssmart.in",
+    "gssmart.in",
+    "wikinapi.gssmart.in",
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -41,6 +44,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'users.middleware.AdminDomainMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -48,7 +52,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
-    'users.middleware.AdminDomainMiddleware',
 ]
 
 ROOT_URLCONF = 'wikinstape.urls'
@@ -56,7 +59,7 @@ ROOT_URLCONF = 'wikinstape.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -118,14 +121,12 @@ MEDIA_ROOT = BASE_DIR / "api/media"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8000",
     "https://wikinapi.gssmart.in",
-    "https://retailer.gssmart.in",
+    "https://gssmart.in",
 ]
 
 AUTH_USER_MODEL = 'users.User'

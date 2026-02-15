@@ -1,5 +1,6 @@
-from django.http import JsonResponse
+from django.http import HttpResponseNotFound
 from users.models import User
+
 
 class AdminDomainMiddleware:
 
@@ -33,14 +34,11 @@ class AdminDomainMiddleware:
                 subdomain = parts[0]
                 admin_user = User.objects.filter(
                     role="admin",
-                    subdomain=subdomain
+                    subdomain__iexact=subdomain
                 ).first()
 
         if not admin_user:
-            return JsonResponse(
-                {"error": "Invalid domain"},
-                status=404
-            )
+            return HttpResponseNotFound("404: DEPLOYMENT_NOT_FOUND")
 
         request.admin_user = admin_user
         return self.get_response(request)
