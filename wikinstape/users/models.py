@@ -109,6 +109,7 @@ class User(AbstractUser):
 
     role_uid = models.CharField(max_length=20, unique=True, blank=True, null=True, db_index=True)
     email = models.EmailField(unique=True,null=True,blank=True)
+    root_admin = models.ForeignKey('self',on_delete=models.SET_NULL,null=True,blank=True,related_name="all_downlines")
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='retailer')
     subdomain = models.CharField(max_length=100, unique=True, null=True, blank=True)
     custom_domain = models.CharField(max_length=255, unique=True, null=True, blank=True, db_index=True)
@@ -151,6 +152,7 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.role})"
+        
     
     def is_admin_user(self):
         """Check if user is admin, superadmin or master"""
@@ -1000,6 +1002,22 @@ def generate_role_uid(sender, instance, **kwargs):
         if not User.objects.filter(role_uid=uid).exists():
             instance.role_uid = uid
             break
+
+
+
+@receiver(pre_save, sender=User)
+def set_root_admin(sender, instance, **kwargs):
+
+    if instance.role == "superadmin":
+        instance.root_admin = instance
+        return
+
+    if instance.role == "admin":
+        instance.root_admin = instance
+        return
+
+    if instance.parent_user:
+        instance.root_admin = instance.parent_user.root_admin
 
 
 

@@ -10,8 +10,7 @@ class AdminDomainMiddleware:
 
         host = request.get_host().split(":")[0].lower()
 
-        if host == "wikinapi.gssmart.in":
-            return self.get_response(request)
+        admin_user = None
 
         admin_user = User.objects.filter(
             role="admin",
@@ -26,6 +25,10 @@ class AdminDomainMiddleware:
                     role="admin",
                     subdomain=subdomain
                 ).first()
+
+        if not admin_user and host == "wikinapi.gssmart.in":
+            request.admin_user = None
+            return self.get_response(request)
 
         if not admin_user:
             return JsonResponse(

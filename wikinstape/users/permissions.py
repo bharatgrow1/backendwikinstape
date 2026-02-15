@@ -143,3 +143,22 @@ class AllowBasicActions(BasePermission):
             return bool(request.user and request.user.is_authenticated)
         
         return True 
+
+
+
+class DomainIsolationPermission(BasePermission):
+
+    def has_permission(self, request, view):
+
+        if not request.user.is_authenticated:
+            return False
+
+        if request.user.role == "superadmin":
+            return True
+
+        host_admin = getattr(request, "admin_user", None)
+
+        if not host_admin:
+            return False
+
+        return request.user.root_admin == host_admin
