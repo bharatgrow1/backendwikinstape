@@ -1,0 +1,55 @@
+name: Auto Deploy to Kubernetes
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Set Image Tag
+      run: echo "IMAGE_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+    - name: Build and Push Docker Image
+      working-directory: wikinstape
+      run: |
+        docker build \
+          -t priteshrao3/wikinstape-backend:${IMAGE_TAG} \
+          -t priteshrao3/wikinstape-backend:latest \
+          .
+        docker push priteshrao3/wikinstape-backend:${IMAGE_TAG}
+        docker push priteshrao3/wikinstape-backend:latest
+
+    - name: Deploy to Kubernetes
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        envs: IMAGE_TAG
+        script: |
+          set -e
+          echo "🚀 Updating image to ${IMAGE_TAG}"
+    
+          kubectl set image deployment/wikinstape-backend \
+            backend=priteshrao3/wikinstape-backend:${IMAGE_TAG}
+    
+          echo "⏳ Waiting for rollout"
+          kubectl rollout status deployment/wikinstape-backend --timeout=300s
+    
+          echo "📦 Pods status:"
+          kubectl get pods -l app=wikinstape
+    
+          echo "✅ Deployment completed"
+
