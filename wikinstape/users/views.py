@@ -320,34 +320,47 @@ class AuthViewSet(viewsets.ViewSet):
 
     def _is_local_request(self, request):
         host = request.get_host().split(":")[0].lower()
-        return host in ["localhost", "127.0.0.1"]
+
+        # Direct localhost backend
+        if host in ["localhost", "127.0.0.1"]:
+            return True
+
+        # If frontend is running on localhost
+        origin = request.META.get("HTTP_ORIGIN", "")
+        referer = request.META.get("HTTP_REFERER", "")
+
+        if "localhost" in origin or "127.0.0.1" in origin:
+            return True
+
+        if "localhost" in referer or "127.0.0.1" in referer:
+            return True
+
+        return False
+
 
 
     def _validate_domain_login(self, request, user):
-        """
-        Central domain isolation validator
-        """
 
-        # ✅ Localhost always allowed
+        # ✅ If local frontend → allow all
         if self._is_local_request(request):
             return True
 
         host_admin = getattr(request, "admin_user", None)
 
-        # ❌ If middleware did not bind admin
         if not host_admin:
             return False
 
-        # ✅ Superadmin can login anywhere
+        # Superadmin anywhere
         if user.role == "superadmin":
             return True
 
-        # ✅ Admin must match domain admin
+        # Admin must match domain
         if user.role == "admin":
             return user == host_admin
 
-        # ✅ Master / Dealer / Retailer must belong to same root admin
+        # Downline must match root admin
         return user.root_admin == host_admin
+
 
 
 
