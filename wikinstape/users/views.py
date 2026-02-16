@@ -341,7 +341,6 @@ class AuthViewSet(viewsets.ViewSet):
 
     def _validate_domain_login(self, request, user):
 
-        # ✅ If local frontend → allow all
         if self._is_local_request(request):
             return True
 
@@ -350,17 +349,19 @@ class AuthViewSet(viewsets.ViewSet):
         if not host_admin:
             return False
 
-        # Superadmin anywhere
         if user.role == "superadmin":
             return True
 
-        # Admin must match domain
         if user.role == "admin":
             return user == host_admin
 
-        # Downline must match root admin
-        return user.root_admin == host_admin
+        current = user
+        while current:
+            if current == host_admin:
+                return True
+            current = current.parent_user
 
+        return False
 
 
 
