@@ -317,43 +317,9 @@ class UserBankViewSet(viewsets.ModelViewSet):
 class AuthViewSet(viewsets.ViewSet):
     """Handles login with password + OTP verification"""
 
-
-    def _is_local_request(self, request):
-        host = request.get_host().split(":")[0].lower()
-        return host in ["localhost", "127.0.0.1"]
-
-
-    def _validate_domain_login(self, request, user):
-        """
-        Central domain isolation validator
-        """
-
-        # ✅ Localhost always allowed
-        if self._is_local_request(request):
-            return True
-
-        host_admin = getattr(request, "admin_user", None)
-
-        # ❌ If middleware did not bind admin
-        if not host_admin:
-            return False
-
-        # ✅ Superadmin can login anywhere
-        if user.role == "superadmin":
-            return True
-
-        # ✅ Admin must match domain admin
-        if user.role == "admin":
-            return user == host_admin
-
-        # ✅ Master / Dealer / Retailer must belong to same root admin
-        return user.root_admin == host_admin
-
-
-
     @action(detail=False, methods=['post'])
     def login(self, request):
-
+        """Step 1: Verify username/password and send OTP"""
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -361,30 +327,44 @@ class AuthViewSet(viewsets.ViewSet):
         password = serializer.validated_data['password']
 
         user = authenticate(username=username, password=password)
-
         if not user:
+            return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        host_admin = getattr(request, "admin_user", None)
+
+        if not host_admin:
             return Response(
-                {'error': 'Invalid credentials'},
-                status=400
+                {"error": "Invalid domain"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        # 🔥 Domain validation
-        if not self._validate_domain_login(request, user):
-            return Response(
-                {"error": "You are not allowed to login from this domain"},
-                status=403
-            )
+        
+        if user.role == "superadmin":
+            pass
 
-        # Send OTP
+        elif user.role == "admin":
+            if user != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
         otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
         otp = otp_obj.generate_otp()
-        send_otp_email(user.email, otp)
+        send_otp_email(user.email, otp, is_password_reset=False)
 
-        return Response({'message': 'OTP sent to your email'})
-
+        return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
     def verify_otp(self, request):
+        """Step 2: Verify OTP and return JWT tokens"""
         serializer = OTPVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -395,43 +375,70 @@ class AuthViewSet(viewsets.ViewSet):
             user = User.objects.get(username=username)
             otp_obj = EmailOTP.objects.get(user=user, otp=otp)
         except (User.DoesNotExist, EmailOTP.DoesNotExist):
-            return Response(
-                {'error': 'Invalid OTP or username'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': 'Invalid OTP or username'}, status=status.HTTP_400_BAD_REQUEST)
 
         if otp_obj.is_expired():
-            return Response(
-                {'error': 'OTP expired'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 🔥 CENTRAL DOMAIN CHECK
-        if not self._validate_domain_login(request, user):
-            return Response(
-                {"error": "You are not allowed to login from this domain"},
-                status=403
-            )
+            return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
 
         otp_obj.delete()
 
-        wallet, _ = Wallet.objects.get_or_create(user=user)
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        try:
+            wallet = user.wallet
+        except Wallet.DoesNotExist:
+            wallet = Wallet.objects.create(user=user, balance=0.00)
 
         refresh = RefreshToken.for_user(user)
 
-        needs_pin_setup = not wallet.is_pin_set
+        host_admin = getattr(request, "admin_user", None)
 
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+            
+        needs_pin_setup = not wallet.is_pin_set
+        
         return Response({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
             'role': user.role,
             'user_id': user.id,
             'username': user.username,
-            'needs_pin_setup': needs_pin_setup,
+            'needs_pin_setup': needs_pin_setup, 
             'is_pin_set': wallet.is_pin_set,
             'permissions': list(user.get_all_permissions())
         }, status=status.HTTP_200_OK)
-
         
 
 
@@ -634,16 +641,46 @@ class AuthViewSet(viewsets.ViewSet):
 
         user = User.objects.get(phone_number__endswith=mobile)
 
-        # 🔥 CENTRAL DOMAIN CHECK
-        if not self._validate_domain_login(request, user):
-            return Response(
-                {"error": "You are not allowed to login from this domain"},
-                status=403
-            )
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
 
         wallet, _ = Wallet.objects.get_or_create(user=user)
-
         refresh = RefreshToken.for_user(user)
+        host_admin = getattr(request, "admin_user", None)
+
+        if user.role == "superadmin":
+            pass
+
+        elif user.role == "admin":
+            if user != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+
 
         return Response({
             "access": str(refresh.access_token),
@@ -653,7 +690,6 @@ class AuthViewSet(viewsets.ViewSet):
             "is_pin_set": wallet.is_pin_set,
             "message": "Login successful"
         })
-
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def resend_mobile_otp(self, request):
@@ -786,29 +822,32 @@ class AuthViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def verify_passwordless_login(self, request):
-
+        """Step 2: Verify OTP and login without password"""
         username_or_email = request.data.get('username_or_email')
         otp = request.data.get('otp')
-
+        
         if not username_or_email or not otp:
             return Response(
                 {'error': 'Username/email and OTP are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
+        # Find user
+        user = None
         if '@' in username_or_email:
             user = User.objects.filter(email__iexact=username_or_email).first()
         else:
             user = User.objects.filter(username__iexact=username_or_email).first()
             if not user:
                 user = User.objects.filter(role_uid=username_or_email).first()
-
+        
         if not user:
             return Response(
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+   
+        # Verify OTP
         try:
             otp_obj = EmailOTP.objects.get(user=user, otp=otp)
         except EmailOTP.DoesNotExist:
@@ -816,28 +855,34 @@ class AuthViewSet(viewsets.ViewSet):
                 {'error': 'Invalid OTP'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
         if otp_obj.is_expired():
-            return Response(
-                {'error': 'OTP expired'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 🔥 CENTRAL DOMAIN CHECK
-        if not self._validate_domain_login(request, user):
-            return Response(
-                {"error": "You are not allowed to login from this domain"},
-                status=403
-            )
-
+            return Response({'error': 'OTP expired'}, status=status.HTTP_400_BAD_REQUEST)
+        
         otp_obj.delete()
-
+        
         refresh = RefreshToken.for_user(user)
+        host_admin = getattr(request, "admin_user", None)
 
-        wallet, _ = Wallet.objects.get_or_create(user=user)
+        if user.role == "superadmin":
+            pass
 
-        needs_pin_setup = not wallet.is_pin_set
+        elif user.role == "admin":
+            if user != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
 
+        else:
+            if user.root_admin != host_admin:
+                return Response(
+                    {"error": "You are not allowed to login from this domain"},
+                    status=403
+                )
+        
+        needs_pin_setup = not hasattr(user, 'wallet') or not user.wallet.is_pin_set
+        
         return Response({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
@@ -845,11 +890,10 @@ class AuthViewSet(viewsets.ViewSet):
             'user_id': user.id,
             'username': user.username,
             'needs_pin_setup': needs_pin_setup,
-            'is_pin_set': wallet.is_pin_set,
+            'is_pin_set': user.wallet.is_pin_set if hasattr(user, 'wallet') else False,
             'permissions': list(user.get_all_permissions()),
             'message': 'Login successful'
         })
-
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def initiate_mobile_passwordless_login(self, request):
@@ -3068,11 +3112,17 @@ class BrandingViewSet(viewsets.ViewSet):
         except User.DoesNotExist:
             return Response({"error": "Admin not found"}, status=404)
 
+        if request.user.role == "admin" and request.user.id != admin_user.id:
+            return Response(
+                {"error": "You can update only your own branding"},
+                status=403
+            )
+
         branding, _ = AdminBranding.objects.get_or_create(admin=admin_user)
 
         custom_domain = request.data.get("custom_domain")
 
-        if custom_domain:
+        if custom_domain is not None:
             custom_domain = (
                 custom_domain
                 .replace("http://", "")
@@ -3081,15 +3131,19 @@ class BrandingViewSet(viewsets.ViewSet):
                 .lower()
             )
 
-            if User.objects.filter(
-                custom_domain__iexact=custom_domain
-            ).exclude(id=admin_user.id).exists():
-                return Response(
-                    {"error": "Domain already in use"},
-                    status=400
-                )
+            if custom_domain == "":
+                admin_user.custom_domain = None
+            else:
+                if User.objects.filter(
+                    custom_domain__iexact=custom_domain
+                ).exclude(id=admin_user.id).exists():
+                    return Response(
+                        {"error": "Domain already in use"},
+                        status=400
+                    )
 
-            admin_user.custom_domain = custom_domain
+                admin_user.custom_domain = custom_domain
+
             admin_user.save(update_fields=["custom_domain"])
 
         serializer = AdminBrandingSerializer(
@@ -3103,5 +3157,8 @@ class BrandingViewSet(viewsets.ViewSet):
 
         return Response({
             "message": "Branding updated successfully",
-            "data": serializer.data
+            "data": {
+                **serializer.data,
+                "custom_domain": admin_user.custom_domain,
+            }
         })
