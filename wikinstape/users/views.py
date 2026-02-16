@@ -3063,7 +3063,13 @@ class BrandingViewSet(viewsets.ViewSet):
             context={"request": request}
         )
 
-        return Response(serializer.data)
+        return Response({
+            **serializer.data,
+            "custom_domain": admin.custom_domain,
+            "subdomain": admin.subdomain,
+            "admin_id": admin.id,
+        })
+
 
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
