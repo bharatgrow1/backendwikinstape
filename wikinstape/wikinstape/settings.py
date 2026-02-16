@@ -12,11 +12,7 @@ SECRET_KEY = 'django-insecure-_rs_n@k9*(e1!w=j=4&#h(h00lz0-$6d4--5(m^yq&si8taj9k
 
 DEBUG = False
 
-ALLOWED_HOSTS = [
-    ".gssmart.in",
-    "gssmart.in",
-    "wikinapi.gssmart.in",
-]
+ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -121,13 +117,9 @@ MEDIA_ROOT = BASE_DIR / "api/media"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOW_CREDENTIALS = True
-
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://.*\.gssmart\.in$",
-]
-
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True 
+CORS_ALLOWED_ORIGINS = [ "http://localhost:3000", "http://localhost:8000", "https://wikinapi.gssmart.in", "https://retailer.gssmart.in", ]
 
 AUTH_USER_MODEL = 'users.User'
 
