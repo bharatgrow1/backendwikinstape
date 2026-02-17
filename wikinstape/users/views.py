@@ -3041,22 +3041,33 @@ class BrandingViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
     def list(self, request):
-        admin = getattr(request, "admin_user", None)
 
-        # HARD BLOCK
-        if not admin:
-            return Response(
-                {"error": "Invalid domain"},
-                status=404
-            )
+        user_id = request.query_params.get("user_id")
+
+        # 🔥 CASE 1: Superadmin panel se user_id diya gaya
+        if user_id:
+            if not request.user.is_authenticated:
+                return Response({"error": "Authentication required"}, status=401)
+
+            if request.user.role != "superadmin":
+                return Response({"error": "Permission denied"}, status=403)
+
+            try:
+                admin = User.objects.get(id=user_id, role="admin")
+            except User.DoesNotExist:
+                return Response({"error": "Admin not found"}, status=404)
+
+        # 🔥 CASE 2: Tenant domain based access
+        else:
+            admin = getattr(request, "admin_user", None)
+
+            if not admin:
+                return Response({"error": "Invalid domain"}, status=404)
 
         branding = AdminBranding.objects.filter(admin=admin).first()
 
         if not branding:
-            return Response(
-                {"error": "Branding not found"},
-                status=404
-            )
+            return Response({"error": "Branding not found"}, status=404)
 
         serializer = AdminBrandingSerializer(
             branding,
@@ -3069,6 +3080,7 @@ class BrandingViewSet(viewsets.ViewSet):
             "subdomain": admin.subdomain,
             "admin_id": admin.id,
         })
+
 
 
 
