@@ -3063,12 +3063,19 @@ class BrandingViewSet(viewsets.ViewSet):
             context={"request": request}
         )
 
-        return Response(serializer.data)
+        return Response({
+            **serializer.data,
+            "custom_domain": admin.custom_domain,
+            "subdomain": admin.subdomain,
+            "admin_id": admin.id,
+        })
+
 
 
     @action(detail=False, methods=['post', 'put', 'patch'], permission_classes=[IsAuthenticated])
     def update_branding(self, request):
 
+        # 🔐 Role check
         if request.user.role not in ["admin", "superadmin"]:
             return Response({"error": "Permission denied"}, status=403)
 
@@ -3082,11 +3089,19 @@ class BrandingViewSet(viewsets.ViewSet):
         except User.DoesNotExist:
             return Response({"error": "Admin not found"}, status=404)
 
+        # 🔒 Admin can update only own branding
+        if request.user.role == "admin" and request.user.id != admin_user.id:
+            return Response(
+                {"error": "You can update only your own branding"},
+                status=403
+            )
+
         branding, _ = AdminBranding.objects.get_or_create(admin=admin_user)
 
+        # 🌐 Custom Domain Update (Safe)
         custom_domain = request.data.get("custom_domain")
 
-        if custom_domain:
+        if custom_domain is not None:
             custom_domain = (
                 custom_domain
                 .replace("http://", "")
@@ -3095,15 +3110,19 @@ class BrandingViewSet(viewsets.ViewSet):
                 .lower()
             )
 
-            if User.objects.filter(
-                custom_domain__iexact=custom_domain
-            ).exclude(id=admin_user.id).exists():
-                return Response(
-                    {"error": "Domain already in use"},
-                    status=400
-                )
+            if custom_domain == "":
+                admin_user.custom_domain = None
+            else:
+                if User.objects.filter(
+                    custom_domain__iexact=custom_domain
+                ).exclude(id=admin_user.id).exists():
+                    return Response(
+                        {"error": "Domain already in use"},
+                        status=400
+                    )
 
-            admin_user.custom_domain = custom_domain
+                admin_user.custom_domain = custom_domain
+
             admin_user.save(update_fields=["custom_domain"])
 
         partial = request.method in ["PATCH", "POST"]
@@ -3119,5 +3138,8 @@ class BrandingViewSet(viewsets.ViewSet):
 
         return Response({
             "message": "Branding updated successfully",
-            "data": serializer.data
+            "data": {
+                **serializer.data,
+                "custom_domain": admin_user.custom_domain,
+            }
         })
