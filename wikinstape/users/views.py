@@ -3044,7 +3044,6 @@ class BrandingViewSet(viewsets.ViewSet):
 
         user_id = request.query_params.get("user_id")
 
-        # 🔥 CASE 1: Superadmin panel se user_id diya gaya
         if user_id:
             if not request.user.is_authenticated:
                 return Response({"error": "Authentication required"}, status=401)
@@ -3057,7 +3056,6 @@ class BrandingViewSet(viewsets.ViewSet):
             except User.DoesNotExist:
                 return Response({"error": "Admin not found"}, status=404)
 
-        # 🔥 CASE 2: Tenant domain based access
         else:
             admin = getattr(request, "admin_user", None)
 
