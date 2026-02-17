@@ -3041,53 +3041,34 @@ class BrandingViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
     def list(self, request):
+        admin = getattr(request, "admin_user", None)
 
-        user_id = request.query_params.get("user_id")
-
-        # 🔥 CASE 1: Superadmin panel se user_id diya gaya
-        if user_id:
-            if not request.user.is_authenticated:
-                return Response({"error": "Authentication required"}, status=401)
-
-            if request.user.role != "superadmin":
-                return Response({"error": "Permission denied"}, status=403)
-
-            try:
-                admin = User.objects.get(id=user_id, role="admin")
-            except User.DoesNotExist:
-                return Response({"error": "Admin not found"}, status=404)
-
-        # 🔥 CASE 2: Tenant domain based access
-        else:
-            admin = getattr(request, "admin_user", None)
-
-            if not admin:
-                return Response({"error": "Invalid domain"}, status=404)
+        # HARD BLOCK
+        if not admin:
+            return Response(
+                {"error": "Invalid domain"},
+                status=404
+            )
 
         branding = AdminBranding.objects.filter(admin=admin).first()
 
         if not branding:
-            return Response({"error": "Branding not found"}, status=404)
+            return Response(
+                {"error": "Branding not found"},
+                status=404
+            )
 
         serializer = AdminBrandingSerializer(
             branding,
             context={"request": request}
         )
 
-        return Response({
-            **serializer.data,
-            "custom_domain": admin.custom_domain,
-            "subdomain": admin.subdomain,
-            "admin_id": admin.id,
-        })
+        return Response(serializer.data)
 
 
-
-
-    @action(detail=False, methods=['post', 'put', 'patch'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def update_branding(self, request):
 
-        # 🔐 Role check
         if request.user.role not in ["admin", "superadmin"]:
             return Response({"error": "Permission denied"}, status=403)
 
@@ -3101,19 +3082,11 @@ class BrandingViewSet(viewsets.ViewSet):
         except User.DoesNotExist:
             return Response({"error": "Admin not found"}, status=404)
 
-        # 🔒 Admin can update only own branding
-        if request.user.role == "admin" and request.user.id != admin_user.id:
-            return Response(
-                {"error": "You can update only your own branding"},
-                status=403
-            )
-
         branding, _ = AdminBranding.objects.get_or_create(admin=admin_user)
 
-        # 🌐 Custom Domain Update (Safe)
         custom_domain = request.data.get("custom_domain")
 
-        if custom_domain is not None:
+        if custom_domain:
             custom_domain = (
                 custom_domain
                 .replace("http://", "")
@@ -3122,27 +3095,21 @@ class BrandingViewSet(viewsets.ViewSet):
                 .lower()
             )
 
-            if custom_domain == "":
-                admin_user.custom_domain = None
-            else:
-                if User.objects.filter(
-                    custom_domain__iexact=custom_domain
-                ).exclude(id=admin_user.id).exists():
-                    return Response(
-                        {"error": "Domain already in use"},
-                        status=400
-                    )
+            if User.objects.filter(
+                custom_domain__iexact=custom_domain
+            ).exclude(id=admin_user.id).exists():
+                return Response(
+                    {"error": "Domain already in use"},
+                    status=400
+                )
 
-                admin_user.custom_domain = custom_domain
-
+            admin_user.custom_domain = custom_domain
             admin_user.save(update_fields=["custom_domain"])
-
-        partial = request.method in ["PATCH", "POST"]
 
         serializer = AdminBrandingSerializer(
             branding,
             data=request.data,
-            partial=partial
+            partial=True
         )
 
         serializer.is_valid(raise_exception=True)
@@ -3150,8 +3117,5 @@ class BrandingViewSet(viewsets.ViewSet):
 
         return Response({
             "message": "Branding updated successfully",
-            "data": {
-                **serializer.data,
-                "custom_domain": admin_user.custom_domain,
-            }
+            "data": serializer.data
         })
