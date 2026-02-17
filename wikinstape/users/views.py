@@ -3072,7 +3072,7 @@ class BrandingViewSet(viewsets.ViewSet):
 
 
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post', 'put', 'patch'], permission_classes=[IsAuthenticated])
     def update_branding(self, request):
 
         # 🔐 Role check
@@ -3125,11 +3125,12 @@ class BrandingViewSet(viewsets.ViewSet):
 
             admin_user.save(update_fields=["custom_domain"])
 
-        # 🎨 Branding Fields Update (ALL MODEL FIELDS)
+        partial = request.method in ["PATCH", "POST"]
+
         serializer = AdminBrandingSerializer(
             branding,
             data=request.data,
-            partial=True
+            partial=partial
         )
 
         serializer.is_valid(raise_exception=True)
