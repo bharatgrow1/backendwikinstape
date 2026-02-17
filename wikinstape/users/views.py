@@ -3066,7 +3066,7 @@ class BrandingViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post', 'put', 'patch'], permission_classes=[IsAuthenticated])
     def update_branding(self, request):
 
         if request.user.role not in ["admin", "superadmin"]:
@@ -3106,10 +3106,12 @@ class BrandingViewSet(viewsets.ViewSet):
             admin_user.custom_domain = custom_domain
             admin_user.save(update_fields=["custom_domain"])
 
+        partial = request.method in ["PATCH", "POST"]
+
         serializer = AdminBrandingSerializer(
             branding,
             data=request.data,
-            partial=True
+            partial=partial
         )
 
         serializer.is_valid(raise_exception=True)
