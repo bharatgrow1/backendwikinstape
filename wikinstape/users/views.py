@@ -261,7 +261,6 @@ class UserBankViewSet(viewsets.ModelViewSet):
 
         return UserBank.objects.filter(user=user)
 
-
     def perform_create(self, serializer):
         request_user = self.request.user
         target_user = serializer.validated_data.get("user")
@@ -274,27 +273,35 @@ class UserBankViewSet(viewsets.ModelViewSet):
             serializer.save()
             return
 
-        def is_downline(parent, child):
-            current = child
-            while current.parent_user:
-                if current.parent_user == parent:
-                    return True
-                current = current.parent_user
-            return False
-
-        if target_user == request_user or is_downline(request_user, target_user):
+        if request_user.role == "retailer":
+            if target_user != request_user:
+                raise PermissionDenied(
+                    "You are not allowed to add bank for another user"
+                )
             serializer.save()
             return
 
-        if not target_user.pk:
+        if request_user.role in ["admin", "master", "dealer"]:
+
+            def is_in_downline(parent, child):
+                current = child.parent_user
+                while current:
+                    if current == parent:
+                        return True
+                    current = current.parent_user
+                return False
+
+            if target_user != request_user and not is_in_downline(request_user, target_user):
+                raise PermissionDenied(
+                    "You can add bank only for your downline users"
+                )
+
             serializer.save()
             return
 
-        raise PermissionDenied(
-            "You can only add bank accounts for yourself or your downline users"
-        )
-
-
+        raise PermissionDenied("You are not allowed to perform this action")
+    
+    
     @action(detail=False, methods=['get'])
     def admin_banks(self, request):
         user = request.user
