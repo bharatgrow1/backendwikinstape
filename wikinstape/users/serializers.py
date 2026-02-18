@@ -581,6 +581,10 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserBankSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        required=False
+    )
     username = serializers.CharField(source="user.username", read_only=True)
     user_role = serializers.CharField(source="user.role", read_only=True)
     role_uid = serializers.CharField(source="user.role_uid", read_only=True)
@@ -620,6 +624,7 @@ class UserBankSerializer(serializers.ModelSerializer):
         model = UserBank
         fields = [
             "id",
+            "user",
             "bank_name",
             "account_number",
             "ifsc_code",
