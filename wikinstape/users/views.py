@@ -263,11 +263,6 @@ class UserBankViewSet(viewsets.ModelViewSet):
 
 
     def perform_create(self, serializer):
-        """
-        RULES:
-        - Retailer → sirf apna bank
-        - Admin/Master/Dealer → apna + downline
-        """
         request_user = self.request.user
         target_user = serializer.validated_data.get("user")
 
@@ -275,20 +270,29 @@ class UserBankViewSet(viewsets.ModelViewSet):
             serializer.save(user=request_user)
             return
 
-        if request_user.role == "retailer" and target_user != request_user:
-            raise PermissionDenied(
-                "You are not allowed to add bank for another user"
-            )
+        if request_user.role == "superadmin":
+            serializer.save()
+            return
 
-        if request_user.role in ["admin", "master", "dealer"]:
-            is_downline = (target_user.parent_user == request_user)
+        def is_downline(parent, child):
+            current = child
+            while current.parent_user:
+                if current.parent_user == parent:
+                    return True
+                current = current.parent_user
+            return False
 
-            if target_user != request_user and not is_downline:
-                raise PermissionDenied(
-                    "You can add bank only for your downline users"
-                )
+        if target_user == request_user or is_downline(request_user, target_user):
+            serializer.save()
+            return
 
-        serializer.save()
+        if not target_user.pk:
+            serializer.save()
+            return
+
+        raise PermissionDenied(
+            "You can only add bank accounts for yourself or your downline users"
+        )
 
 
     @action(detail=False, methods=['get'])
@@ -3044,7 +3048,6 @@ class BrandingViewSet(viewsets.ViewSet):
 
         user_id = request.query_params.get("user_id")
 
-        # 🔥 CASE 1: Superadmin panel se user_id diya gaya
         if user_id:
             if not request.user.is_authenticated:
                 return Response({"error": "Authentication required"}, status=401)
@@ -3057,7 +3060,6 @@ class BrandingViewSet(viewsets.ViewSet):
             except User.DoesNotExist:
                 return Response({"error": "Admin not found"}, status=404)
 
-        # 🔥 CASE 2: Tenant domain based access
         else:
             admin = getattr(request, "admin_user", None)
 
