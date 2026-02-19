@@ -21,7 +21,6 @@ urlpatterns = [
     path('apis/bbps/', include('bbps.urls')),
     path('apis/vendorpayment/', include('vendorpayment.urls')),
     path('apis/commission/', include('commission.urls')), 
-    path('apis/creditlinks/', include('creditlinks.urls')),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

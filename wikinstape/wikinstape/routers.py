@@ -13,7 +13,7 @@ from services.views_permissions import ServicePermissionViewSet
 from vendorpayment.views import VendorPaymentViewSet
 from vendorpayment.views_vendor import VendorManagerViewSet
 from aeps.views import AEPSMerchantViewSet
-
+from creditlinks.views import CreditLinksViewSet
 from cms.views import CMSViewSet
 
 router = DefaultRouter()
@@ -75,3 +75,6 @@ router.register(r'merchants', AEPSMerchantViewSet, basename='aeps-merchant')
 
 router.register(r"cms", CMSViewSet, basename="cms")
 router.register(r'branding', BrandingViewSet, basename='branding')
+
+
+router.register(r'creditlinks', CreditLinksViewSet, basename='creditlinks')
