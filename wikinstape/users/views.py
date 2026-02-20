@@ -406,6 +406,25 @@ class AuthViewSet(viewsets.ViewSet):
         send_otp_email(user.email, otp)
 
         return Response({'message': 'OTP sent to your email'})
+    
+
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def logout(self, request):
+        try:
+            refresh_token = request.data.get("refresh")
+
+            if refresh_token:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+
+            request.user.active_session_key = None
+            request.user.save(update_fields=["active_session_key"])
+
+            return Response({"message": "Logged out successfully"})
+
+        except Exception:
+            return Response({"error": "Invalid token"}, status=400)
 
 
     @action(detail=False, methods=['post'])
@@ -442,7 +461,26 @@ class AuthViewSet(viewsets.ViewSet):
 
         wallet, _ = Wallet.objects.get_or_create(user=user)
 
+        import secrets
+
+        session_key = secrets.token_hex(16)
+
+        request_ip = request.META.get("REMOTE_ADDR")
+        user_agent = request.META.get("HTTP_USER_AGENT")
+
+        user.active_session_key = session_key
+        user.last_login_ip = request_ip
+        user.last_user_agent = user_agent
+        user.save(update_fields=[
+            "active_session_key",
+            "last_login_ip",
+            "last_user_agent"
+        ])
+
         refresh = RefreshToken.for_user(user)
+        refresh["session_key"] = session_key
+        refresh["ip"] = request_ip
+        refresh["agent"] = user_agent
 
         needs_pin_setup = not wallet.is_pin_set
 
@@ -668,7 +706,26 @@ class AuthViewSet(viewsets.ViewSet):
 
         wallet, _ = Wallet.objects.get_or_create(user=user)
 
+        import secrets
+
+        session_key = secrets.token_hex(16)
+
+        request_ip = request.META.get("REMOTE_ADDR")
+        user_agent = request.META.get("HTTP_USER_AGENT")
+
+        user.active_session_key = session_key
+        user.last_login_ip = request_ip
+        user.last_user_agent = user_agent
+        user.save(update_fields=[
+            "active_session_key",
+            "last_login_ip",
+            "last_user_agent"
+        ])
+
         refresh = RefreshToken.for_user(user)
+        refresh["session_key"] = session_key
+        refresh["ip"] = request_ip
+        refresh["agent"] = user_agent
 
         return Response({
             "access": str(refresh.access_token),
@@ -857,7 +914,26 @@ class AuthViewSet(viewsets.ViewSet):
 
         otp_obj.delete()
 
+        import secrets
+
+        session_key = secrets.token_hex(16)
+
+        request_ip = request.META.get("REMOTE_ADDR")
+        user_agent = request.META.get("HTTP_USER_AGENT")
+
+        user.active_session_key = session_key
+        user.last_login_ip = request_ip
+        user.last_user_agent = user_agent
+        user.save(update_fields=[
+            "active_session_key",
+            "last_login_ip",
+            "last_user_agent"
+        ])
+
         refresh = RefreshToken.for_user(user)
+        refresh["session_key"] = session_key
+        refresh["ip"] = request_ip
+        refresh["agent"] = user_agent
 
         wallet, _ = Wallet.objects.get_or_create(user=user)
 

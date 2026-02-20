@@ -150,6 +150,10 @@ class User(AbstractUser):
     store_photo = models.CharField(max_length=500, blank=True, null=True)
     other_documents = models.CharField(max_length=500, blank=True, null=True)
 
+    active_session_key = models.CharField(max_length=255, null=True, blank=True)
+    last_login_ip = models.GenericIPAddressField(null=True, blank=True)
+    last_user_agent = models.TextField(null=True, blank=True)
+
     def __str__(self):
         return f"{self.username} ({self.role})"
         
