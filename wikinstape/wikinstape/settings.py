@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'aeps',
     'cms',
     'creditlinks',
+    'rest_framework_simplejwt.token_blacklist',
 ]
 
 
@@ -135,7 +136,8 @@ DEFAULT_FROM_EMAIL = "EinsPay provigo171@gmail.com"
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # 'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'users.authentication.CustomJWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
