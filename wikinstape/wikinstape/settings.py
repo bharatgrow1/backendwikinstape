@@ -209,3 +209,6 @@ GOOGLE_CLIENT_ID = "922448588004-avo3qutef79mnj56lhtfgbqja5agljms.apps.googleuse
 
 CREDIT_LINKS_API_KEY = os.getenv("CREDIT_LINKS_API_KEY")
 CREDIT_LINKS_BASE_URL = os.getenv("CREDIT_LINKS_BASE_URL")
+
+
+CREDIT_WEBHOOK_SECRET = "creaditlink_secret_key"

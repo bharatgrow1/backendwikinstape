@@ -7,10 +7,6 @@ BASE_URL = settings.CREDIT_LINKS_BASE_URL
 API_KEY = settings.CREDIT_LINKS_API_KEY
 
 
-# =========================
-# COMMON HELPERS
-# =========================
-
 def headers():
     return {
         "apikey": API_KEY,
@@ -65,10 +61,6 @@ def handle_response(response):
     }
 
 
-# =========================
-# DEDUPE API
-# =========================
-
 def dedupe_api(mobile):
 
     if not mobile:
@@ -88,10 +80,6 @@ def dedupe_api(mobile):
 
     return handle_response(response)
 
-
-# =========================
-# CREATE PERSONAL LOAN
-# =========================
 
 def create_personal_loan(data):
 
@@ -172,10 +160,6 @@ def create_personal_loan(data):
     return handle_response(response)
 
 
-# =========================
-# UPDATE LEAD
-# =========================
-
 def update_lead(lead_id, data):
 
     if not lead_id:
@@ -196,9 +180,6 @@ def update_lead(lead_id, data):
     return handle_response(response)
 
 
-# =========================
-# GET OFFERS
-# =========================
 
 def get_offers(lead_id):
 
@@ -219,9 +200,6 @@ def get_offers(lead_id):
     return handle_response(response)
 
 
-# =========================
-# GET SUMMARY
-# =========================
 
 def get_summary(lead_id):
 
@@ -241,10 +219,6 @@ def get_summary(lead_id):
 
     return handle_response(response)
 
-
-# =========================
-# GOLD LOAN
-# =========================
 
 def create_gold_loan(data):
 
@@ -294,10 +268,6 @@ def gold_status(lead_id):
 
     return handle_response(response)
 
-
-# =========================
-# HOUSING LOAN
-# =========================
 
 def create_housing_loan(data):
 

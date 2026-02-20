@@ -64,7 +64,7 @@ class EkoCreditService:
                 headers=headers,
                 params=params,
                 timeout=self.timeout,
-                verify=False
+                verify=True
             )
 
             logger.info(f"CreditLink Request URL: {response.url}")

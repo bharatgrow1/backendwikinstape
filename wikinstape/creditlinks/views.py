@@ -1,18 +1,19 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from . import creditlinks_api as services
-from rest_framework.viewsets import ViewSet
+from rest_framework import viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from users.models import Wallet 
-from .models import CreditLinkTransaction
+from decimal import Decimal
+from django.conf import settings
+from django.db import transaction
+
+from . import creditlinks_api as services
+from .models import CreditLinkTransaction, Loan
 from .serializers import CreditLinkResponseSerializer, CreditApplySerializer
 from .services.manager import credit_manager
+from users.models import Wallet
 
 
-class CreditLinkViewSet(ViewSet):
+class CreditLinkViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
@@ -43,99 +44,153 @@ class CreditLinkViewSet(ViewSet):
 
     @action(detail=False, methods=['get'])
     def history(self, request):
-
         transactions = CreditLinkTransaction.objects.filter(user=request.user)
         serializer = CreditLinkResponseSerializer(transactions, many=True)
-
-        return Response({
-            "success": True,
-            "transactions": serializer.data
-        })
-
+        return Response({"success": True, "transactions": serializer.data})
 
 
 
 @api_view(["POST"])
 def credit_webhook(request):
 
-    data = request.data
+    secret = request.headers.get("X-WEBHOOK-SECRET")
+    if secret != settings.CREDIT_WEBHOOK_SECRET:
+        return Response({"error": "Unauthorized"}, status=403)
 
-    transaction_id = data.get("transaction_id")
-    status = data.get("status")
+    data = request.data
+    lead_id = data.get("lead_id")
+    status_value = data.get("status")
     commission = data.get("commission_amount", 0)
-    bank_ref = data.get("bank_reference_id")
 
     try:
-        txn = CreditLinkTransaction.objects.get(transaction_id=transaction_id)
+        with transaction.atomic():
 
-        txn.status = status.lower()
-        txn.commission_amount = commission
-        txn.bank_reference_id = bank_ref
-        txn.save()
+            loan = Loan.objects.select_for_update().get(lead_id=lead_id)
 
-        if status.lower() == "approved" and commission:
+            if loan.status == "approved" and loan.commission:
+                return Response({"success": True, "message": "Already processed"})
 
-            wallet = Wallet.objects.get(user=txn.user)
-            wallet.balance += float(commission)
-            wallet.save()
+            loan.status = status_value.lower()
+            loan.commission = Decimal(str(commission or 0))
+            loan.external_response = data
+            loan.save()
+
+            if status_value.lower() == "approved" and commission:
+                wallet = Wallet.objects.select_for_update().get(user=loan.user)
+                wallet.balance += Decimal(str(commission))
+                wallet.save(update_fields=["balance"])
 
         return Response({"success": True})
 
-    except CreditLinkTransaction.DoesNotExist:
-        return Response({"error": "Transaction not found"}, status=404)
-    
-
-
+    except Loan.DoesNotExist:
+        return Response({"error": "Loan not found"}, status=404)
 
 
 class CreditLinksViewSet(viewsets.ViewSet):
 
+    permission_classes = [IsAuthenticated]
+
     @action(detail=False, methods=["post"])
     def dedupe(self, request):
-        result = services.dedupe_api(request.data["mobile"])
+        result = services.dedupe_api(request.data.get("mobile"))
         return Response(result["data"], status=result["status_code"])
 
 
     @action(detail=False, methods=["post"])
     def personal_create(self, request):
+
         result = services.create_personal_loan(request.data)
-        return Response(result["data"], status=result["status_code"])
 
+        if result["status_code"] == 200 and result["data"].get("leadId"):
 
-    @action(detail=False, methods=["post"])
-    def personal_update(self, request):
-        result = services.update_lead(
-            request.data["lead_id"],
-            request.data
-        )
+            Loan.objects.get_or_create(
+                lead_id=result["data"].get("leadId"),
+                defaults={
+                    "user": request.user,
+                    "loan_type": "personal",
+                    "mobile": request.data.get("mobile"),
+                    "first_name": request.data.get("first_name"),
+                    "last_name": request.data.get("last_name"),
+                    "status": "created",
+                    "external_response": result["data"]
+                }
+            )
+
         return Response(result["data"], status=result["status_code"])
 
 
     @action(detail=False, methods=["post"])
     def personal_offers(self, request):
-        result = services.get_offers(request.data["lead_id"])
-        return Response(result["data"], status=result["status_code"])
-
-
-    @action(detail=False, methods=["post"])
-    def personal_summary(self, request):
-        result = services.get_summary(request.data["lead_id"])
+        result = services.get_offers(request.data.get("lead_id"))
         return Response(result["data"], status=result["status_code"])
 
 
     @action(detail=False, methods=["post"])
     def gold_create(self, request):
+
         result = services.create_gold_loan(request.data)
+
+        if result["status_code"] == 200 and result["data"].get("leadId"):
+
+            Loan.objects.get_or_create(
+                lead_id=result["data"].get("leadId"),
+                defaults={
+                    "user": request.user,
+                    "loan_type": "gold",
+                    "mobile": request.data.get("mobile"),
+                    "first_name": request.data.get("first_name"),
+                    "last_name": request.data.get("last_name"),
+                    "status": "created",
+                    "external_response": result["data"]
+                }
+            )
+
         return Response(result["data"], status=result["status_code"])
 
 
     @action(detail=False, methods=["post"])
     def gold_status(self, request):
-        result = services.gold_status(request.data["lead_id"])
+        result = services.gold_status(request.data.get("lead_id"))
         return Response(result["data"], status=result["status_code"])
 
 
     @action(detail=False, methods=["post"])
     def housing_create(self, request):
+
         result = services.create_housing_loan(request.data)
+
+        if result["status_code"] == 200 and result["data"].get("leadId"):
+
+            Loan.objects.get_or_create(
+                lead_id=result["data"].get("leadId"),
+                defaults={
+                    "user": request.user,
+                    "loan_type": "housing",
+                    "mobile": request.data.get("mobile"),
+                    "first_name": request.data.get("first_name"),
+                    "last_name": request.data.get("last_name"),
+                    "status": "created",
+                    "external_response": result["data"]
+                }
+            )
+
         return Response(result["data"], status=result["status_code"])
+
+
+    @action(detail=False, methods=["get"])
+    def my_loans(self, request):
+
+        loans = Loan.objects.filter(user=request.user).order_by("-created_at")
+
+        data = []
+        for loan in loans:
+            data.append({
+                "loan_type": loan.loan_type,
+                "mobile": loan.mobile,
+                "lead_id": loan.lead_id,
+                "status": loan.status,
+                "commission": loan.commission,
+                "created_at": loan.created_at
+            })
+
+        return Response(data)
