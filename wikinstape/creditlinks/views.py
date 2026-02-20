@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from . import services
+from . import creditlinks_api as services
 from rest_framework.viewsets import ViewSet
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
