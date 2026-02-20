@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from .models import PersonalLoan
-from .models import CreditLinkTransaction
+from .models import CreditLinkTransaction, Loan
+
 
 
 class CreditApplySerializer(serializers.Serializer):
@@ -10,6 +10,7 @@ class CreditApplySerializer(serializers.Serializer):
     city = serializers.CharField(required=False, allow_blank=True)
 
 
+
 class CreditLinkResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreditLinkTransaction
@@ -17,7 +18,7 @@ class CreditLinkResponseSerializer(serializers.ModelSerializer):
 
 
 
-class PersonalLoanSerializer(serializers.ModelSerializer):
+class LoanSerializer(serializers.ModelSerializer):
     class Meta:
-        model = PersonalLoan
+        model = Loan
         fields = "__all__"
