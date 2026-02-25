@@ -80,10 +80,24 @@ class PermissionViewSet(viewsets.ViewSet):
     """Manage permissions - Super Admin and Master only"""
     permission_classes = [IsAuthenticated]
 
+    # def get_permissions(self):
+    #     if self.action in ['all_permissions', 'model_permissions', 'user_permissions', 'role_permissions']:
+    #         return [IsAdminUser()]
+    #     return [IsSuperAdmin()]
+
+
     def get_permissions(self):
-        if self.action in ['all_permissions', 'model_permissions', 'user_permissions', 'role_permissions']:
+        if self.action in [
+            'all_permissions',
+            'model_permissions',
+            'user_permissions',
+            'role_permissions',
+            'assign_user_permissions'
+        ]:
             return [IsAdminUser()]
         return [IsSuperAdmin()]
+    
+    
 
     def list(self, request):
         """Default list view"""
